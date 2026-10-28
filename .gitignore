@@ -1,0 +1,14 @@
+# Dépendances
+node_modules/
+
+# État runtime du harness : contient le jeton d'accès au daemon, ne jamais versionner
+.runtime/
+.runtime-test/
+.runtime-lock-test/
+
+# Déclaration MCP locale : chemins absolus propres à chaque machine,
+# régénérée par `npm run setup` dans spike/
+.mcp.json
+
+# Système
+.DS_Store
