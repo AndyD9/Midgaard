@@ -137,24 +137,19 @@ export function minimalEnv(
 
   // Windows : `PSModulePath` est **imposée**, et réduite aux modules du système.
   //
-  // Elle ne peut pas être simplement omise. PowerShell parcourt cette liste dès
-  // la **première applet** rencontrée, pour la découverte automatique de
-  // modules ; sans elle, il ne répond plus du tout. Mesuré sur un runner, même
-  // script, seul l'environnement changeant : sans `PSModulePath`, tué au bout
-  // de 15 s ; avec, il répond. C'est ce qui faisait expirer les six cas de
-  // conformité DPAPI — `Test-Path`, `New-Item`, `Remove-Item` sont des applets,
-  // alors que les deux scripts qui passaient n'en employaient aucune.
+  // La raison est de **sécurité**, et elle seule : un module déposé dans un des
+  // dossiers de la liste héritée peut masquer une applet, et celles employées
+  // ici manipulent des clés d'API en clair. Pointer vers le seul dossier du
+  // système ferme cette porte — c'est la même raison qui fait reconstruire tout
+  // cet environnement.
   //
-  // Elle n'est pas non plus reprise telle quelle, pour deux raisons :
-  //
-  //  - **vitesse** : sur le même runner, la valeur héritée pointe vers des
-  //    centaines de modules (Azure, SQL Server) et le premier appel coûte 11 à
-  //    15 s — au-delà de {@link EXEC_TIMEOUT_MS}. Réduite aux modules système,
-  //    il n'y a rien à parcourir ;
-  //  - **sécurité** : un module déposé dans un dossier de la liste héritée peut
-  //    **masquer une applet**. Celles d'ici manipulent des clés d'API en clair.
-  //    Pointer vers le seul dossier du système ferme cette porte, et c'est la
-  //    même raison qui fait reconstruire tout cet environnement.
+  // ⚠️ Ce n'est **pas** le correctif d'un défaut connu, et une version
+  // précédente de ce commentaire l'affirmait à tort. Sur un runner Windows,
+  // PowerShell met 11 à 15 s à répondre dès qu'une applet est appelée avec cet
+  // environnement réduit, contre moins d'une seconde avec l'environnement
+  // complet — et imposer `PSModulePath` n'y change rien, mesuré. Il manque donc
+  // autre chose à cette liste ; la cause reste ouverte, et le coffre DPAPI
+  // n'est pas constaté tant qu'elle l'est.
   if (platform === 'win32' && env.SystemRoot) {
     env.PSModulePath = join(env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'Modules')
   }

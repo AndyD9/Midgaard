@@ -281,11 +281,10 @@ describe('minimalEnv', () => {
   })
 
   it('impose PSModulePath sous Windows, réduite aux modules du système', () => {
-    // Deux raisons, mesurées sur un runner : sans cette variable, PowerShell ne
-    // répond plus du tout dès la première applet ; avec celle de la machine, il
-    // parcourt des centaines de modules et dépasse le délai. Et un module
-    // déposé dans un de ces dossiers pourrait masquer une applet qui manipule
-    // des clés en clair.
+    // Raison de sécurité : un module déposé dans un des dossiers de la liste
+    // héritée peut masquer une applet, et celles du coffre manipulent des clés
+    // en clair. Ce n'est pas le correctif d'une panne — une première lecture du
+    // relevé de CI l'avait cru, la mesure suivante l'a démenti.
     const env = minimalEnv('win32', complet)
     assert.equal(env.PSModulePath, join('C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'Modules'))
     assert.doesNotMatch(env.PSModulePath!, /az|Documents/, 'les modules de la machine ne doivent plus y être')
