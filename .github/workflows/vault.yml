@@ -50,6 +50,49 @@ jobs:
       - uses: actions/setup-node@v5
         with: { node-version: '24', cache: npm }
       - run: npm ci
+      # DIAGNOSTIC TEMPORAIRE — à retirer une fois la cause établie.
+      #
+      # DPAPI expire à 10 s sur les six cas de conformité, y compris un `get`
+      # sur une référence absente qui n'écrit rien. Un script SANS préambule
+      # (la sonde de disponibilité) répond pourtant en moins de 200 ms. Deux
+      # hypothèses ont déjà été démenties par les faits : l'invite de
+      # `Join-Path` (le script n'en contient plus) et l'entrée standard laissée
+      # ouverte (elle est fermée dans tous les cas). On relève donc ce qui se
+      # passe réellement sur la machine, au lieu d'essayer une troisième fois.
+      - name: Relever ce que reçoit PowerShell
+        shell: bash
+        continue-on-error: true
+        run: |
+          cat > diag.mjs <<'JS'
+          import { execFile } from 'node:child_process'
+          const keep = ['PATH','Path','HOME','USERPROFILE','LOCALAPPDATA','APPDATA','SystemRoot','TEMP','TMP','DBUS_SESSION_BUS_ADDRESS','XDG_RUNTIME_DIR']
+          const base = { LC_ALL: 'C' }
+          for (const k of keep) if (process.env[k] !== undefined) base[k] = process.env[k]
+          const env = { ...base, MIDGAARD_SECRET_DIR: 'C:\\tmp\\mg', MIDGAARD_SECRET_PATH: 'C:\\tmp\\mg\\essai.dpapi' }
+          console.log('LOCALAPPDATA vu par Node :', JSON.stringify(process.env.LOCALAPPDATA))
+          console.log('clés transmises :', Object.keys(env).join(', '))
+          const PRE = "$ErrorActionPreference = 'Stop'\n$dir = $env:MIDGAARD_SECRET_DIR\n$p = $env:MIDGAARD_SECRET_PATH"
+          const cas = {
+            'A sans préambule': '[Console]::Out.Write("ok")',
+            'B préambule seul': PRE + '\n[Console]::Out.Write("dir=[$dir] p=[$p]")',
+            'C préambule + Test-Path': PRE + '\nif (-not (Test-Path -LiteralPath $p)) { [Console]::Out.Write("absent"); exit 44 }',
+          }
+          for (const [nom, script] of Object.entries(cas)) {
+            const t0 = Date.now()
+            await new Promise((res) => {
+              execFile('powershell.exe',
+                ['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand', Buffer.from(script,'utf16le').toString('base64')],
+                { timeout: 20000, env, windowsHide: true },
+                (e, out, err) => {
+                  console.log(`${nom.padEnd(26)} ${String(Date.now()-t0).padStart(6)} ms  code=${e?.code ?? 0} tué=${Boolean(e?.killed)}`)
+                  console.log(`   stdout: ${JSON.stringify(String(out).slice(0,300))}`)
+                  console.log(`   stderr: ${JSON.stringify(String(err).slice(0,300))}`)
+                  res()
+                }).stdin?.end('')
+            })
+          }
+          JS
+          node diag.mjs
       - run: npm run test:vault
         env:
           MIDGAARD_REQUIRE_VAULT: windows-dpapi

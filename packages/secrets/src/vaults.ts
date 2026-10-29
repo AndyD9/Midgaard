@@ -299,7 +299,18 @@ export const libsecret: SecretVault = {
   async delete(ref) {
     const account = normalizeRef(ref)
     const out = await run('secret-tool', ['clear', 'service', SERVICE, 'account', account])
-    if (out.code !== 0) throw new VaultError('libsecret', out.stderr.trim() || `code ${out.code}`)
+    // Supprimer ce qui n'est pas là n'est pas une erreur : c'est le contrat de
+    // `SecretVault`, que le trousseau macOS tient (code 44 toléré) et que le
+    // repli fichier tient (`rmSync` avec `force`). libsecret ne le tenait pas —
+    // `secret-tool clear` sort en 1 sur un secret absent, et on levait.
+    // Constaté sur un vrai trousseau Linux en intégration continue, nulle part
+    // ailleurs : c'est exactement ce qu'une batterie de conformité est là pour
+    // prendre, un coffre qui s'écarte du contrat sur une seule plateforme.
+    //
+    // Même critère que la sonde de disponibilité, pour la même raison : une
+    // absence est muette, une panne parle.
+    if (out.code === 0 || (out.code === 1 && out.stderr.trim() === '')) return
+    throw new VaultError('libsecret', out.stderr.trim() || `code ${out.code}`)
   },
 }
 
