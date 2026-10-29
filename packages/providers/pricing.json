@@ -1,6 +1,6 @@
 {
-  "$comment": "Tarifs des modèles, en dollars par MILLION de jetons. Ce fichier est la copie LIVRÉE ; ~/.midgaard/pricing.json est la vôtre, et elle a priorité. Clé : <preset>:<modèle>, en minuscules. Une entrée absente n'est PAS une erreur : le harness affiche alors « tarif inconnu » plutôt qu'un montant inventé, et jamais 0 $. Chez Venice, le coût affiché vient de toute façon de l'objet `cost` renvoyé à chaque réponse — cette table sert alors d'estimation témoin, dont l'écart révèle une dérive. Régénérer : npm run harness -- pricing refresh venice",
-  "updated_at": "2026-10-29T06:01:25.231Z",
+  "$comment": "Tarifs des modèles, en dollars par MILLION de jetons. Ce fichier est la copie LIVRÉE ; ~/.midgaard/pricing.json est la vôtre, et elle a priorité. Clé : <preset>:<modèle>, en minuscules. Une entrée absente n'est PAS une erreur : le harness affiche alors « tarif inconnu » plutôt qu'un montant inventé, et jamais 0 $. Chez Venice, le coût affiché vient de toute façon de l'objet cost renvoyé à chaque réponse — cette table sert alors d'estimation témoin, dont l'écart révèle une dérive. Régénérer : npm run harness -- pricing refresh venice",
+  "updated_at": "2026-10-29T06:02:29.783Z",
   "source": "https://api.venice.ai/api/v1/models?type=text — relevé automatique (endpoint public). OpenAI et Gemini volontairement absents, faute de relevé vérifié : le harness affiche alors « tarif inconnu », jamais 0 $.",
   "entries": {
     "venice:abliteration-abliterated-model-large-flash": {
@@ -681,7 +681,7 @@
       "cached_input_usd_per_mtok": null,
       "web_search_usd_per_call": 0.01
     },
-    "venice:deepseek-v4-flash-0731": {
+    "venice:qwen3-235b-a22b-instruct-2507": {
       "input_usd_per_mtok": 0.15,
       "output_usd_per_mtok": 0.75,
       "cached_input_usd_per_mtok": null,

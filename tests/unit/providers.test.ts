@@ -14,11 +14,12 @@
  *  - un modèle sans tarif connu, qui ne doit **pas** afficher zéro.
  */
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { after, before, describe, it } from 'node:test'
 import type { PricingTable } from '@midgaard/contracts'
-import { addUsage, emptyUsage } from '@midgaard/contracts'
-import { createGeminiAdapter, createOpenAiAdapter, priceFor } from '@midgaard/providers'
+import { addUsage, emptyUsage, pricingTableSchema } from '@midgaard/contracts'
+import { createGeminiAdapter, createOpenAiAdapter, packagedPricingPath, priceFor } from '@midgaard/providers'
 
 /** Dernière requête reçue, pour vérifier ce qu'on envoie et pas seulement ce qu'on lit. */
 let lastRequest: { path: string; body: Record<string, unknown>; auth: string | undefined }
@@ -338,5 +339,39 @@ describe('test de connexion', () => {
     const test = await openai.testConnection()
     assert.equal(test.ok, true)
     assert.equal(lastRequest.path.split('?')[0], '/models', 'dernier appel : /models, pas la sonde Venice')
+  })
+})
+
+describe('table de tarifs livrée', () => {
+  it('se charge, et ne contient aucune clé en double', () => {
+    // Un doublon de clé JSON ne lève pas : le dernier gagne, en silence. Un
+    // remplacement global maladroit dans ce fichier a déjà fait porter à un
+    // modèle les tarifs d'un autre, sans que rien ne le signale. On compare
+    // donc le nombre de clés dans le **texte** à celui après analyse.
+    const raw = readFileSync(packagedPricingPath(), 'utf8')
+    const parsed = pricingTableSchema.safeParse(JSON.parse(raw))
+    assert.ok(parsed.success, 'la table livrée doit respecter son propre schéma')
+
+    const inText = (raw.match(/^\s*"[a-z]+:[^"]+":\s*\{/gm) ?? []).length
+    const afterParse = Object.keys(parsed.data!.entries).length
+    assert.equal(inText, afterParse, `${inText - afterParse} clé(s) en double dans pricing.json`)
+    assert.ok(afterParse > 50, 'la table livrée doit couvrir le catalogue, pas quelques entrées')
+  })
+
+  it('ne tarife que des modèles, et à des prix plausibles', () => {
+    const table = pricingTableSchema.parse(JSON.parse(readFileSync(packagedPricingPath(), 'utf8')))
+    for (const [key, price] of Object.entries(table.entries)) {
+      assert.match(key, /^[a-z]+:[a-z0-9]/, `clé mal formée : ${key}`)
+      assert.ok(price.input_usd_per_mtok > 0 && price.input_usd_per_mtok < 1000, key)
+      assert.ok(price.output_usd_per_mtok > 0 && price.output_usd_per_mtok < 1000, key)
+    }
+  })
+
+  it('n\'invente aucun tarif pour OpenAI ni Gemini', () => {
+    // Inventer un tarif est pire que de l'ignorer : le harness affiche alors
+    // « tarif inconnu », ce qui est vrai, au lieu d'un montant plausible et faux.
+    const table = pricingTableSchema.parse(JSON.parse(readFileSync(packagedPricingPath(), 'utf8')))
+    const foreign = Object.keys(table.entries).filter((k) => !k.startsWith('venice:'))
+    assert.deepEqual(foreign, [], 'seuls les tarifs relevés chez un fournisseur sont livrés')
   })
 })
