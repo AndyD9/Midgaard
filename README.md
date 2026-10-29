@@ -24,7 +24,7 @@ et les coûts.
 |---|---|---|
 | 0 | Spike : Claude Code → MCP → daemon, attente longue, approbation humaine | ✅ **Terminée**, validée en sessions réelles |
 | 1 | Squelette observable : persistance SQLite, dashboard temps réel, CLI `harness` | ✅ **Terminée**, 91 vérifications + essai en session réelle |
-| 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 158 vérifications ; coût **exact au microdollar** contre le solde Venice |
+| 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 158 vérifications + essai en session réelle ; coût **exact au microdollar** contre le solde Venice, trois fois |
 | 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | À faire |
 | 4 | Durcissement sécurité, distribution npm | À faire |
 
@@ -88,6 +88,12 @@ Node fournissent `node:sqlite` sans drapeau expérimental ? ». Passe-lui en
 `context` ce que tu sais déjà du dépôt, limite le budget à 0,05 $, et attends le
 résultat. » Le coût, les appels d'outils et les sources s'affichent en direct sur
 le dashboard.
+
+Abaisse le **budget** et le **délai** autant que tu veux : les dépasser arrête
+une tâche proprement, et le coût d'un plafond trop bas est nul. Le nombre
+d'**étapes** se plafonne en revanche à ses risques : une tâche qui l'atteint
+échoue sans résultat, **après** avoir dépensé. L'essai en session réelle a perdu
+0,0063 $ de cette façon ([docs/SLICE2.md](docs/SLICE2.md)).
 
 Le daemon démarre tout seul au premier appel d'outil, et s'arrête après
 30 minutes sans tâche active, sans dashboard connecté et sans requête.

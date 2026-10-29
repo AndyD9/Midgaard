@@ -5,11 +5,18 @@ fournisseurs derrière une interface commune, une boucle avec budgets et limites
 des outils de lecture contrôlés, un coffre pour les clés, et un coût qui
 corresponde à la facture.
 
-**État : livrable atteint, et mesuré.** Un Researcher exécute de vraies tâches
-sur Venice, et **le coût affiché correspond au centime près au solde débité** —
-vérifié deux fois, à 0,0 % d'écart, en relevant le solde chez le fournisseur
-avant et après. 124 vérifications unitaires, 10 d'instance unique, 7
-d'intégration, 12 de bout en bout MCP et 5 d'essai réel, 0 échec.
+**État : livrable atteint, mesuré, et éprouvé en vraie session.** Un Researcher
+exécute de vraies tâches sur Venice, et **le coût affiché correspond au centime
+près au solde débité** — vérifié **trois** fois, à 0,0 % d'écart, en relevant le
+solde chez le fournisseur avant et après. 124 vérifications unitaires, 10
+d'instance unique, 7 d'intégration, 12 de bout en bout MCP et 5 d'essai réel,
+0 échec.
+
+L'essai en vraie session Claude Code, que la version précédente de ce document
+annonçait comme restant à faire, **a eu lieu** : il confirme les invariants — une
+attente de 62,6 s sans coupure dans le vrai client, le `context` qui évite la
+redécouverte, le web encadré et sourcé — et **rapporte quatre défauts
+d'ergonomie**, consignés et non corrigés.
 
 Ce qui n'a **pas** encore eu lieu est dit tel quel au § « Limites connues » :
 aucune ligne de ce document ne décrit quelque chose qui n'existe pas.
@@ -300,6 +307,10 @@ Exact au microdollar, deux fois. C'est possible parce que Venice annonce
 `cost.usd` sur chaque réponse et qu'on retient **son** chiffre : on ne calcule
 pas la facture, on la recopie.
 
+Une **troisième** mesure, prise dans les mêmes conditions pendant l'essai en
+vraie session, donne le même résultat : 0,00075362 $ débités pour 0,00075362 $
+comptés.
+
 ### Ce qu'une vraie tâche donne
 
 La tâche jouée dans le dossier runtime réel, pour qu'elle soit consultable dans
@@ -375,31 +386,238 @@ Slice 0, et qu'il faut avoir en tête quand on compte de l'argent.
 effaçaient un montant non nul, et le message ressemblait à un bogue. Le
 formatage descend maintenant jusqu'à huit décimales quand il le faut.
 
-### Ce qui reste à faire en vraie session Claude Code
+### Ce que cet essai ne pouvait pas dire
 
 Cet essai emploie le **client officiel du SDK**, le même protocole que Claude
 Code, dans de vrais processus. Il ne remplace pas un essai dans une vraie
 session : le client du SDK n'a ni les mêmes délais ni les mêmes habitudes, et
 c'est ce constat qui a produit les deux défauts majeurs des Slices 0 et 1.
 
-Il faut pour cela **ouvrir une nouvelle session** — Claude Code ne relit
-`.mcp.json` et ne relance son serveur MCP qu'à l'ouverture. Ce qu'il restera à
-observer, et que seule une vraie session peut dire :
+Les quatre questions qu'il laissait ouvertes — `context` spontané,
+`harness_list_agents` avant la délégation, limites abaissées d'office, effet de
+l'encadrement `<untrusted_data>` sur le rapport — ont été posées à une vraie
+session le jour même : voir **[Essai en vraie session Claude Code](#essai-en-vraie-session-claude-code)**
+ci-dessous, qui y répond et rapporte quatre défauts d'ergonomie.
 
-- Claude passe-t-il spontanément un `context` utile, ou laisse-t-il l'agent
-  redécouvrir le dépôt ?
-- Appelle-t-il `harness_list_agents` avant de déléguer, ou devine-t-il un
-  `agent_id` ?
-- Abaisse-t-il les limites de lui-même quand la tâche est petite ?
-- L'encadrement `<untrusted_data>` change-t-il sa façon de rapporter ce que
-  l'agent a trouvé sur le web ?
+---
+
+## Essai en vraie session Claude Code
+
+**Date :** 2026-10-29 · **Client :** `claude-code` **2.1.309**, app desktop ·
+**Modèle orchestrateur :** Claude Opus 5 · **Coût total de l'essai :** 0,020434 $.
+Sources : `~/.midgaard/mcp-trace.jsonl`, la base, et le dashboard.
+
+C'est l'essai que le § « Ce que cet essai ne pouvait pas dire » appelait : non
+plus le client
+officiel du SDK, mais Claude Code lui-même, avec ses délais et ses habitudes.
+**Il a trouvé quatre défauts d'ergonomie**, dont un faux négatif d'outil et un
+message d'erreur qui envoie vers un réglage hors d'atteinte. Aucun n'était
+visible depuis le client du SDK, parce qu'aucun ne se déclenche sans un modèle
+qui se trompe de bonne foi.
+
+### Chronologie (UTC)
+
+| Heure | Événement |
+|---|---|
+| 06:24:44 | Ouverture de session ; capacités du client enregistrées — `elicitation`, `roots`, `extensions`, `supports_native_tasks: false` |
+| 06:25:4x | `harness_list_agents` appelé **avant** toute délégation ; `simulated` et `researcher` annoncés actifs |
+| 06:25:52 | Délégation n° 1 au `researcher`, `max_cost_usd` 0,02 **et `max_steps` 6 de ma propre initiative** |
+| 06:25:58 | Attente n° 1, `timeout_s` **180 choisi par Claude** |
+| 06:27:00 | **Échec** : 62,57 s d'attente, 4 notifications, aucune coupure. L'agent a épuisé les 6 étapes sans `submit_result` — **0,006264 $ pour rien** |
+| 06:28:46 | Délégation n° 1 bis : plafond d'étapes retiré, et mise en garde sur `search_files` ajoutée au `context` |
+| 06:29:09 | Résultat en **2 appels modèle**, 20,76 s, 1 notification, 0,001785 $ — réponse vérifiée exacte contre le code |
+| 06:30:03 | Délégation n° 2, question exigeant le web, `max_cost_usd` 0,05 (choisi pour couvrir les 0,01 $ de la recherche) |
+| 06:30:47 | Résultat avec **7 citations** et encadrement `<untrusted_data nonce="d83616a7…">`, 40,88 s, 2 notifications, 0,011632 $ |
+| 06:32:03 | Tâche `simulated` de 25 s, gratuite, pour voir le dashboard bouger sans payer |
+| 06:33:30 | Mesure propre solde avant / après sur une tâche de 0,00075362 $ |
+
+### Ce qui est confirmé
+
+| Question | Réponse |
+|---|---|
+| L'attente tient-elle au-delà de 60 s **dans le vrai client** ? | **Oui** : 62,57 s en un seul appel, 4 notifications, aucune coupure. C'est la première mesure de cet invariant hors du client du SDK |
+| Claude appelle-t-il `harness_list_agents` avant de déléguer ? | **Oui**, systématiquement — mais voir la réserve ci-dessous : le mérite en revient au serveur |
+| Le `context` évite-t-il la redécouverte ? | **Oui, et c'est mesurable** : 3 `read_file` sur les 3 fichiers nommés, **zéro** lecture de `CLAUDE.md` ou de `docs/SLICE2.md`, dont le contenu utile était passé en `context` |
+| Claude suit-il `next_action` ? | **Oui** : une attente par délégation, jamais de sondage par `harness_get_task_status` |
+| Le coût affiché est-il la facture ? | **Oui, remesuré ici** : 0,00075362 $ débités chez Venice, **0,00075362 $ comptés** — 0,0 % d'écart, une troisième fois |
+| Le web revient-il encadré et sourcé ? | **Oui** : `<untrusted_data nonce=…>` avec préambule, 7 citations `{title, url}`, et un `note` qui redit la consigne |
+| `roots` sert-elle vraiment ? | **Oui** : le dashboard affiche « Racine de lecture : /Users/andydodakal/Documents/Midgaard », que le client a déclarée |
+| Le dashboard bouge-t-il en direct ? | **Oui** : étape 1/5 → 2/5 → 4/5 sans rechargement, par WebSocket ; coûts, 9 appels d'outils avec leurs arguments, et sources s'affichent |
+| Les « Tasks » MCP natives sont-elles rouvertes ? | **Non** : `supports_native_tasks: false` en 2.1.309, inchangé. `harness_wait_for_task` reste nécessaire |
+
+### Ce qui n'est pas confirmé
+
+| | |
+|---|---|
+| Que Claude appelle `harness_list_agents` **spontanément** | Les `instructions` du serveur le lui ordonnent en toutes lettres, et la description de `harness_delegate_task` le répète. L'essai prouve que la consigne est suivie, pas qu'elle serait superflue |
+| Que Claude passe un `context` utile **de lui-même** | Même réserve : la consigne est explicite aux deux endroits. Ce que l'essai prouve, c'est que la consigne **fonctionne** — ce qui est la question utile, puisque la consigne, elle, est acquise |
+| Qu'un plafond d'étapes bas soit sans danger | Démenti : voir le défaut n° 2 |
+| Le comportement sous approbation humaine | Non exercé ici : aucun outil du `researcher` ne demande d'approbation. C'était l'objet de l'essai de la Slice 1 |
+
+### Ce que l'encadrement `<untrusted_data>` a changé
+
+**Il a changé le rapport, et de façon vérifiable.** La réponse web tranchait une
+dette ouverte de cette slice — le grounding `google_search` de Gemini — et la
+tentation était de l'inscrire ici comme un fait établi. L'encadrement l'a
+interdit : ce qui remonte est **ce qu'un agent a lu sur des pages**, pas ce que
+le dépôt a constaté. La dette n° 2 est donc mise à jour plus bas en **attribuant
+la source**, et elle reste ouverte jusqu'à un appel réel.
+
+Le préambule porte aussi l'instruction de ne pas obéir au contenu encadré. Rien
+dans ce que l'agent a rapporté n'essayait de donner un ordre, donc cette
+protection-là n'a pas été éprouvée ; seule l'attribution l'a été.
+
+### Les quatre défauts d'ergonomie
+
+Aucun n'est corrigé : ils sont consignés pour que l'auteur tranche.
+
+#### 1. `search_files` répond « 0 correspondance » au lieu d'une erreur
+
+Le plus grave, parce que c'est un **faux négatif qui a l'air d'une vraie
+réponse**. L'agent a cherché `checkLimits` en passant un **fichier** dans `path` :
+
+```text
+search_files {"pattern":"checkLimits","path":"packages/agent-runtime/src/loop.ts"}
+  -> succeeded | 0 correspondance(s) dans 0 fichier(s)
+```
+
+`checkLimits` existe pourtant à `loop.ts:186` et `budget.ts:43`. Le schéma dit
+bien « Directory to search in » — l'agent a mal employé l'outil. Mais l'outil
+répond à un mauvais emploi par un chiffre faux et confiant, au lieu d'une
+erreur. Cause exacte : `packages/tools/src/fs.ts:164` fait
+`readdir(dir).catch(() => [])` ; sur un fichier, `readdir` lève `ENOTDIR`
+(reproduit directement), le `catch` l'avale, la marche est vide et le résultat
+devient « (aucune correspondance) » — indistinguable d'une vraie absence.
+
+L'agent a cru la réponse, a reformulé quatre fois, et a brûlé son budget
+d'étapes. **C'est la cause première de l'échec de la délégation n° 1.** Un
+`ENOTDIR` remonté en `ToolError` l'aurait corrigé au premier essai.
+
+Seconde lecture possible : le résumé « 0 correspondance(s) dans **0** fichier(s) »
+disait la vérité — zéro fichier parcouru — mais personne ne lit « 0 fichier »
+comme « ton chemin n'est pas un répertoire ».
+
+#### 2. Le motif d'échec ne nomme pas la cause, et le conseil vise un réglage hors d'atteinte
+
+La délégation n° 1 a rendu ceci :
+
+```text
+status  failed · step 6/5
+error   l'agent s'est arrêté sans appeler submit_result, même après relance
+        — aucun résultat structuré à remonter
+hint    The task ended without a result. Do not retry automatically; tell the user.
+```
+
+La vraie cause était **le `max_steps: 6` que j'avais posé moi-même**, et le
+message ne le dit nulle part. Le seul conseil actionnable est une note
+d'exécution, visible seulement dans le dashboard ou la base :
+
+> `réponse coupée à 4096 jetons de sortie ; relève max_output_tokens si cela se répète`
+
+Or `max_output_tokens` **n'est pas un paramètre de `harness_delegate_task`** —
+le schéma n'expose que `max_cost_usd`, `max_steps` et `timeout_s`. Et même
+exposé, `tightenLimits` (`packages/contracts/src/agent.ts:105`) ne sait
+qu'**abaisser** : « relever » est impossible par construction depuis une
+délégation. Le conseil s'adresse donc à qui édite
+`packages/daemon/src/agents.ts`, pas à qui lit le message.
+
+Pour le lecteur du message, le conseil utile serait : *raccourcis l'objectif, ou
+relève `max_steps`*. J'ai dû le deviner. La reprise a marché du premier coup —
+mais parce que je savais lire la base, ce qu'un utilisateur ne fera pas.
+
+À noter au crédit du harness : **`hint` dit explicitement de ne pas réessayer
+tout seul et de prévenir l'utilisateur.** C'est exactement la bonne consigne, et
+elle m'a retenu de relancer en boucle une tâche qui coûtait de l'argent.
+
+#### 3. `step` affiche un dénominateur qui ne veut rien dire pour un agent réel
+
+`step: "6/5"` pour une tâche plafonnée à **6** étapes ; `"2/5"` et `"1/5"` pour
+des tâches plafonnées à **12**. Le dénominateur est `steps_total`, que
+`packages/daemon/src/task-manager.ts:195` remplit avec la constante
+`STEPS_TOTAL` **de l'exécutant simulé**, pour toutes les tâches. La vraie limite
+est `max_steps`, qui vit dans `limits_json`.
+
+Le défaut traverse les trois interfaces : MCP (`packages/mcp-server/src/server.ts:217`),
+CLI (`packages/cli/src/commands.ts:145`) et dashboard (« étape 6 sur 5 »). Il
+est cosmétique, mais il ment au seul endroit où l'on cherche à savoir si une
+tâche a touché son plafond — et « 6/5 » m'a d'abord fait croire à un dépassement
+d'un cran, pas à ma propre limite atteinte.
+
+#### 4. L'écart de coût accuse la table de tarifs quand la cause est le cache
+
+Sur la tâche échouée, le dashboard affiche :
+
+> Notre estimation : 0,0098 $. **Écart de 36 % : les tarifs locaux ont probablement vieilli.**
+
+C'est faux, et cette slice le sait déjà : la tâche a lu **34,8 k jetons de cache
+sur 58,3 k d'entrée**, et le § « L'estimation locale est systématiquement haute »
+explique que Venice ne publie pas son tarif de cache. La table n'a pas vieilli —
+elle a été relevée chez le fournisseur le jour même. Le message envoie vers
+`harness pricing refresh venice`, qui ne changerait rien.
+
+`apps/dashboard/src/components/UsageCard.tsx:97` ne connaît qu'une cause
+possible à un écart. Il en existe une seconde, documentée, et que le nombre de
+jetons de cache suffirait à distinguer.
+
+#### Et un cinquième, mineur, dans le même esprit
+
+`formatCost` (`apps/dashboard/src/lib/utils.ts:54`) passe à **deux** décimales
+au-dessus de 0,01 $. La tâche web facturée 0,011632 $ et estimée 0,011763 $
+s'affiche donc « 0,01 $ » **des deux côtés**. La phrase « Les deux concordent »
+reste exacte — elle compare les vraies valeurs avec un seuil de 20 % — mais les
+deux chiffres dont tout le § « Le coût cesse d'être une promesse » dit qu'ils
+n'ont de valeur **que côte à côte** deviennent identiques à l'œil, pile dans la
+tranche où vit une vraie tâche. C'est le défaut « budget de 0,0000 $ » déjà
+corrigé plus haut, à l'autre bout de l'échelle.
+
+### Ce que l'essai apprend sur le comportement de Claude
+
+**Le `context` fonctionne, et son effet se mesure.** Les deux délégations sur le
+dépôt ont lu exactement les fichiers nommés, et rien d'autre. Mieux : la seconde
+portait un **avertissement sur un outil** — « `search_files` n'accepte qu'un
+répertoire » — et l'agent a cessé de s'y casser les dents. Le `context` ne sert
+donc pas qu'à transmettre des faits : il transmet aussi les pièges connus.
+
+**Abaisser une limite n'est pas gratuit.** J'ai abaissé `max_cost_usd` parce
+qu'on me l'avait demandé, mais `max_steps: 6` était mon initiative, sur le
+raisonnement « une lecture de trois fichiers tient en six étapes ». Il en aurait
+fallu six à un agent qui ne se heurtait pas au défaut n° 1 — et la marge a
+disparu au premier outil qui mentait. **La limite d'étapes est celle dont le bon
+réglage dépend d'un aléa qu'on ne contrôle pas**, contrairement au budget et au
+délai, qui ont le bon goût d'être continus. Le plafond coûte alors plus cher
+qu'il ne protège : 0,006264 $ perdus pour économiser 0,002 $.
+
+**Le délai, lui, se choisit sans risque.** 180 s, 180 s, 240 s, 120 s selon ce
+que j'attendais — jamais la valeur par défaut sans y penser, et jamais de
+coupure. Interrompre une attente n'arrête pas la tâche : le coût est donc nul.
+
+### Conséquence pour les dettes de la Slice 3
+
+La délégation n° 2 a rapporté, **sur la foi de pages web citées et non d'un
+appel réel**, que la documentation de Google énonce que `googleSearch` ne peut
+pas être combiné avec des `functionDeclarations` dans la même requête
+`generateContent`, et que l'« Interactions API » est recommandée pour les
+nouveaux développements tandis que `generateContent`, étiqueté *legacy*, reste
+recommandé pour la production stable.
+
+Si cela se confirme, la dette n° 2 (« rouvrir le grounding ») ne se règle pas
+par un essai mais par un **choix d'architecture** : deux appels, ou l'Interactions
+API. Elle reste ouverte — rien ici n'a été constaté contre l'API réelle, et
+c'est précisément la discipline que l'encadrement `<untrusted_data>` impose.
+
+---
 
 ## Limites connues
 
-- **Aucun essai dans une vraie session Claude Code.** L'essai réel passe par le
-  client officiel du SDK, qui parle le même protocole mais n'a ni les mêmes
-  délais ni les mêmes habitudes. Il faut ouvrir une **nouvelle** session pour
-  cela — le serveur MCP n'est relu qu'à l'ouverture.
+- **Quatre défauts d'ergonomie ouverts, trouvés en vraie session et non corrigés** :
+  `search_files` rend « 0 correspondance » au lieu d'une erreur quand `path` est
+  un fichier ; un échec par plafond d'étapes ne nomme pas sa cause et conseille
+  un réglage hors d'atteinte ; `step` affiche le dénominateur de l'exécutant
+  simulé (« 6/5 ») ; un écart de coût dû au cache est imputé à la table de
+  tarifs. Détail et emplacements au § « Essai en vraie session Claude Code ».
+- **L'approbation humaine n'a pas été rejouée en Slice 2.** Aucun outil du
+  `researcher` n'en demande — c'est en lecture seule. Ce chemin a été vérifié
+  en Slice 1, et le sera de nouveau en Slice 3 avec les outils d'écriture.
 - **L'estimation locale est haute de ~20 % sur un modèle qui sert du cache**,
   parce que Venice ne publie pas son tarif de cache. Sans conséquence tant que
   le fournisseur annonce son propre coût ; à garder en tête pour OpenAI et
@@ -410,11 +628,15 @@ observer, et que seule une vraie session peut dire :
   désormais une « Interactions API » pour les nouveaux projets et qualifie
   `generateContent` de *legacy* tout en le maintenant : à réévaluer en même temps.
 - **Le grounding `google_search` de Gemini n'est pas activé.** Il partage le
-  tableau `tools` avec les `functionDeclarations`, et rien dans la documentation
-  ne dit qu'ils cohabitent. Le Researcher a besoin de ses fonctions — sans
-  `submit_result`, aucune tâche ne peut finir. Le crochet est écrit, il n'est pas
-  franchi. Envoyer les deux au jugé risquerait un 400 à chaque itération, ou pire :
-  un grounding silencieusement ignoré dont on facturerait quand même l'illusion.
+  tableau `tools` avec les `functionDeclarations`. Le Researcher a besoin de ses
+  fonctions — sans `submit_result`, aucune tâche ne peut finir. Le crochet est
+  écrit, il n'est pas franchi. **Une recherche web déléguée le 2026-10-29
+  rapporte, sur la foi de pages de documentation Google citées, que les deux ne
+  peuvent pas cohabiter dans une même requête `generateContent`** — ce qui
+  changerait la dette d'un essai en un choix d'architecture (deux appels, ou
+  l'« Interactions API »). Rien n'a été constaté contre l'API réelle : c'est
+  un rapport encadré en `<untrusted_data>`, pas une mesure, et la dette reste
+  ouverte.
 - **Windows et Linux ne sont pas vérifiés automatiquement** pour le coffre. La
   suite exerce le repli fichier partout et le trousseau macOS sur macOS ; DPAPI
   et libsecret sont écrits d'après leurs documentations et restent à éprouver sur
@@ -434,12 +656,18 @@ observer, et que seule une vraie session peut dire :
 ## Ce qui attend la Slice 3
 
 Le plan prévoyait déjà `workspace`, les outils d'écriture et l'UI d'approbation
-bloquante. S'y ajoutent trois choses nées de cette slice :
+bloquante. S'y ajoutent quatre choses nées de cette slice :
 
 1. **Éprouver Gemini contre l'API réelle**, et trancher `generateContent` contre
    l'Interactions API.
-2. **Rouvrir le grounding `google_search`** une fois une clé disponible : la
-   question « cohabite-t-il avec les `functionDeclarations` ? » se répond en un
-   appel.
+2. **Rouvrir le grounding `google_search`** une fois une clé disponible. La
+   question a changé de nature : une recherche web rapporte que la documentation
+   de Google **interdit** la cohabitation avec les `functionDeclarations` (voir
+   § « Limites connues »). À confirmer par un appel réel, puis à trancher — deux
+   appels, ou l'Interactions API.
 3. **Vérifier le coffre sur Windows et Linux.** DPAPI et libsecret sont écrits,
    pas constatés.
+4. **Trancher les quatre défauts d'ergonomie** relevés en vraie session, listés
+   au § « Les quatre défauts d'ergonomie ». Le premier — `search_files` qui rend
+   « 0 correspondance » sur un chemin de fichier — fait perdre de l'argent à
+   chaque agent qui s'y fie, et se corrige en une ligne.
