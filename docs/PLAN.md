@@ -1,4 +1,11 @@
-> **Plan de réalisation révisé**, approuvé le 2026-10-28. Il part de la spécification d'origine ([MVP_AGENT_HARNESS_PLAN.md](MVP_AGENT_HARNESS_PLAN.md)) et la modifie sur quatre points décidés avec l'auteur (tableau ci-dessous). L'état d'avancement est tenu dans le [README](../README.md) ; les résultats de la Slice 0 sont dans [spike/RESULTS.md](../spike/RESULTS.md).
+> **Plan de réalisation révisé**, approuvé le 2026-10-28. Il part de la spécification d'origine ([MVP_AGENT_HARNESS_PLAN.md](MVP_AGENT_HARNESS_PLAN.md)) et la modifie sur quatre points décidés avec l'auteur (tableau ci-dessous). L'état d'avancement est tenu dans le [README](../README.md) ; les résultats des slices livrées sont dans [SLICE0.md](SLICE0.md) et [SLICE1.md](SLICE1.md).
+>
+> **Ce document n'est pas réécrit au fil de l'eau** : il garde la trace de ce qui
+> avait été décidé *avant* de construire. Quand la réalisation s'en écarte, c'est
+> le document de slice qui porte l'écart et sa raison. Quatre écarts à ce jour,
+> tous en Slice 1 : `node:sqlite` au lieu de `better-sqlite3`, `node:http` au lieu
+> de Fastify, `node --test` au lieu de Vitest, et `interrupted` élargi à tous les
+> statuts actifs. Détail et justification : [SLICE1.md](SLICE1.md).
 
 # Plan de réalisation — Agent Harness (MVP révisé)
 
@@ -175,13 +182,14 @@ Deux écarts par rapport au document d'origine :
 
 ## 7. Découpage — slices verticales
 
-### Slice 0 — Spike (2–3 j)
+### Slice 0 — Spike (2–3 j) — ✅ **livrée**
 Prouver de bout en bout : un serveur MCP minimal enregistré via `claude mcp add`, appelé depuis une vraie session Claude Code, qui atteint un daemon et renvoie une réponse. Valider au passage `wait_for_task` bloquant sur 120 s (le client ne doit pas couper), le comportement de `@modelcontextprotocol/sdk` v1 vs v2 beta, et les versions réelles de `openai` et `@google/genai`.
 **Livrable :** aller-retour Claude Code → MCP → daemon → réponse, avec une attente longue qui tient.
 
-### Slice 1 — Squelette observable (6–8 j)
+### Slice 1 — Squelette observable (6–8 j) — ✅ **livrée**
 `contracts`, `persistence` + migrations, `daemon` (HTTP + WS + EventBus + machine à états), `mcp-server` complet avec une tâche factice qui simule des étapes, dashboard avec Task Inspector et timeline temps réel, CLI `harness init|start|doctor`.
 **Livrable :** Claude délègue une tâche factice, l'utilisateur voit son cycle de vie en direct, l'annule, redémarre le daemon et retrouve l'historique avec les tâches en cours marquées `interrupted`.
+**Atteint**, plus l'arrêt du daemon sur inactivité et l'étape de build. 91 vérifications automatiques, 0 échec. Résultats, écarts et découvertes : [SLICE1.md](SLICE1.md).
 
 ### Slice 2 — Agents réels, Researcher (8–11 j)
 `providers` (OpenAI + Gemini derrière la même interface), `agent-runtime` avec budgets et limites, outils lecture/recherche/`http_fetch`, Agent Registry avec « Test connection », coffre système, comptage tokens et coût.
@@ -216,8 +224,10 @@ Scénario d'acceptation final, joué manuellement sur macOS puis Windows : la de
 
 ## 9. Points à trancher pendant la Slice 0
 
-1. Versions exactes et stabilité de `@modelcontextprotocol/sdk` (v1 vs v2 beta).
-2. Comportement réel du client MCP face à un outil qui bloque 2 à 10 minutes — détermine le `timeout_s` par défaut.
-3. Fournisseur de recherche web pour le Researcher et son modèle de facturation.
-4. Politique de rétention des worktrees et des logs (proposition : worktrees conservés jusqu'à suppression manuelle, logs 30 jours).
-5. Politique de merge des worktrees — **recommandation : manuelle uniquement dans le MVP.** Le harness ne merge jamais tout seul.
+1. ✅ Versions exactes et stabilité de `@modelcontextprotocol/sdk` — **v1 stable retenue** (1.32.2).
+2. ✅ Comportement réel du client MCP face à un outil qui bloque — **coupure à 60 s sans notifications de progression**, aucune limite atteinte avec. Le `timeout_s` par défaut de 120 s n'est qu'un point de départ : Claude choisit le sien.
+3. Fournisseur de recherche web pour le Researcher et son modèle de facturation. → Slice 2
+4. Politique de rétention des worktrees et des logs (proposition : worktrees conservés jusqu'à suppression manuelle, logs 30 jours). → Slice 3
+5. Politique de merge des worktrees — **recommandation : manuelle uniquement dans le MVP.** Le harness ne merge jamais tout seul. → Slice 3
+
+Point ajouté en Slice 1, à trancher en Slice 2 : **adoption des « Tasks » MCP natives**. Elles ne sont utilisables que si le client les déclare ; l'instrumentation qui le dira est en place. Raisonnement complet dans [SLICE1.md](SLICE1.md).

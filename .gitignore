@@ -1,14 +1,18 @@
 # Dépendances
 node_modules/
 
-# État runtime du harness : contient le jeton d'accès au daemon, ne jamais versionner
-.runtime/
-.runtime-test/
-.runtime-lock-test/
+# Sorties de compilation : `npm run build` les régénère
+dist/
+*.tsbuildinfo
 
 # Déclaration MCP locale : chemins absolus propres à chaque machine,
-# régénérée par `npm run setup` dans spike/
+# régénérée par `harness init`
 .mcp.json
+
+# État runtime du harness. Il vit normalement dans ~/.midgaard ;
+# ces entrées couvrent un MIDGAARD_HOME pointé dans le dépôt.
+.midgaard/
+.runtime*/
 
 # Système
 .DS_Store

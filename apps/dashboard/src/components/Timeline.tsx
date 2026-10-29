@@ -1,0 +1,85 @@
+/**
+ * @file Timeline d'une tâche : le journal, rendu lisible.
+ *
+ * Les événements viennent de `task_events`, append-only et numérotés par
+ * `task_seq`. L'ordre affiché est donc celui de la base, pas celui de l'arrivée
+ * des messages — ce qui reste juste après une reconnexion, où des événements
+ * rejoués arrivent après des événements plus récents.
+ */
+import {
+  CircleCheck, CircleSlash, CircleX, Flag, Hourglass, MessageSquare, Play, ShieldCheck, ShieldQuestion,
+} from 'lucide-react'
+import type { EventType, TaskEvent } from '@midgaard/contracts'
+import { formatDateTime, formatTime } from '@/lib/utils'
+
+/** Icône et libellé français de chaque type d'événement. */
+const EVENT_LOOK: Record<EventType, { icon: typeof Flag; label: string; className: string }> = {
+  'task.created': { icon: Flag, label: 'Tâche créée', className: 'text-muted' },
+  'task.started': { icon: Play, label: 'Démarrage', className: 'text-running' },
+  'task.progress': { icon: Hourglass, label: 'Étape', className: 'text-running' },
+  'task.completed': { icon: CircleCheck, label: 'Terminée', className: 'text-done' },
+  'task.failed': { icon: CircleX, label: 'Échec', className: 'text-danger' },
+  'task.cancelled': { icon: CircleSlash, label: 'Annulation', className: 'text-danger' },
+  'task.interrupted': { icon: CircleSlash, label: 'Interrompue par un redémarrage', className: 'text-danger' },
+  'agent.message': { icon: MessageSquare, label: 'Message', className: 'text-muted' },
+  'approval.requested': { icon: ShieldQuestion, label: 'Approbation demandée', className: 'text-waiting' },
+  'approval.resolved': { icon: ShieldCheck, label: 'Approbation tranchée', className: 'text-done' },
+}
+
+/**
+ * Résume la charge utile d'un événement en une ligne.
+ *
+ * Volontairement sélectif : la timeline doit se lire d'un coup d'œil. La charge
+ * complète reste dans l'infobulle.
+ */
+function describe(event: TaskEvent): string | null {
+  const p = event.payload as Record<string, unknown>
+  if (typeof p.message === 'string') return p.message
+  if (event.type === 'task.progress') return `étape ${p.step}/${p.steps_total}`
+  if (event.type === 'approval.requested') return String(p.operation ?? '')
+  if (event.type === 'approval.resolved') {
+    const by = p.by ? ` par ${String(p.by)}` : ''
+    const reason = p.reason ? ` — ${String(p.reason)}` : ''
+    return `${String(p.decision)}${by}${reason}`
+  }
+  if (event.type === 'task.interrupted') return `statut précédent : ${String(p.previous_status)}`
+  if (event.type === 'task.cancelled' && p.reason) return String(p.reason)
+  return null
+}
+
+export function Timeline({ events }: { events: TaskEvent[] | undefined }) {
+  if (!events) return <p className="px-4 py-6 text-sm text-muted">Chargement de la timeline…</p>
+  if (events.length === 0) return <p className="px-4 py-6 text-sm text-muted">Aucun événement.</p>
+
+  return (
+    <ol className="relative px-4 py-3">
+      {/* Filet vertical reliant les puces, purement décoratif. */}
+      <span aria-hidden className="absolute top-5 bottom-5 left-[25px] w-px bg-border" />
+      {events.map((event) => {
+        const look = EVENT_LOOK[event.type]
+        const Icon = look.icon
+        const detail = describe(event)
+        return (
+          <li key={event.seq} className="relative flex gap-3 py-1.5">
+            <span className="z-10 mt-0.5 grid size-[18px] shrink-0 place-items-center rounded-full border border-border bg-surface">
+              <Icon className={`size-3 ${look.className}`} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm">
+                <span className="font-medium">{look.label}</span>
+                {detail && <span className="text-muted"> — {detail}</span>}
+              </p>
+            </div>
+            <time
+              className="shrink-0 font-mono text-[11px] text-muted"
+              dateTime={event.at}
+              title={`${formatDateTime(event.at)} · séquence globale ${event.seq}`}
+            >
+              {formatTime(event.at)}
+            </time>
+          </li>
+        )
+      })}
+    </ol>
+  )
+}

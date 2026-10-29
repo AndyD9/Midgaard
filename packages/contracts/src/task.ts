@@ -1,0 +1,189 @@
+/**
+ * @file Modèle de tâche et machine à états, partagés par le daemon, le serveur
+ * MCP, la CLI et le dashboard.
+ *
+ * La machine à états est déclarée ici sous forme de **table de transitions
+ * légales** plutôt que dispersée dans des `if` : c'est elle qui est testée
+ * unitairement (y compris les transitions illégales), et le daemon refuse toute
+ * transition absente de la table.
+ *
+ * ```text
+ *   queued → preparing → running ⇄ waiting_approval → completed
+ *                                         │
+ *   sorties : failed, cancel_requested → cancelled, timed_out,
+ *             budget_exceeded, interrupted
+ * ```
+ */
+import { z } from 'zod'
+
+/** Statuts finaux : une tâche qui y entre n'en sort plus. */
+export const TERMINAL_STATUSES = [
+  'completed',
+  'failed',
+  'cancelled',
+  'timed_out',
+  'budget_exceeded',
+  'interrupted',
+] as const
+
+/** Statuts actifs : la tâche est encore en vie et peut changer d'état. */
+export const ACTIVE_STATUSES = ['queued', 'preparing', 'running', 'waiting_approval', 'cancel_requested'] as const
+
+/** Tous les statuts possibles d'une tâche. */
+export const TASK_STATUSES = [...ACTIVE_STATUSES, ...TERMINAL_STATUSES] as const
+
+export type TaskStatus = (typeof TASK_STATUSES)[number]
+
+export const taskStatusSchema = z.enum(TASK_STATUSES)
+
+/**
+ * Transitions autorisées, état par état.
+ *
+ * Quelques choix explicites :
+ *  - `waiting_approval → cancelled` est direct : la tâche est déjà à l'arrêt,
+ *    un refus humain n'a pas besoin de passer par `cancel_requested` ;
+ *  - `cancel_requested → completed` est autorisé : une tâche peut franchir sa
+ *    dernière étape avant d'avoir pris connaissance de l'annulation, et mentir
+ *    sur ce qui s'est réellement passé serait pire ;
+ *  - `interrupted` est accessible depuis **tous** les états actifs, puisqu'il
+ *    est appliqué en bloc au redémarrage du daemon.
+ */
+export const TRANSITIONS: Readonly<Record<TaskStatus, readonly TaskStatus[]>> = Object.freeze({
+  queued: ['preparing', 'running', 'cancel_requested', 'failed', 'timed_out', 'interrupted'],
+  preparing: ['running', 'cancel_requested', 'failed', 'timed_out', 'interrupted'],
+  running: [
+    'waiting_approval', 'completed', 'failed', 'cancel_requested',
+    'timed_out', 'budget_exceeded', 'interrupted',
+  ],
+  waiting_approval: ['running', 'cancelled', 'cancel_requested', 'failed', 'timed_out', 'interrupted'],
+  cancel_requested: ['cancelled', 'completed', 'failed', 'interrupted'],
+  completed: [],
+  failed: [],
+  cancelled: [],
+  timed_out: [],
+  budget_exceeded: [],
+  interrupted: [],
+})
+
+/** Indique si un statut est final. */
+export function isTerminal(status: TaskStatus): boolean {
+  return (TERMINAL_STATUSES as readonly string[]).includes(status)
+}
+
+/** Indique si une transition est permise par {@link TRANSITIONS}. */
+export function canTransition(from: TaskStatus, to: TaskStatus): boolean {
+  return TRANSITIONS[from].includes(to)
+}
+
+/**
+ * Erreur levée par le daemon quand une transition interdite est tentée.
+ * Une transition illégale est un bug, pas une condition de course attendue :
+ * elle doit remonter bruyamment plutôt que corrompre l'historique.
+ */
+export class IllegalTransitionError extends Error {
+  // Champs déclarés puis affectés, et non des propriétés de paramètres : celles-ci
+  // produisent du code à l'exécution, que Node ne peut pas simplement effacer
+  // (`erasableSyntaxOnly`), et le TypeScript ne tournerait plus sans compilation.
+  readonly taskId: string
+  readonly from: TaskStatus
+  readonly to: TaskStatus
+
+  constructor(taskId: string, from: TaskStatus, to: TaskStatus) {
+    super(`transition interdite pour la tâche ${taskId} : ${from} → ${to}`)
+    this.name = 'IllegalTransitionError'
+    this.taskId = taskId
+    this.from = from
+    this.to = to
+  }
+}
+
+/** Résultat structuré d'une tâche terminée. Enrichi en Slice 2 (usage, artefacts). */
+export const taskResultSchema = z.object({
+  summary: z.string(),
+  /** Étapes franchies, telles que l'exécutant les a rapportées. */
+  steps: z.array(z.string()).default([]),
+})
+export type TaskResult = z.infer<typeof taskResultSchema>
+
+/** Une tâche déléguée, telle que le daemon la stocke et l'expose. */
+export const taskSchema = z.object({
+  /** UUID v4, rendu à Claude par `harness_delegate_task`. */
+  id: z.uuid(),
+  /** Ce que l'exécutant doit accomplir, en langage naturel. */
+  objective: z.string(),
+  status: taskStatusSchema,
+  /** Étape courante ; `0` tant que la tâche n'a pas démarré. */
+  step: z.number().int().min(0),
+  steps_total: z.number().int().min(1),
+  /** Vrai tant qu'une étape exige encore une approbation humaine. */
+  needs_approval: z.boolean(),
+  /**
+   * Numéro de la dernière pause d'approbation ; `0` s'il n'y en a eu aucune.
+   * Permet de distinguer une pause déjà signalée à un client d'une nouvelle
+   * (voir {@link isActionable}) — correctif du défaut n° 2 de la Slice 0.
+   */
+  approval_seq: z.number().int().min(0),
+  /** Durée totale simulée, en secondes. Disparaîtra avec les vrais agents (Slice 2). */
+  duration_s: z.number().int().min(1),
+  created_at: z.iso.datetime(),
+  updated_at: z.iso.datetime(),
+  started_at: z.iso.datetime().nullable(),
+  ended_at: z.iso.datetime().nullable(),
+  /** Présent uniquement sur une tâche `completed`. */
+  result: taskResultSchema.nullable(),
+  /** Explication d'une fin anormale : échec, annulation, interruption, expiration. */
+  error: z.string().nullable(),
+})
+export type Task = z.infer<typeof taskSchema>
+
+/**
+ * Consigne renvoyée à Claude avec chaque état de tâche, pour qu'il sache quoi
+ * faire sans interpréter le statut lui-même :
+ *  - `result_ready` : le résultat est joint, la tâche est finie ;
+ *  - `call_wait_for_task_again` : toujours en cours, rappeler `harness_wait_for_task` ;
+ *  - `human_approval_pending` : **nouvelle** pause — prévenir l'utilisateur,
+ *    jamais tenter d'approuver ;
+ *  - `still_waiting_for_human` : pause déjà signalée, l'humain n'a pas décidé.
+ *    Produite uniquement par le serveur MCP, qui sait ce qu'il a déjà dit à son
+ *    client ; le daemon ne la renvoie jamais ;
+ *  - `task_ended_without_result` : finie sans résultat (annulée, échouée,
+ *    interrompue, expirée).
+ */
+export const NEXT_ACTIONS = [
+  'result_ready',
+  'call_wait_for_task_again',
+  'human_approval_pending',
+  'still_waiting_for_human',
+  'task_ended_without_result',
+] as const
+export type NextAction = (typeof NEXT_ACTIONS)[number]
+
+/**
+ * Traduit l'état d'une tâche en consigne pour Claude. C'est aussi le critère
+ * d'arrêt du long-poll : on rend la main dès que la consigne n'est plus
+ * `call_wait_for_task_again`.
+ */
+export function nextActionFor(task: Pick<Task, 'status'>): NextAction {
+  if (task.status === 'completed') return 'result_ready'
+  if (task.status === 'waiting_approval') return 'human_approval_pending'
+  if (isTerminal(task.status)) return 'task_ended_without_result'
+  return 'call_wait_for_task_again'
+}
+
+/**
+ * Indique si l'état d'une tâche mérite d'interrompre une attente.
+ *
+ * Une fin de tâche l'est toujours. Une pause d'approbation ne l'est que si elle
+ * est **plus récente** que la dernière déjà signalée au client (`knownApproval`).
+ * Sans cette règle, rappeler l'attente sur une tâche déjà en pause rendait la
+ * main aussitôt avec la même réponse : le client renonçait à attendre la décision
+ * humaine, ou bouclait en consommant des tokens (défaut n° 2 de la Slice 0).
+ *
+ * @param knownApproval numéro de la dernière pause déjà signalée ; `0` si aucune
+ */
+export function isActionable(task: Pick<Task, 'status' | 'approval_seq'>, knownApproval = 0): boolean {
+  const action = nextActionFor(task)
+  if (action === 'call_wait_for_task_again') return false
+  if (action === 'human_approval_pending') return task.approval_seq > knownApproval
+  return true
+}

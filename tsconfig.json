@@ -1,0 +1,12 @@
+{
+  "$comment": "Solution de build : `tsc -b` compile les paquets dans l'ordre de leurs références.",
+  "files": [],
+  "references": [
+    { "path": "packages/contracts" },
+    { "path": "packages/persistence" },
+    { "path": "packages/daemon" },
+    { "path": "packages/mcp-server" },
+    { "path": "packages/cli" },
+    { "path": "tests" }
+  ]
+}

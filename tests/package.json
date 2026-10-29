@@ -1,0 +1,14 @@
+{
+  "name": "@midgaard/tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Suites de vérification : unitaires, instance unique, redémarrage, bout en bout MCP",
+  "dependencies": {
+    "@midgaard/contracts": "*",
+    "@midgaard/daemon": "*",
+    "@midgaard/mcp-server": "*",
+    "@midgaard/persistence": "*",
+    "@modelcontextprotocol/sdk": "^1.32.2"
+  }
+}
