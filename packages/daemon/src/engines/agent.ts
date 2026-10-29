@@ -209,6 +209,12 @@ export class AgentEngine implements TaskEngine {
         root: task.project_dir,
         httpPolicy: ctx.config.httpPolicy,
         allowHosts: ctx.config.allowHosts,
+        // Aucun profil n'a encore de worktree : la racine est le dépôt de
+        // l'utilisateur, où rien ne s'écrit jamais. Les outils d'écriture
+        // refusent donc, même si un profil les recevait par erreur. Le profil
+        // `developer` posera ces deux champs sur son worktree (Slice 3, étape 5).
+        writable: false,
+        workspace: null,
         signal: undefined,
         log: ctx.log,
       },

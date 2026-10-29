@@ -24,8 +24,9 @@ import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 
 /**
- * Outils livrés en Slice 2. Tous en **lecture seule** : aucune écriture, aucun
- * shell. L'écriture, `git` et `exec` arrivent en Slice 3 avec les worktrees.
+ * Outils existants. Ceux de la Slice 2 sont en lecture seule ; la Slice 3 ajoute
+ * l'écriture **dans le worktree de la tâche seulement** et `git_diff`, en
+ * lecture. `exec` n'existe pas encore (étape 3 de la Slice 3).
  */
 export const TOOL_NAMES = [
   'read_file',
@@ -33,6 +34,10 @@ export const TOOL_NAMES = [
   'search_files',
   'http_fetch',
   'web_search',
+  'write_file',
+  'edit_file',
+  'delete_file',
+  'git_diff',
   'submit_result',
 ] as const
 export type ToolName = (typeof TOOL_NAMES)[number]

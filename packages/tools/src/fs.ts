@@ -3,8 +3,7 @@
  *
  * Tous passent par {@link resolveUnderRoot} ou {@link openUnderRoot} : aucun ne
  * manipule un chemin fourni par un modèle sans l'avoir canonicalisé et vérifié.
- * Aucun n'écrit — le Researcher est en lecture seule, et l'écriture arrivera en
- * Slice 3 avec les worktrees qui la rendent réversible.
+ * Aucun n'écrit : l'écriture vit dans `write.ts`, et n'opère que dans un worktree.
  *
  * Trois dossiers sont ignorés d'office à la recherche et au listage :
  * `node_modules`, `.git` et `dist`. Ce n'est pas de la sécurité, c'est de

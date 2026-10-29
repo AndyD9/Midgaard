@@ -11,6 +11,8 @@ import type { Tool, ToolContext } from './types.ts'
 import { httpFetchTool } from './http.ts'
 import { listDirectoryTool, readFileTool, searchFilesTool } from './fs.ts'
 import { submitResultTool } from './result.ts'
+import { deleteFileTool, editFileTool, writeFileTool } from './write.ts'
+import { gitDiffTool } from './git.ts'
 
 export type { Tool, ToolContext, HttpPolicy } from './types.ts'
 export { ToolError, HTTP_POLICIES, MAX_TOOL_RESULT_BYTES, truncate } from './types.ts'
@@ -18,6 +20,7 @@ export { canonicalRoot, isUnder, openUnderRoot, resolveUnderRoot } from './paths
 export { assertPublicHost, hostAllowed, isPrivateAddress, IMDS_ADDRESS } from './net.ts'
 export { follow, htmlToText } from './http.ts'
 export type { HostGuard } from './http.ts'
+export { checkWritePath, openForWrite, MAX_WRITE_BYTES } from './write.ts'
 export { submitResultSchema } from './result.ts'
 export type { SubmitResultArgs } from './result.ts'
 
@@ -25,7 +28,8 @@ export type { SubmitResultArgs } from './result.ts'
 export const SUBMIT_RESULT = 'submit_result'
 
 /**
- * Tous les outils livrés en Slice 2. Tous en lecture seule.
+ * Tous les outils. Ceux de la Slice 2 lisent ; ceux de la Slice 3 écrivent dans
+ * le worktree de la tâche et refusent partout ailleurs (`ToolContext.writable`).
  *
  * `web_search` n'y figure pas, et c'est délibéré : voir
  * {@link WEB_SEARCH_IS_NOT_A_TOOL}.
@@ -35,6 +39,10 @@ export const TOOLBOX: Readonly<Record<string, Tool<never>>> = Object.freeze({
   list_directory: listDirectoryTool as Tool<never>,
   search_files: searchFilesTool as Tool<never>,
   http_fetch: httpFetchTool as Tool<never>,
+  write_file: writeFileTool as Tool<never>,
+  edit_file: editFileTool as Tool<never>,
+  delete_file: deleteFileTool as Tool<never>,
+  git_diff: gitDiffTool as Tool<never>,
   submit_result: submitResultTool as Tool<never>,
 })
 

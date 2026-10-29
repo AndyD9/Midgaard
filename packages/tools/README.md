@@ -1,8 +1,8 @@
 # `@midgaard/tools`
 
-Les outils des agents. Tous en **lecture seule** en Slice 2 : aucune écriture,
-aucun shell. L'écriture, `git` et `exec` arrivent en Slice 3, avec les worktrees
-qui les rendent réversibles.
+Les outils des agents. Ceux de la Slice 2 **lisent** ; ceux de la Slice 3
+**écrivent, mais seulement dans le worktree** de la tâche, et refusent partout
+ailleurs. `exec` n'existe pas encore (Slice 3, étape 3).
 
 | Outil | Rôle |
 |---|---|
@@ -10,6 +10,10 @@ qui les rendent réversibles.
 | `list_directory` | Le contenu d'un dossier, sans récursion |
 | `search_files` | Une expression régulière sur les fichiers d'un **répertoire** du projet |
 | `http_fetch` | Une URL publique, HTML converti en texte |
+| `write_file` | Crée ou remplace un fichier du **worktree** |
+| `edit_file` | Remplace un passage exact d'un fichier du worktree |
+| `delete_file` | Supprime un fichier du worktree (jamais un dossier) |
+| `git_diff` | Ce que l'agent a changé depuis le début de la tâche, fichiers nouveaux compris |
 | `submit_result` | **Le seul outil qui termine une tâche** |
 
 ## Ce que ce paquet garantit, et ce qu'il ne garantit pas
@@ -53,6 +57,55 @@ refus**, parce qu'il a l'air d'une réponse. Un modèle ne peut pas distinguer
 « je n'ai rien trouvé » de « je n'ai rien cherché » — alors l'outil doit le
 faire pour lui. La tolérance reste là où elle a un sens : un sous-dossier
 illisible n'interrompt toujours pas une recherche en cours.
+
+## Écrire : deux serrures, et aucune approbation à la place
+
+Un outil d'écriture ne fait rien si le contexte ne porte pas `writable: true`,
+ce que le daemon ne pose que lorsque la racine **est** le worktree de la tâche.
+Sans lui — le Researcher, ou un profil qui aurait reçu `write_file` par
+erreur — la politique **refuse**, sans demander d'approbation. Transformer ce
+refus en demande apprendrait à cliquer « oui » ; et écrire hors d'un worktree
+n'est pas réversible, donc pas négociable (PLAN §5). Le champ est facultatif et
+**fermé par défaut** : un contexte construit sans y penser ne peut rien écrire.
+
+Dans le worktree, écrire est autorisé sans approbation : tout y est réversible
+jusqu'au merge, qui est humain.
+
+### Ce que `openForWrite` vérifie
+
+La cible d'une écriture n'existe souvent pas encore : `realpath` ne peut pas la
+canonicaliser. Cinq vérifications, dans l'ordre :
+
+1. le chemin lexical reste sous la racine ;
+2. **aucun segment `.git`**, casse ignorée. Dans un worktree, `.git` est un
+   fichier qui dit à Git où est le dépôt : le réécrire redirigerait chaque
+   commande du harness — commit de fin compris — vers un autre dépôt ;
+3. le plus proche dossier existant a un chemin réel sous la racine (un
+   dossier-lien qui mène dehors est arrêté là) ;
+4. la cible n'est **pas un lien symbolique**, même vers un fichier de la racine ;
+5. après ouverture avec `O_NOFOLLOW`, le descripteur désigne un fichier
+   ordinaire et le dossier parent a gardé son identité et son chemin réel.
+
+Le fichier est ouvert **sans** `O_TRUNC` et vidé une fois tout vérifié : un refus
+tardif ne doit pas avoir détruit ce qu'il refuse. `delete_file` supprime un lien
+**lui-même**, jamais sa cible.
+
+**Sous Windows**, `O_NOFOLLOW` n'existe pas. Le `lstat` de l'étape 4 reste seul,
+avec une fenêtre étroite entre lui et l'ouverture. Contre-épreuve faite : chacune
+des deux serrures, seule, suffit à faire passer les tests de liens.
+
+`edit_file` découpe sur le passage (`split`) au lieu d'appeler `replace` :
+`String.replace` interprète `$&` et `$1` dans le texte de remplacement, et du
+code contient des `$`. Un test le verrouille.
+
+## `git_diff` : le seul accès à Git, en lecture
+
+L'agent ne commite pas : c'est le harness qui le fait à `submit_result`, et la
+branche ne bouge qu'à ce moment-là. `status` et `log` n'apprendraient rien que
+ce diff ne dise. Et un outil `git` à arguments libres exposerait `-c`,
+`--upload-pack`, `--output` et les alias de la configuration ; un outil qui ne
+prend aucun argument n'a rien à filtrer. Le diff vient de `@midgaard/workspace`,
+qui ne lance ni hook ni pilote désigné par l'arbre de travail.
 
 ## `http_fetch`
 

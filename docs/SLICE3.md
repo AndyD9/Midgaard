@@ -4,10 +4,11 @@
 changement dans un worktree isolé, une commande sensible suspend la tâche
 jusqu'à décision humaine, le diff est consultable, Claude récupère le résultat.
 
-**État : en cours — étape 1 sur 8 livrée.** Les worktrees existent, sont
-enregistrés, et leur diff se calcule ; **aucun agent ne s'en sert encore**. Le
-profil `developer`, les outils d'écriture, `exec` et l'onglet Diff sont à faire,
-et ce document le dit à chaque endroit où la question se pose.
+**État : en cours — étapes 1 et 2 sur 8 livrées.** Les worktrees existent, sont
+enregistrés, et leur diff se calcule ; les outils d'écriture existent et
+refusent tout hors d'un worktree. **Aucun agent ne s'en sert encore** : aucun
+profil n'a de worktree. Le profil `developer`, `exec` et l'onglet Diff sont à
+faire, et ce document le dit à chaque endroit où la question se pose.
 
 ---
 
@@ -39,10 +40,10 @@ liste qu'en connaissance de cause — ce que l'interface devra dire en ajoutant.
 | # | Étape | État |
 |---|---|---|
 | 1 | Paquet `workspace` (worktrees, commit, diff, retrait) et table `workspaces` | ✅ livrée |
-| 2 | Outils d'écriture bornés au worktree, lecture reroutée sur le worktree, refus d'écrire sous `.git` | à faire |
+| 2 | Outils d'écriture bornés au worktree, refus d'écrire sous `.git`, `git_diff` en lecture | ✅ livrée |
 | 3 | `exec` contrôlé : `execFile`, environnement reconstruit, délai et arrêt du groupe de processus, sortie bornée | à faire |
 | 4 | Approbations liées à l'opération exacte (outil, argv, dossier, chemin), affichées telles quelles | à faire |
-| 5 | Profil `developer` : worktree préparé en `preparing`, commit de fin à `submit_result`, branche et diff dans le résultat | à faire |
+| 5 | Profil `developer` : worktree préparé en `preparing`, lecture et écriture reroutées sur le worktree, commit de fin à `submit_result`, branche et diff dans le résultat | à faire |
 | 6 | Onglet Files/Diff du dashboard, route de diff | à faire |
 | 7 | `harness workspaces` (liste, nettoyage), `doctor` vérifie Git | à faire |
 | 8 | Bout en bout MCP, puis l'essai d'acceptation du plan : « fais implémenter une route `/health` » | à faire |
@@ -126,6 +127,67 @@ travailler dans `packages/api` **du worktree**. D'où la colonne `subdir`.
 
 ---
 
+## Étape 2 — écrire, seulement dans le worktree
+
+### Ce qui existe
+
+- **`write_file`, `edit_file`, `delete_file`** (`packages/tools/src/write.ts`),
+  et **`git_diff`** (`packages/tools/src/git.ts`), dans la boîte à outils.
+- **`ToolContext.writable`** et **`ToolContext.workspace`**, facultatifs et
+  **fermés par défaut**. Le moteur des agents les pose explicitement à `false`
+  et `null` : aucun profil n'a encore de worktree, donc rien ne s'écrit nulle
+  part. Le déplacement de la racine sur le worktree est l'affaire du profil
+  `developer` (étape 5) — c'est pourquoi la ligne « lecture reroutée » a changé
+  d'étape dans le découpage.
+
+Détail des vérifications de chemin : [packages/tools/README.md](../packages/tools/README.md).
+
+### Ce qui le prouve
+
+`tests/unit/write-tools.test.ts` — 19 tests, chaque refus vérifié **par son
+effet** : le fichier visé hors de la racine garde son contenu, rien n'apparaît
+dehors, `.git` reste intact, le lien n'est pas remplacé. Plus un test de boucle
+(`agent-runtime.test.ts`) : un profil qui aurait reçu `write_file` par erreur
+voit l'appel refusé, **sans** demande d'approbation. 218 tests unitaires en
+tout.
+
+**Contre-épreuve faite**, protection par protection : politique toujours
+ouverte, segment `.git` ignoré, dossier-lien non vérifié, lien non refusé,
+`replace` au lieu de `split` — chacune fait échouer deux à quatre tests. Et
+les deux serrures contre les liens (`lstat` avant, `O_NOFOLLOW` à l'ouverture)
+tiennent **chacune seule** : c'est ce qui rend acceptable leur absence partielle
+sous Windows, où `O_NOFOLLOW` n'existe pas.
+
+### Une question tranchée : le `git` de l'agent
+
+L'étape 1 laissait ouvert ce que l'agent recevrait de Git. Réponse : **`git_diff`,
+sans argument, et rien d'autre.**
+
+- **Le commit est un acte du harness**, à `submit_result` (étape 5). La branche
+  ne bouge qu'à ce moment-là, comme la fin d'une tâche n'arrive que par lui.
+- **`status` et `log` n'apprennent rien** que ce diff — commits, modifications
+  et fichiers nouveaux — ne dise déjà.
+- **Chaque argument de `git` est une surface** : `-c` réécrit la configuration,
+  `--upload-pack` lance un programme, `--output` écrit où l'on veut, et les
+  alias de l'utilisateur sont des commandes. Un outil `git` à arguments libres
+  demanderait de tous les filtrer ; un outil qui n'en prend aucun n'a rien à
+  filtrer.
+
+### Ce que l'écriture a appris
+
+**6. `.git` est un fichier dans un worktree, et c'est une cible.** Il contient
+`gitdir: …`, l'adresse du dépôt. Un agent qui le réécrit redirige chaque
+commande Git du harness — le commit de fin compris — vers le dépôt de son choix,
+celui de l'utilisateur par exemple. Tout segment `.git`, casse ignorée (les
+systèmes de fichiers par défaut de macOS et Windows ne la distinguent pas), est
+refusé en écriture et en suppression.
+
+**7. Un refus tardif ne doit rien avoir détruit.** Ouvrir avec `O_TRUNC` puis
+constater que le parent a changé aurait vidé le fichier qu'on refusait d'écrire.
+Le fichier est ouvert sans troncature et vidé une fois tout vérifié.
+
+---
+
 ## Écarts au plan
 
 1. **Pas de table `projects`, pas de table `artifacts`** (PLAN §6). Un projet est
@@ -135,15 +197,13 @@ travailler dans `packages/api` **du worktree**. D'où la colonne `subdir`.
    au moment de l'écrire. L'événement `artifact.created` n'est donc pas créé.
 2. **`exec` en approbation par défaut**, et non en liste blanche — voir les
    décisions plus haut.
+3. **Pas d'outil `git` généraliste** (PLAN §4 : « `git` dans le worktree »),
+   seulement `git_diff` — voir l'étape 2.
 
 ---
 
 ## Ce qui reste ouvert
 
-- **Le `git` de l'agent.** Le plan donne au Developer « `git` dans le
-  worktree ». Le commit de fin étant fait par le harness (étape 5), il reste à
-  trancher si l'agent a besoin de plus que `status`, `diff` et `log` en lecture.
-  À décider à l'étape 2, sur pièce.
 - **Les sous-modules** ne sont pas initialisés dans un worktree. Un dépôt qui en
   dépend donnera à l'agent des dossiers vides ; à annoncer quand le profil
   existera.

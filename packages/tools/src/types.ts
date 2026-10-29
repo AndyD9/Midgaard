@@ -33,6 +33,20 @@ export interface ToolContext {
   httpPolicy: HttpPolicy
   /** Hôtes explicitement autorisés. Motifs `example.com` ou `*.example.org`. */
   allowHosts: readonly string[]
+  /**
+   * Vrai seulement si {@link ToolContext.root} est le **worktree** de la tâche.
+   *
+   * Absent ou faux, tout outil d'écriture refuse — sans demander d'approbation :
+   * écrire hors d'un worktree n'est pas négociable (PLAN §5). Le défaut est donc
+   * la fermeture, et un contexte construit sans y penser ne peut rien écrire.
+   */
+  writable?: boolean | undefined
+  /**
+   * Le worktree de la tâche, pour les outils qui interrogent Git. `root` peut
+   * en être un sous-dossier (monorepo ouvert sur `packages/api`) ; `path` est
+   * la racine du worktree lui-même.
+   */
+  workspace?: { path: string; baseCommit: string } | null | undefined
   /** Annulation de la tâche : coupe les lectures et les requêtes en cours. */
   signal?: AbortSignal | undefined
   log: (...a: unknown[]) => void

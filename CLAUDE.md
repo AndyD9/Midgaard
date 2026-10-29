@@ -121,6 +121,10 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   merge est un acte humain (décision de la Slice 3). Le retrait d'un worktree
   vérifie que le chemin est strictement sous le dossier des worktrees, même
   forcé : le chemin vient de la base, et une ligne fausse ne doit rien effacer.
+- **On n'écrit que dans un worktree, et jamais sous `.git`.** Sans
+  `ToolContext.writable`, les outils d'écriture **refusent** — pas
+  d'approbation à la place. Dans un worktree, `.git` est un fichier qui désigne
+  le dépôt : le réécrire redirigerait le commit de fin ailleurs.
 - **Les commits d'agent ne portent ni l'identité ni la signature de
   l'utilisateur** : `Midgaard <agent> <agent@midgaard.invalid>`, `--no-gpg-sign`.
 - **Le diff se calcule contre `base_commit`, jamais contre une branche**, et
@@ -174,8 +178,10 @@ Files/Diff. Le profil `developer` rejoindra `simulated` et `researcher` dans
 `packages/daemon/src/agents.ts`, et son moteur sera l'`AgentEngine` existant avec
 une autre boîte à outils : la boucle n'a pas à changer.
 
-**Étape 1 sur 8 livrée** — le paquet `workspace` et la table `workspaces`
-(migration 4, `PROTOCOL_VERSION` 5). Aucun agent ne s'en sert encore. Les quatre
+**Étapes 1 et 2 sur 8 livrées** — le paquet `workspace` et la table
+`workspaces` (migration 4, `PROTOCOL_VERSION` 5) ; `write_file`, `edit_file`,
+`delete_file` et `git_diff`. Aucun agent ne s'en sert encore : aucun profil n'a
+de worktree, et `ToolContext.writable` est fermé par défaut. Les quatre
 décisions prises avec l'auteur (merge manuel, worktrees conservés jusqu'au
 nettoyage, sous `~/.midgaard/worktrees`, `exec` en approbation par défaut) et le
 découpage des sept étapes restantes sont dans [docs/SLICE3.md](docs/SLICE3.md) :

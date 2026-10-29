@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Outils des agents : lecture de projet, http_fetch contrôlé, résultat structuré",
+  "description": "Outils des agents : lecture de projet, écriture dans le worktree, http_fetch contrôlé, résultat structuré",
   "engines": { "node": ">=24.0.0" },
   "exports": {
     ".": { "midgaard-dev": "./src/index.ts", "default": "./dist/index.js" }
@@ -13,5 +13,5 @@
       ".": "./dist/index.js"
     }
   },
-  "dependencies": { "@midgaard/contracts": "*", "zod": "^4.6.7" }
+  "dependencies": { "@midgaard/contracts": "*", "@midgaard/workspace": "*", "zod": "^4.6.7" }
 }

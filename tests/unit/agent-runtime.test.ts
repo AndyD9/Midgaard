@@ -369,3 +369,24 @@ describe('contenu non fiable', () => {
     }
   })
 })
+
+describe('écriture hors worktree', () => {
+  it('refuse un outil d\'écriture même présent dans le profil, sans demander d\'approbation', async () => {
+    // Un profil mal configuré qui aurait reçu write_file. La seconde serrure —
+    // le contexte sans worktree — doit tenir seule, et ne pas transformer le
+    // refus en demande d'approbation qu'un humain finirait par accepter.
+    const { outcome, tools, approvals } = await run(
+      [
+        { toolCalls: [{ id: 'w1', name: 'write_file', argumentsJson: JSON.stringify({ path: 'x.ts', content: 'x' }) }] },
+        { toolCalls: submit('rien écrit') },
+      ],
+      { agent: { tools: ['write_file', 'submit_result'] } },
+    )
+    assert.equal(outcome.status, 'completed')
+    const write = tools.find((t) => t.name === 'write_file')
+    assert.equal(write?.decision, 'deny')
+    assert.equal(write?.status, 'denied')
+    assert.match(write?.error ?? '', /no workspace/)
+    assert.deepEqual(approvals, [])
+  })
+})
