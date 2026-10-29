@@ -16,7 +16,7 @@
  */
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 import type { Approval, Health, ServerMessage, Task, TaskEvent } from '@midgaard/contracts'
-import { bootstrap, currentToken, fetchTaskEvents } from './api'
+import { bootstrap, currentToken, fetchTaskEvents, forgetToken } from './api'
 
 /**
  * Sous-protocoles WebSocket, repris de `@midgaard/contracts`
@@ -179,6 +179,12 @@ export function useHarness() {
       ws.onmessage = (e) => dispatch({ kind: 'message', message: JSON.parse(e.data as string) as ServerMessage })
       ws.onclose = () => {
         socketRef.current = null
+        // Le jeton change à chaque démarrage du daemon : une fermeture peut
+        // vouloir dire « daemon redémarré », auquel cas le jeton en mémoire ne
+        // vaut plus rien. On l'oublie pour que la tentative suivante en
+        // redemande un — une requête de plus, contre une reconnexion qui
+        // sinon ne réussirait jamais.
+        forgetToken()
         dispatch({ kind: 'status', status: 'closed' })
         scheduleRetry()
       }

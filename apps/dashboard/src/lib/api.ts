@@ -16,6 +16,15 @@ import type { Agent, Approval, Health, ProviderConfig, Task, TaskEvent, ToolCall
 /** Jeton d'API, en mémoire uniquement. */
 let token: string | null = null
 
+/**
+ * Bootstrap en vol, s'il y en a un.
+ *
+ * Plusieurs composants demandent des données au même instant, et chacun aurait
+ * sinon déclenché son propre `/ui/bootstrap`. Un seul suffit, et les autres
+ * attendent celui-là.
+ */
+let pending: Promise<{ token: string; health: Health }> | null = null
+
 /** Erreur d'API portant le code HTTP, pour que l'appelant puisse le distinguer. */
 export class ApiError extends Error {
   readonly status: number
@@ -30,12 +39,19 @@ export class ApiError extends Error {
  * Récupère le jeton d'API et l'état de santé initial.
  * @throws {ApiError} si le daemon refuse ou ne répond pas
  */
-export async function bootstrap(): Promise<{ token: string; health: Health }> {
-  const res = await fetch('/ui/bootstrap', { headers: { accept: 'application/json' } })
-  if (!res.ok) throw new ApiError(res.status, `bootstrap refusé (${res.status})`)
-  const body = (await res.json()) as { token: string; health: Health }
-  token = body.token
-  return body
+export function bootstrap(): Promise<{ token: string; health: Health }> {
+  pending ??= (async () => {
+    const res = await fetch('/ui/bootstrap', { headers: { accept: 'application/json' } })
+    if (!res.ok) throw new ApiError(res.status, `bootstrap refusé (${res.status})`)
+    const body = (await res.json()) as { token: string; health: Health }
+    token = body.token
+    return body
+  })()
+  // Un échec ne reste pas mémorisé : la reconnexion doit pouvoir redemander.
+  return pending.catch((e: unknown) => {
+    pending = null
+    throw e
+  })
 }
 
 /** Jeton courant, nécessaire pour ouvrir la WebSocket. */
@@ -44,10 +60,32 @@ export function currentToken(): string | null {
 }
 
 /**
+ * Oublie le jeton courant.
+ *
+ * À appeler quand la WebSocket se ferme : le jeton est **régénéré à chaque
+ * démarrage du daemon**, donc un daemon redémarré en invalide un sans que rien
+ * ne le dise. Sans cet oubli, `connect()` voyait un jeton non nul, sautait le
+ * bootstrap, et réessayait indéfiniment avec une valeur périmée — la page
+ * restait « déconnecté » jusqu'à un rechargement manuel.
+ */
+export function forgetToken(): void {
+  token = null
+  pending = null
+}
+
+/**
  * Appelle l'API authentifiée.
  * @throws {ApiError} sur réponse non 2xx, avec le message d'erreur du daemon
  */
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  // Obtenir le jeton **avant** d'appeler, plutôt que d'espérer qu'un autre
+  // l'ait déjà fait. React exécute les effets des enfants avant ceux du parent :
+  // `AgentsCard` demandait donc ses données avant que `useHarness` n'ait
+  // seulement lancé le bootstrap, recevait 401, et son `catch` vide la faisait
+  // disparaître — la carte qui existe précisément pour dire à un nouveau venu
+  // qu'aucun fournisseur n'est configuré était absente de son écran d'accueil.
+  // Trouvé par le rendu, invisible pour un test de fonctions pures.
+  if (!token) await bootstrap()
   const res = await fetch(path, {
     ...init,
     headers: {

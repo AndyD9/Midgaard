@@ -8,9 +8,13 @@ corresponde à la facture.
 **État : livrable atteint, mesuré, et éprouvé en vraie session.** Un Researcher
 exécute de vraies tâches sur Venice, et **le coût affiché correspond au centime
 près au solde débité** — vérifié **trois** fois, à 0,0 % d'écart, en relevant le
-solde chez le fournisseur avant et après. 133 vérifications unitaires, 10
-d'instance unique, 7 d'intégration, 12 de bout en bout MCP et 5 d'essai réel,
-0 échec.
+solde chez le fournisseur avant et après. 164 vérifications unitaires, 10
+d'instance unique, 7 d'intégration, 7 d'interface, 12 de bout en bout MCP et 5
+d'essai réel, 0 échec.
+
+*(Ce document a été complété le 2026-10-29 : trois des cinq dettes qu'il
+ouvrait sont soldées, et le § « Les dettes, soldées » raconte les quatre pannes
+réelles que leur fermeture a révélées.)*
 
 L'essai en vraie session Claude Code, que la version précédente de ce document
 annonçait comme restant à faire, **a eu lieu** : il confirme les invariants — une
@@ -726,13 +730,14 @@ c'est précisément la discipline que l'encadrement `<untrusted_data>` impose.
 
 ## Limites connues
 
-- **Le dashboard n'a qu'un test, et il ne rend rien.** Les fonctions pures de
-  `src/lib/utils.ts` sont couvertes ; l'interface elle-même ne l'est toujours
-  pas. Playwright reste porté en Slice 3. Les cinq défauts d'ergonomie trouvés
-  en vraie session, eux, sont tous corrigés.
-- **L'approbation humaine n'a pas été rejouée en Slice 2.** Aucun outil du
-  `researcher` n'en demande — c'est en lecture seule. Ce chemin a été vérifié
-  en Slice 1, et le sera de nouveau en Slice 3 avec les outils d'écriture.
+- ~~**Le dashboard n'a qu'un test, et il ne rend rien.**~~ **Réglé** le
+  2026-10-29 : `npm run test:ui`, 7 scénarios dans un vrai navigateur. Voir
+  § « Les dettes, soldées ».
+- **L'approbation humaine n'a pas été rejouée en Slice 2** *par un agent réel*.
+  Aucun outil du `researcher` n'en demande — c'est en lecture seule. Le chemin
+  lui-même l'est désormais : le scénario D4 de `test:ui` clique « Approuver »
+  dans le dashboard et constate la tâche repartir. Ce qui reste à faire en
+  Slice 3, c'est qu'un agent **écrivant** la déclenche.
 - **L'estimation locale est haute de ~20 % sur un modèle qui sert du cache**,
   parce que Venice ne publie pas son tarif de cache. Sans conséquence tant que
   le fournisseur annonce son propre coût ; à garder en tête pour OpenAI et
@@ -752,18 +757,16 @@ c'est précisément la discipline que l'encadrement `<untrusted_data>` impose.
   l'« Interactions API »). Rien n'a été constaté contre l'API réelle : c'est
   un rapport encadré en `<untrusted_data>`, pas une mesure, et la dette reste
   ouverte.
-- **Windows et Linux ne sont pas vérifiés automatiquement** pour le coffre. La
-  suite exerce le repli fichier partout et le trousseau macOS sur macOS ; DPAPI
-  et libsecret sont écrits d'après leurs documentations et restent à éprouver sur
-  machine réelle.
+- ~~**Windows et Linux ne sont pas vérifiés automatiquement** pour le coffre.~~
+  **Réglé** le 2026-10-29 — et la phrase ci-dessus était même trop indulgente :
+  le coffre n'avait **aucun** test, pas même le repli. Voir § « Les dettes,
+  soldées ».
 - **Le DNS rebinding reste théoriquement possible** sur `http_fetch` : on vérifie
   toutes les adresses résolues, puis `fetch` résout une seconde fois.
 - **`pricing.json` livré ne contient que des tarifs Venice**, relevés à la main
   le 2026-10-29. OpenAI et Gemini en sont **volontairement absents** : inventer
   un tarif serait pire que de l'ignorer, et le harness affiche alors « tarif
   inconnu ». `harness pricing refresh venice` remplace le relevé manuel.
-- **Pas de test Playwright du dashboard.** Reporté une seconde fois, en Slice 3,
-  quand l'interface portera des diffs.
 - **Pas de projets, pas de worktrees, pas d'écriture.** C'est la Slice 3.
 
 ---
@@ -771,7 +774,9 @@ c'est précisément la discipline que l'encadrement `<untrusted_data>` impose.
 ## Ce qui attend la Slice 3
 
 Le plan prévoyait déjà `workspace`, les outils d'écriture et l'UI d'approbation
-bloquante. S'y ajoutent cinq choses nées de cette slice :
+bloquante. S'y ajoutaient cinq dettes nées de cette slice. **Trois sont soldées**
+le 2026-10-29 — le § suivant raconte ce qu'elles ont révélé — et **deux restent
+ouvertes**, toutes deux faute de clé Google :
 
 1. **Éprouver Gemini contre l'API réelle**, et trancher `generateContent` contre
    l'Interactions API.
@@ -780,21 +785,152 @@ bloquante. S'y ajoutent cinq choses nées de cette slice :
    de Google **interdit** la cohabitation avec les `functionDeclarations` (voir
    § « Limites connues »). À confirmer par un appel réel, puis à trancher — deux
    appels, ou l'Interactions API.
-3. **Vérifier le coffre sur Windows et Linux.** DPAPI et libsecret sont écrits,
-   pas constatés.
-4. **Un test Playwright du dashboard.** L'essai en vraie session lui a donné son
-   premier test, mais il ne couvre que des fonctions pures : aucun rendu, aucune
-   régression visuelle. C'est le report qui dure depuis la Slice 1, et l'interface
-   porte désormais des coûts, des appels d'outils et des sources.
-5. **Le conseil de `doctor` sur le coffre ne dépend pas de la plateforme.**
-   Quand le coffre système manque, il propose d'installer `libsecret`
-   (`packages/cli/src/commands.ts`) — ce qui n'a de sens que sous Linux, et
-   envoie dans le mur sur macOS ou Windows.
 
-   Le défaut est mineur : il ne se déclenche que si le trousseau système est
-   indisponible. Ce qui l'est moins, c'est **comment** il a été trouvé — en
-   clonant le dépôt depuis GitHub dans un dossier vierge et en déroulant le
-   parcours d'un nouveau venu, plutôt que celui qu'on connaît déjà. C'est la
-   même famille que les cinq défauts de l'essai en vraie session : un message
-   qui ne mène pas à une manette atteignable. Les deux exercices se ressemblent
-   — emprunter un chemin qu'on n'emprunte jamais soi-même.
+Elles ne sont pas commencées, et c'est volontaire : écrire un adaptateur contre
+une documentation est précisément ce qui a produit les deux pannes du coffre
+racontées plus bas. Ce qui manque ici n'est pas du code, c'est une clé.
+
+---
+
+## Les dettes, soldées — 2026-10-29
+
+Trois dettes fermées, et **quatre pannes réelles** trouvées en les fermant. La
+leçon est la même pour les trois, et elle est désagréable : *du code écrit
+d'après une documentation, relu et plausible, ne vaut rien tant qu'il n'a pas
+tourné.* Les quatre pannes vivaient dans du code qu'on aurait signé sans hésiter.
+
+### Dette n° 3 — le coffre, sur les trois plateformes
+
+La Slice 2 disait « DPAPI et libsecret sont écrits, pas constatés ». C'était
+encore optimiste : **le coffre n'avait aucun test**, pas même le repli fichier.
+Toutes les suites posent `MIDGAARD_VAULT=file` — à raison, puisqu'un coffre
+système est par utilisateur et qu'écrire `provider.venice` depuis un test
+écraserait la vraie clé — et le trousseau n'était donc jamais touché.
+
+`tests/unit/secrets.test.ts` passe la même batterie au coffre **réel de la
+machine** et au repli : aller-retour, secret non-ASCII, remplacement,
+suppression, absence, et deux références qui ne se mélangent pas. Elle ne
+connaît aucun coffre en particulier ; elle ne parle qu'à `SecretVault`.
+L'isolation se fait par la référence : un préfixe `test.conformance.<pid>.<aléa>`
+tiré à chaque exécution, et supprimé même quand un cas échoue.
+
+**Écrire la batterie a suffi à trouver deux pannes, avant son premier lancement.**
+
+- **DPAPI rangeait toutes les références dans un seul fichier.** La référence
+  voyageait par `process.env` ; or `run()` reconstruit l'environnement du fils à
+  partir d'une liste blanche où elle ne figurait pas. Le script PowerShell lisait
+  `$null`, et `Join-Path $dir ($null + '.dpapi')` désignait toujours la même
+  cible. Sous Windows, **chaque clé déposée écrasait la précédente, et toute
+  relecture rendait la dernière écrite — sans la moindre erreur.** Vérifié en
+  reproduisant la transmission, pas déduit. Un seul des six cas le voit : celui
+  qui garde deux références vivantes en même temps ; les cinq autres passent sur
+  un coffre qui range tout au même endroit, ce qui a été constaté en leur
+  soumettant exprès un coffre cassé.
+- **libsecret se déclarait disponible sans bus de session.** `secret-tool` sort
+  en 1 aussi bien pour « secret absent » que pour « bus injoignable », et la
+  sonde acceptait les deux. Sur un serveur sans session graphique, libsecret
+  était donc élu, puis levait à chaque écriture — alors que le repli fichier
+  existe précisément pour ce cas. Une absence est muette, une panne parle : c'est
+  la sortie d'erreur qui les sépare. Au passage, `DBUS_SESSION_BUS_ADDRESS` et
+  `XDG_RUNTIME_DIR` manquaient à la liste blanche, sans quoi `secret-tool` ne
+  trouve pas le trousseau même là où il fonctionne.
+
+La correction commune est la même dans les deux cas : `run()` accepte désormais
+un environnement explicite pour l'appel, ce qui règle aussi une course entre deux
+`set` simultanés — ils se volaient leur référence dans `process.env`.
+
+**Une machine ne prouve qu'un coffre.** D'où `.github/workflows/vault.yml` :
+quatre postes — macOS, Windows, Linux avec trousseau, Linux **sans**. Le
+quatrième prouve une *absence*, et c'est le plus utile des quatre : c'est lui qui
+aurait pris la sonde libsecret trop indulgente. Chaque poste pose
+`MIDGAARD_REQUIRE_VAULT`, et la suite échoue si ce n'est pas ce coffre-là qui a
+été retenu — sans quoi un poste sans trousseau sauterait la batterie et passerait
+au vert sans rien avoir éprouvé. Un saut n'est pas une réussite.
+
+**Ce qui reste vrai de la dette :** rien de tout cela n'est encore *constaté* sur
+Windows et Linux. Le workflow est écrit et sa syntaxe vérifiée ; il n'a pas
+tourné, faute d'avoir été poussé. Les deux pannes qu'il vise ont été trouvées par
+le raisonnement et la reproduction locale, pas par lui. La dette ne sera
+pleinement close qu'au premier vert des quatre postes — et ce document le dira
+alors, pas avant.
+
+### Dette n° 4 — le dashboard, rendu dans un navigateur
+
+Le report durait depuis la Slice 1. `npm run test:ui` lance 7 scénarios contre un
+vrai daemon et un vrai Chromium. Playwright y est employé en **bibliothèque**, pas
+en lanceur : les suites de ce dépôt ont leur forme, et un second lanceur avec sa
+configuration et son rapporteur aurait coûté plus qu'il ne rend.
+
+| | Ce qu'il protège |
+|---|---|
+| D1 | L'URL annoncée sert une application qui **démarre** — fichiers, `/ui/bootstrap`, WebSocket, console muette |
+| D2 | Une tâche créée apparaît **sans rechargement** |
+| D3 | La progression avance seule, sur le **vrai dénominateur** (défaut n° 3 de l'essai en vraie session) |
+| D4 | Une approbation donnée **au clic** débloque la tâche |
+| D5 | Une tâche sans appel de modèle n'affiche **pas** « 0 $ » |
+| D6 | Un lien profond rouvre la bonne tâche après rechargement |
+| D7 | La perte de la WebSocket **et son retour** se voient |
+
+**Deux pannes réelles, toutes deux invisibles sans rendu.**
+
+- **La carte « Exécutants » ne s'affichait jamais au premier chargement.** React
+  exécute les effets des enfants avant ceux du parent : `AgentsCard` demandait
+  ses données avant que `useHarness` n'ait seulement lancé le bootstrap,
+  recevait deux `401`, et son `catch` vide la faisait disparaître. Mesuré en
+  relevant l'ordre des requêtes : `/api/agents` et `/api/providers` partent
+  **avant** `/ui/bootstrap`. La carte qui existe précisément pour dire à un
+  nouveau venu qu'aucun fournisseur n'est configuré était absente de son écran
+  d'accueil — exactement le défaut n° 1 de la Slice 0, réapparu par une autre
+  porte. Corrigé à la cause : `api()` obtient un jeton avant d'appeler, au lieu
+  d'espérer qu'un autre l'ait fait.
+- **Le dashboard ne se reconnectait jamais après un redémarrage du daemon.** Le
+  jeton est régénéré à chaque démarrage ; `connect()` voyait un jeton non nul,
+  sautait le bootstrap, et réessayait indéfiniment avec une valeur périmée. La
+  page restait « déconnecté » jusqu'à un rechargement manuel. Corrigé en
+  oubliant le jeton à la fermeture de la WebSocket.
+
+Chaque correctif a été retiré pour vérifier qu'il est bien ce qui fait passer son
+scénario, et que l'échec tombe sur **celui-là seulement**.
+
+**Et une erreur de ma part, conservée parce qu'elle est instructive.** Le premier
+jet de D7 passait sans le correctif du jeton. J'en ai conclu, à tort, que la
+panne n'existait pas. La cause était dans mon test : `getByText('en direct')`
+trouvait sa correspondance dans le texte de l'écran vide — « Elle apparaîtra ici
+en direct. » — et non dans le badge de connexion. **Un faux positif, dans un test
+écrit pour attraper les faux positifs de l'interface.** Les états de connexion
+sont désormais cherchés dans le `<header>` et nulle part ailleurs. C'est la même
+famille que le défaut n° 1 de l'essai en vraie session : une réponse fausse qui a
+l'air d'une vraie réponse, et qu'on croit.
+
+Second rappel du même ordre, plus bénin : le premier jet de D4 concluait à une
+panne du panneau d'approbation. Le dashboard se comportait **comme documenté** —
+il ne vole pas la sélection en cours, puisque la tâche qu'on regarde
+s'échapperait au moment même où on l'approuve. C'était au test de cliquer.
+
+### Dette n° 5 — le conseil de `doctor` sur le coffre
+
+Trois lignes, et la plus petite des cinq. `vaultAdvice(platform, env)` dépend
+désormais de la plateforme, parce que **la cause en dépend** : sous Linux il
+manque un paquet qu'on installe ; sous macOS et Windows le magasin est livré avec
+le système, et son silence signale autre chose — un environnement restreint, un
+`PATH` amputé. Chaque branche nomme l'utilitaire qu'on peut aller vérifier soi-même.
+
+Un cas s'y est ajouté, trouvé en écrivant le test : le repli **demandé** par
+`MIDGAARD_VAULT=file`. Rien n'y manque, et proposer un paquet enverrait chercher
+ce qu'on a soi-même écarté. C'est le cas de toutes les suites du dépôt, donc
+celui qu'un développeur de ce projet rencontre le plus souvent.
+
+### Ce que les trois ont en commun
+
+Les quatre pannes ont la même forme, et c'est celle des cinq défauts de l'essai
+en vraie session : **un système qui répond quelque chose de plausible au lieu de
+signaler qu'il ne peut pas répondre.** DPAPI rendait une clé — la mauvaise.
+libsecret se disait prêt — il ne l'était pas. La carte des exécutants ne
+s'affichait pas — sans un mot. Le dashboard affichait « déconnecté » — sans dire
+qu'il ne reviendrait jamais.
+
+Aucune n'aurait été trouvée par une relecture. Toutes l'ont été en **exécutant ce
+qu'on n'exécutait pas** : le coffre réel, le navigateur réel. C'est le même
+exercice que le clone depuis GitHub dans un dossier vierge qui avait révélé la
+dette n° 5 — emprunter un chemin qu'on n'emprunte jamais soi-même.
+

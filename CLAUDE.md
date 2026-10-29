@@ -36,9 +36,11 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `approve`, `reject` |
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho |
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
-| `npm run test:unit` | ~1 s — machine à états, persistance, adaptateurs, coûts, outils, boucle |
+| `npm run test:unit` | ~1 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres |
+| `npm run test:vault` | ~1 s — les coffres seuls, sur le coffre réel de la machine |
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
+| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur (`npx playwright install chromium` au préalable) |
 | `npm run test:wait` | ~3 min — 12 scénarios de bout en bout MCP |
 
 ## Invariants à ne pas casser
@@ -79,6 +81,13 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   fournisseur est montré **désactivé avec son motif**, et un « Test connection »
   doit prouver la **clé**, pas seulement que l'endpoint répond — `GET /models` de
   Venice est public, et le test l'annonçait « joignable » avec une clé bidon.
+- **Un test qui saute doit le dire, jamais ressembler à un test qui réussit.**
+  La conformité du coffre ne peut éprouver que le coffre de la machine qui
+  l'exécute ; `MIDGAARD_REQUIRE_VAULT` fait donc nommer à chaque poste de CI le
+  coffre qu'il prétend prouver, et la suite échoue si ce n'est pas celui-là.
+  Sans cela, le poste Linux sans trousseau serait passé au vert sans rien
+  exercer. C'est le même principe que `dashboard_available` : ne rien annoncer
+  qu'on n'a pas constaté.
 - **Aucun montant sans sa provenance.** `cost_source` accompagne toujours
   `cost_usd` : `provider` (la facture), `pricing_table` (une estimation) ou
   `unknown`. Un modèle sans tarif connu n'affiche **pas** `0 $` : zéro est un
@@ -111,6 +120,12 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - **`String.replace` passe le texte entier après les groupes de capture.** Le
   confondre avec un groupe fait chercher tout le document dans le seul motif
   trouvé — l'expurgation ne remplaçait alors rien.
+- **`run()` (paquet `secrets`) reconstruit l'environnement du fils à partir
+  d'une liste blanche.** Poser une variable dans `process.env` ne la fait donc
+  **pas** arriver au processus lancé : il faut la passer en argument (`extraEnv`).
+  C'est ce qui faisait ranger toutes les clés DPAPI dans un seul fichier, en
+  silence. Même cause pour `secret-tool`, qui a besoin de
+  `DBUS_SESSION_BUS_ADDRESS` et `XDG_RUNTIME_DIR` pour joindre le trousseau.
 - **Canonicaliser la racine d'un projet avant toute vérification de chemin** :
   sous un lien symbolique (`/tmp` sur macOS, bien des dossiers personnels), un
   projet voit sinon ses propres fichiers refusés « hors du projet ».
@@ -144,27 +159,37 @@ Files/Diff. Le profil `developer` rejoindra `simulated` et `researcher` dans
 `packages/daemon/src/agents.ts`, et son moteur sera l'`AgentEngine` existant avec
 une autre boîte à outils : la boucle n'a pas à changer.
 
-S'y ajoutent cinq dettes nées de la Slice 2, détaillées dans
-[docs/SLICE2.md](docs/SLICE2.md) :
+Des cinq dettes nées de la Slice 2, **trois sont soldées** le 2026-10-29 ; le
+récit complet est au § « Les dettes, soldées » de [docs/SLICE2.md](docs/SLICE2.md).
+Ce qu'elles ont coûté vaut d'être su avant d'en ouvrir d'autres : les trois ont
+révélé **quatre pannes réelles** dans du code qui avait l'air juste, et aucune
+n'était visible sans exécuter ce qu'on n'exécutait pas.
+
+- **Coffre (dette n° 3)** — `tests/unit/secrets.test.ts` passe la même batterie
+  au coffre réel de la machine, et `.github/workflows/vault.yml` la lance sur
+  macOS, Windows et Linux (avec **et** sans trousseau). Écrire la batterie a
+  suffi à trouver deux pannes : DPAPI rangeait **toutes** les références dans un
+  seul fichier, et libsecret se déclarait disponible sans bus de session.
+- **Dashboard (dette n° 4)** — `npm run test:ui` : 7 scénarios dans un vrai
+  navigateur. Deux pannes trouvées : la carte « Exécutants » ne s'affichait
+  **jamais** au premier chargement (ses requêtes partaient avant le bootstrap et
+  prenaient un 401 qu'un `catch` vide avalait), et le dashboard ne se
+  reconnectait **jamais** après un redémarrage du daemon (jeton périmé conservé).
+- **Conseil de `doctor` (dette n° 5)** — `vaultAdvice` dépend de la plateforme,
+  et distingue le repli *subi* du repli *demandé* par `MIDGAARD_VAULT=file`.
+
+**Deux dettes restent ouvertes**, toutes deux faute de clé Google — rien n'a été
+constaté contre l'API réelle, et rien ne doit être écrit comme si ça l'avait été :
 
 1. **Éprouver l'adaptateur Gemini contre l'API réelle.** Il est écrit d'après la
    documentation REST et vérifié sur réponses enregistrées, jamais exécuté. À
    trancher en même temps : `generateContent` (que Google qualifie désormais de
    *legacy* tout en le maintenant) contre l'« Interactions API » recommandée.
 2. **Rouvrir le grounding `google_search`.** Il partage le tableau `tools` avec
-   les `functionDeclarations`, et rien ne dit qu'ils cohabitent. Une clé en main,
-   la question se répond en un appel.
-3. **Vérifier le coffre sur Windows et Linux.** DPAPI et libsecret sont écrits,
-   pas constatés.
-4. **Un test Playwright du dashboard**, reporté une seconde fois — l'interface
-   porte désormais des coûts, des appels d'outils et des sources, et sa seule
-   couverture actuelle est celle des fonctions pures de `src/lib/utils.ts`.
-5. **Le conseil de `doctor` sur le coffre ne dépend pas de la plateforme.**
-   Quand le coffre système manque, il propose d'installer `libsecret`, ce qui
-   n'a de sens que sous Linux. Trouvé en déroulant le parcours d'un clone frais,
-   pas celui qu'on connaît déjà — et c'est la même famille que les défauts de
-   l'essai en vraie session : un message qui ne mène pas à une manette
-   atteignable. Trois lignes dans `packages/cli/src/commands.ts`.
+   les `functionDeclarations`. Une recherche web rapporte, **sur la foi de pages
+   citées et non d'un appel**, que Google interdit la cohabitation : la question
+   deviendrait alors un choix d'architecture (deux appels, ou l'Interactions API)
+   plutôt qu'un essai. Une clé en main, elle se répond en un appel.
 
 Les « Tasks » MCP natives restent tranchées : `claude-code` 2.1.309 ne déclare
 pas la capacité `tasks`, donc elles sont inutilisables et `harness_wait_for_task`

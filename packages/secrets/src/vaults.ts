@@ -193,20 +193,26 @@ $p = Join-Path $dir ($env:MIDGAARD_SECRET_REF + '.dpapi')
  */
 async function powershell(script: string, ref: string, stdin?: string) {
   const encoded = Buffer.from(script, 'utf16le').toString('base64')
-  // La référence voyage par l'environnement du processus fils : `run` ne
-  // transmet que la liste blanche de variables, à laquelle on ajoute celle-ci.
-  const previous = process.env.MIDGAARD_SECRET_REF
-  process.env.MIDGAARD_SECRET_REF = normalizeRef(ref)
-  try {
-    return await run(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
-      stdin,
-    )
-  } finally {
-    if (previous === undefined) delete process.env.MIDGAARD_SECRET_REF
-    else process.env.MIDGAARD_SECRET_REF = previous
-  }
+  // La référence voyage par l'environnement **du seul processus fils**, passée
+  // en argument à `run`.
+  //
+  // Elle transitait auparavant par `process.env`, ce qui ne marchait pas :
+  // `run` reconstruit l'environnement du fils à partir d'une liste blanche où
+  // cette variable ne figurait pas. Le script lisait donc `$null`, et
+  // `Join-Path $dir ($null + '.dpapi')` désignait **le même fichier pour
+  // toutes les références** — chaque clé déposée écrasait la précédente, et
+  // toute relecture rendait la dernière écrite, sans la moindre erreur.
+  // Mesuré en reproduisant la transmission, pas déduit (dette n° 3 de la
+  // Slice 2 : DPAPI était écrit, pas constaté).
+  //
+  // Au passage, écrire dans `process.env` rendait aussi deux `set` concurrents
+  // capables de se voler leur référence. Un argument n'a pas ce défaut.
+  return await run(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
+    stdin,
+    { MIDGAARD_SECRET_REF: normalizeRef(ref) },
+  )
 }
 
 /**
@@ -227,7 +233,14 @@ export const libsecret: SecretVault = {
       // `lookup` sur une référence inexistante sort en 1 sans rien écrire : cela
       // prouve que le binaire **et** le service répondent, sans rien déposer.
       const out = await run('secret-tool', ['lookup', 'service', SERVICE, 'account', '__probe__'])
-      return out.code === 0 || out.code === 1
+      if (out.code === 0) return true
+      // Un code 1 ne suffit pas : `secret-tool` sort **aussi** en 1 quand il ne
+      // joint pas le bus de session — serveur sans session graphique, trousseau
+      // verrouillé. Accepter ce cas faisait élire libsecret sur une machine où
+      // il ne peut rien ranger : `available()` disait oui, et chaque `set`
+      // levait ensuite. Ce qui distingue les deux est la sortie d'erreur : une
+      // absence est muette, une panne parle.
+      return out.code === 1 && out.stderr.trim() === ''
     } catch {
       return false
     }

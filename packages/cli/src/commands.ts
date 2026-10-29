@@ -25,7 +25,7 @@ import {
 import { HarnessStore, SCHEMA_VERSION } from '@midgaard/persistence'
 import { StaticFiles, defaultDashboardDir } from '@midgaard/daemon'
 import { loadPricing, packagedPricingPath, userPricingPath } from '@midgaard/providers'
-import { openVault } from '@midgaard/secrets'
+import { openVault, VAULT_ENV } from '@midgaard/secrets'
 import { ensureDaemon } from '@midgaard/mcp-server'
 import { MIN_NODE, SERVER_NAME, mcpConfigPath, mcpServerEntry, writeMcpConfig } from './mcp-config.ts'
 import type { McpServerEntry } from './mcp-config.ts'
@@ -311,13 +311,7 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
       level: vault.osBacked ? 'ok' : 'warn',
       label: 'Coffre',
       detail: vault.label,
-      ...(vault.osBacked
-        ? {}
-        : {
-            fix:
-              'Les clés seront en clair sur le disque, et une sauvegarde de ce dossier les emportera. ' +
-              'Installe libsecret (secret-tool) pour employer le trousseau de session.',
-          }),
+      ...(vault.osBacked ? {} : { fix: vaultAdvice(process.platform, process.env) }),
     })
   } catch (e) {
     checks.push({ level: 'fail', label: 'Coffre', detail: (e as Error).message })
@@ -378,6 +372,61 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
   console.log()
   console.log(failed ? red(`${failed} contrôle(s) en échec.`) : green('Installation saine.'))
   return failed ? 1 : 0
+}
+
+/**
+ * Ce qu'il faut faire quand le coffre retenu ne protège rien.
+ *
+ * Le conseil **dépend de la plateforme parce que la cause en dépend**. Sous
+ * Linux il manque un paquet, et on peut l'installer. Sous macOS et Windows le
+ * magasin est livré avec le système : son silence ne se corrige pas en
+ * installant quoi que ce soit, il signale autre chose — un environnement
+ * restreint, un `PATH` amputé. Un conseil unique — « installe libsecret » —
+ * envoyait donc dans le mur partout ailleurs que sous Linux. C'est la dette
+ * n° 5 de la Slice 2, et c'est la même famille que les défauts de l'essai en
+ * vraie session : un message qui ne mène pas à une manette atteignable.
+ *
+ * Le repli **demandé** passe en premier : quand {@link VAULT_ENV} vaut `file`,
+ * rien ne manque, et proposer un paquet enverrait chercher ce qu'on a soi-même
+ * écarté. C'est le cas de toutes les suites de tests du dépôt.
+ *
+ * Les branches suivent `openVault` plutôt que la liste des plateformes : tout
+ * ce qui n'est ni macOS ni Windows tente `secret-tool`, et reçoit donc le
+ * conseil de `secret-tool`.
+ *
+ * @param platform `process.platform` de la machine qui diagnostique
+ * @param env      environnement, pour repérer un coffre forcé
+ * @returns le texte affiché sous le contrôle « Coffre », prêt à lire
+ *
+ * @example
+ * vaultAdvice('linux', {})         // → « … Installe libsecret (« secret-tool ») … »
+ * vaultAdvice('darwin', {})        // → « … vérifie que « security help » répond … »
+ */
+export function vaultAdvice(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string {
+  // La première phrase ne dépend de rien : elle dit ce qui est vrai dans tous
+  // les cas, y compris celui du repli choisi exprès.
+  const exposed = 'Les clés seront en clair sur le disque, et une sauvegarde de ce dossier les emportera. '
+
+  if (env[VAULT_ENV]?.trim() === 'file') {
+    return `${exposed}Ce repli est demandé par ${VAULT_ENV}=file : retire la variable pour reprendre le coffre système.`
+  }
+  if (platform === 'darwin') {
+    return (
+      `${exposed}Le trousseau est pourtant livré avec macOS : vérifie que « security help » répond. ` +
+      `Un environnement restreint ou une session sans trousseau déverrouillé peut le refuser.`
+    )
+  }
+  if (platform === 'win32') {
+    return (
+      `${exposed}DPAPI passe par « powershell.exe » — Windows PowerShell 5.1, livré avec le système : ` +
+      `vérifie qu'il est dans le PATH. « pwsh » seul ne suffit pas.`
+    )
+  }
+  return (
+    `${exposed}Installe libsecret (« secret-tool ») et ouvre une session de bureau. ` +
+    `Sur un serveur sans trousseau de session, il n'y a rien à installer : ce repli est la bonne réponse, ` +
+    `et c'est pour cela qu'il existe.`
+  )
 }
 
 /**

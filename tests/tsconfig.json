@@ -18,6 +18,7 @@
     { "path": "../packages/agent-runtime" },
     { "path": "../packages/persistence" },
     { "path": "../packages/daemon" },
-    { "path": "../packages/mcp-server" }
+    { "path": "../packages/mcp-server" },
+    { "path": "../packages/cli" }
   ]
 }

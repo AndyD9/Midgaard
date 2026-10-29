@@ -1,0 +1,95 @@
+# Conformité du coffre sur les trois plateformes.
+#
+# Raison d'être : la Slice 2 livrait DPAPI et libsecret « écrits d'après leur
+# documentation, jamais constatés » (dette n° 3). Faute de machine Windows ou
+# Linux sous la main, le seul moyen honnête de les constater est de les faire
+# tourner sur des machines qui en sont — et des runners GitHub en sont.
+#
+# Ce workflow ne lance que `tests/unit/secrets.test.ts`, qui ne parle qu'à
+# l'interface `SecretVault` et ignore quel coffre il éprouve. C'est la machine
+# qui décide, et `MIDGAARD_REQUIRE_VAULT` qui vérifie qu'elle a décidé ce que ce
+# poste prétend prouver : sans lui, un poste sans trousseau sauterait la
+# batterie et passerait au vert sans rien avoir éprouvé.
+#
+# Quatre postes, dont un qui prouve une **absence** : le serveur Linux sans
+# session graphique doit se rabattre sur le fichier, et ce repli est un
+# comportement attendu, pas une panne.
+name: Coffre
+
+on:
+  push:
+    branches: [main]
+    # Inutile de mobiliser quatre machines pour une retouche de documentation.
+    paths:
+      - 'packages/secrets/**'
+      - 'packages/cli/src/commands.ts'
+      - 'tests/unit/secrets.test.ts'
+      - '.github/workflows/vault.yml'
+      - 'package-lock.json'
+  pull_request:
+  workflow_dispatch: # pour pouvoir le relancer à la main après une mise à jour d'image
+
+jobs:
+  macos:
+    name: trousseau macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '24', cache: npm }
+      - run: npm ci
+      - run: npm run test:vault
+        env:
+          MIDGAARD_REQUIRE_VAULT: macos-keychain
+
+  windows:
+    name: DPAPI Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '24', cache: npm }
+      - run: npm ci
+      - run: npm run test:vault
+        env:
+          MIDGAARD_REQUIRE_VAULT: windows-dpapi
+
+  linux-trousseau:
+    name: libsecret (session de bureau)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '24', cache: npm }
+      - run: npm ci
+      # `secret-tool` ne range rien tout seul : il parle au service Secret
+      # Service par le bus de session. Il faut donc les trois — le binaire, un
+      # bus, et un trousseau déverrouillé — ce qu'un runner n'a pas d'office.
+      - name: Installer libsecret et gnome-keyring
+        run: sudo apt-get update && sudo apt-get install -y libsecret-tools gnome-keyring
+      # `dbus-run-session` fournit le bus ; le trousseau est créé puis
+      # déverrouillé avec un mot de passe vide, lu sur l'entrée standard.
+      - name: Conformité sous un bus de session
+        run: |
+          dbus-run-session -- bash -c '
+            echo -n "" | gnome-keyring-daemon --unlock --components=secrets
+            npm run test:vault
+          '
+        env:
+          MIDGAARD_REQUIRE_VAULT: libsecret
+
+  linux-sans-trousseau:
+    name: Linux sans trousseau (le repli est la bonne réponse)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '24', cache: npm }
+      - run: npm ci
+      # Rien n'est installé ici, exprès. Ce poste vérifie le cas du serveur sans
+      # session graphique : `openVault` doit retenir le repli fichier, et le
+      # dire. C'est aussi lui qui aurait pris la sonde libsecret trop
+      # indulgente — elle acceptait un `secret-tool` incapable de joindre le bus.
+      - run: npm run test:vault
+        env:
+          MIDGAARD_REQUIRE_VAULT: file

@@ -52,10 +52,47 @@ les cantonne à leur dossier jetable.
 - **DPAPI protège contre le vol de fichier, pas contre la session compromise.**
   Tout processus tournant sous le même compte Windows peut déchiffrer. C'est
   également vrai du trousseau macOS sans demande de mot de passe.
-- **Windows et Linux ne sont pas vérifiés automatiquement.** La suite de tests
-  exerce le repli fichier sur toutes les plateformes, et le trousseau macOS sur
-  macOS. Les deux autres sont écrits d'après leurs documentations et restent à
-  éprouver sur machine réelle.
+- **Un trousseau déverrouillé est un trousseau ouvert.** Aucun des trois
+  mécanismes ne redemande de mot de passe à chaque lecture : ils protègent le
+  secret **au repos**, pas contre un processus déjà dans la session.
+
+## Comment c'est vérifié
+
+`tests/unit/secrets.test.ts` passe la **même batterie** au coffre système de la
+machine qui l'exécute et au repli fichier : aller-retour, secret non-ASCII,
+remplacement, suppression, absence, et — le cas qui compte — **deux références
+qui ne se mélangent pas**. Elle ne connaît aucun coffre en particulier ; elle ne
+parle qu'à `SecretVault`.
+
+Une machine n'en prouve qu'un, d'où `.github/workflows/vault.yml` : macOS,
+Windows, Linux avec trousseau, Linux sans. Chaque poste pose
+`MIDGAARD_REQUIRE_VAULT` et la suite échoue si ce n'est pas ce coffre-là qui a
+été retenu — sinon un poste sans trousseau passerait au vert sans rien éprouver.
+
+### Ce que l'écriture de cette batterie a trouvé
+
+Deux pannes, avant même son premier lancement, dans du code qui avait l'air juste :
+
+- **DPAPI rangeait toutes les références dans un seul fichier.** La référence
+  voyageait par `process.env`, que `run()` ne transmet pas : l'environnement du
+  fils est reconstruit à partir d'une liste blanche où elle ne figurait pas. Le
+  script PowerShell lisait `$null`, et `Join-Path $dir ($null + '.dpapi')`
+  désignait toujours la même cible. Chaque clé déposée écrasait la précédente, et
+  toute relecture rendait la dernière écrite — **sans la moindre erreur**. Un
+  seul des six cas le voit : celui qui garde deux références vivantes en même
+  temps. La référence passe désormais en argument de `run()`, ce qui règle au
+  passage une course entre deux `set` simultanés.
+- **libsecret se déclarait disponible sans bus de session.** `secret-tool` sort
+  en 1 aussi bien pour « secret absent » que pour « bus injoignable », et la
+  sonde acceptait les deux. Sur un serveur sans session graphique, libsecret
+  était donc élu, puis échouait à chaque écriture. Ce qui distingue les deux cas
+  est la sortie d'erreur : une absence est muette, une panne parle. Au passage,
+  `DBUS_SESSION_BUS_ADDRESS` et `XDG_RUNTIME_DIR` manquaient à la liste blanche
+  de `run()` — sans elles, `secret-tool` ne trouve pas le trousseau même là où
+  il fonctionne.
+
+Les deux étaient exactement ce que « écrit d'après la documentation, jamais
+exécuté » laisse passer.
 
 ## API
 

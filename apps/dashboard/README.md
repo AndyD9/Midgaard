@@ -28,6 +28,22 @@ sans jeton mais soumise aux contrôles d'enveloppe du daemon, et garde le jeton
 jeton passe par le sous-protocole — l'API du navigateur ne permet pas de poser
 un en-tête `Authorization`.
 
+**Qui demande le jeton, et quand.** `api()` l'obtient lui-même s'il n'en a pas,
+plutôt que de compter sur `useHarness`. Ce n'est pas une précaution de style :
+React exécute les effets des **enfants avant ceux du parent**, donc `AgentsCard`
+demandait ses données avant que `useHarness` n'ait seulement lancé le bootstrap.
+Elle recevait deux `401`, son `catch` vide les avalait, et la carte — celle qui
+existe pour dire à un nouveau venu qu'aucun fournisseur n'est configuré —
+n'apparaissait **jamais** sur son écran d'accueil.
+
+**Le jeton s'oublie à la fermeture de la WebSocket.** Il est régénéré à chaque
+démarrage du daemon : le garder faisait réessayer sans fin avec une valeur
+périmée, et la page restait « déconnecté » jusqu'à un rechargement manuel. Une
+requête de plus à chaque reconnexion, contre une reconnexion qui n'aboutissait
+jamais.
+
+Les deux pannes ont été trouvées par `npm run test:ui`, pas par relecture.
+
 ## Reprise sans trou
 
 C'est le point délicat du temps réel. Une WebSocket qui se rouvre naïvement
@@ -48,6 +64,23 @@ Uniquement les **types** : le point d'entrée du paquet charge des modules Node
 (`node:os`, `node:fs`) qui n'ont pas leur place dans un paquet navigateur. Les
 deux seules valeurs nécessaires — les sous-protocoles WebSocket — sont recopiées
 dans `src/lib/useHarness.ts`, avec le commentaire qui le signale.
+
+## Comment c'est vérifié
+
+Deux niveaux, et le second a longtemps manqué :
+
+- `tests/unit/dashboard-format.test.ts` couvre les **fonctions pures** de
+  `src/lib/utils.ts` — montants, durées, dates. Aucun rendu.
+- `npm run test:ui` (`tests/dashboard.ts`) ouvre un **vrai Chromium** sur un
+  **vrai daemon** : l'application démarre, une tâche apparaît sans rechargement,
+  la progression avance seule, une approbation donnée au clic débloque la tâche,
+  un lien profond survit à un `F5`, et la perte **comme le retour** de la
+  connexion se voient. Il lui faut le dashboard compilé et
+  `npx playwright install chromium`, que `npm ci` ne fait pas.
+
+Ce que cette suite ne fait **pas** : comparer des pixels. Elle vérifie des
+comportements, pas une apparence — une régression visuelle coûte moins cher
+qu'une suite qui rougit à chaque retouche de style.
 
 ## Organisation
 

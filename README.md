@@ -117,15 +117,26 @@ Depuis la racine du dépôt :
 | `npm run harness -- pricing refresh <id>` | Relève les tarifs chez le fournisseur |
 | `npm run dashboard:dev` | Dashboard avec rechargement à chaud (lance `harness start` avant) |
 | `npm test` | Les quatre suites gratuites, environ 4 minutes |
+| `npm run test:ui` | Le dashboard dans un vrai navigateur (voir le prérequis plus bas) |
 | `npm run test:live` | Essai réel contre un vrai fournisseur — **dépense de l'argent** |
 
 | Suite | Durée | Contenu |
 |---|---|---|
-| `npm run test:unit` | ~1 s | 133 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils, boucle d'agent, formatage des montants |
+| `npm run test:unit` | ~1 s | 164 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils, boucle d'agent, formatage des montants, coffres |
+| `npm run test:vault` | ~1 s | Les coffres seuls, sur le coffre **réel de la machine** — lancé par la CI sur macOS, Windows et Linux |
 | `npm run test:lock` | ~30 s | Instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s | Redémarrage, reprise WebSocket, sécurité, expiration, inactivité |
+| `npm run test:ui` | ~1 min | 7 scénarios dans un vrai navigateur : direct, approbation au clic, reconnexion |
 | `npm run test:wait` | ~3 min | 12 scénarios de bout en bout avec le client MCP officiel |
 | `npm run test:live` | ~3 min | 5 scénarios **contre la vraie API** — opt-in, dépense ~0,003 $, s'abstient sans clé |
+
+`npm test` enchaîne `unit`, `lock`, `restart` et `wait`. `test:ui` se lance à
+part : il lui faut le dashboard compilé et le navigateur de Playwright, que
+`npm ci` ne télécharge pas.
+
+```
+npx playwright install chromium
+```
 
 Le développement se fait **sans étape de build** : Node exécute le TypeScript
 directement. `npm run build` ne sert qu'à produire ce qui sera distribué, et le

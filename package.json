@@ -28,13 +28,16 @@
     "clean": "tsc -b --clean && rm -rf apps/dashboard/dist",
     "test": "npm run test:unit && npm run test:lock && npm run test:restart && npm run test:wait",
     "test:unit": "node --conditions=midgaard-dev --test tests/unit/*.test.ts",
+    "test:vault": "node --conditions=midgaard-dev --test tests/unit/secrets.test.ts",
     "test:lock": "node --conditions=midgaard-dev tests/single-instance.ts",
     "test:restart": "node --conditions=midgaard-dev tests/restart.ts",
     "test:wait": "node --conditions=midgaard-dev tests/long-wait.ts",
+    "test:ui": "node --conditions=midgaard-dev tests/dashboard.ts",
     "test:live": "node --conditions=midgaard-dev tests/live-agent.ts"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
+    "playwright": "^1.64.1",
     "typescript": "^7.0.2"
   }
 }

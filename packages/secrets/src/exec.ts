@@ -36,11 +36,21 @@ export interface ExecOutcome {
  * ne trouve rien sort en 44, ce qui est une réponse, pas une panne. L'appelant
  * interprète le code.
  *
- * @param file  binaire à lancer, résolu via le `PATH` reconstruit
- * @param args  arguments, passés tels quels sans interprétation shell
- * @param stdin donnée à écrire sur l'entrée standard, par exemple un secret
+ * @param file     binaire à lancer, résolu via le `PATH` reconstruit
+ * @param args     arguments, passés tels quels sans interprétation shell
+ * @param stdin    donnée à écrire sur l'entrée standard, par exemple un secret
+ * @param extraEnv variables ajoutées à {@link minimalEnv} pour ce seul appel.
+ *                 C'est ainsi qu'une donnée variable atteint un script sans être
+ *                 concaténée à son code — voir le coffre DPAPI. Écrire dans
+ *                 `process.env` ne marcherait pas : l'environnement du fils est
+ *                 reconstruit, et deux appels concurrents se marcheraient dessus.
  */
-export function run(file: string, args: string[], stdin?: string): Promise<ExecOutcome> {
+export function run(
+  file: string,
+  args: string[],
+  stdin?: string,
+  extraEnv?: NodeJS.ProcessEnv,
+): Promise<ExecOutcome> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       file,
@@ -49,7 +59,7 @@ export function run(file: string, args: string[], stdin?: string): Promise<ExecO
         timeout: EXEC_TIMEOUT_MS,
         // Un secret peut faire quelques kilo-octets ; une liste de modèles, plus.
         maxBuffer: 1024 * 1024,
-        env: minimalEnv(),
+        env: { ...minimalEnv(), ...extraEnv },
         windowsHide: true,
       },
       (error, stdout, stderr) => {
@@ -74,6 +84,9 @@ export function run(file: string, args: string[], stdin?: string): Promise<ExecO
 /**
  * Environnement minimal des utilitaires.
  *
+ * Ce qui est repris l'est pour une raison nommée, et rien d'autre ne passe :
+ * ajouter une variable ici, c'est l'exposer à trois utilitaires système.
+ *
  * `PATH` est repris pour que `security`, `secret-tool` et `powershell` restent
  * trouvables — les remplacer par des chemins absolus en dur casserait les
  * installations non standard, et un `PATH` détourné suppose déjà un attaquant
@@ -82,7 +95,15 @@ export function run(file: string, args: string[], stdin?: string): Promise<ExecO
  * propre magasin.
  */
 function minimalEnv(): NodeJS.ProcessEnv {
-  const keep = ['PATH', 'Path', 'HOME', 'USERPROFILE', 'LOCALAPPDATA', 'APPDATA', 'SystemRoot', 'TEMP', 'TMP']
+  const keep = [
+    'PATH', 'Path',
+    'HOME', 'USERPROFILE', 'LOCALAPPDATA', 'APPDATA', 'SystemRoot', 'TEMP', 'TMP',
+    // `secret-tool` ne parle pas au trousseau directement : il passe par le bus
+    // de session. Sans ces deux variables il ne le trouve pas, échoue sur une
+    // machine où le trousseau fonctionne pourtant, et le harness se rabat sur
+    // le fichier en croyant qu'il n'y a pas de trousseau.
+    'DBUS_SESSION_BUS_ADDRESS', 'XDG_RUNTIME_DIR',
+  ]
   const env: NodeJS.ProcessEnv = { LC_ALL: 'C' }
   for (const k of keep) if (process.env[k] !== undefined) env[k] = process.env[k]
   return env
