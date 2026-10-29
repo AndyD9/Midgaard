@@ -290,6 +290,15 @@ describe('minimalEnv', () => {
     assert.doesNotMatch(env.PSModulePath!, /az|Documents/, 'les modules de la machine ne doivent plus y être')
   })
 
+  it('laisse passer le cache d’analyse de modules de PowerShell', () => {
+    // La variable que la bissection a nommée, après deux hypothèses fausses.
+    // Sans elle, PowerShell reconstruit son cache à chaque appel : 8 à 15 s,
+    // contre 264 ms quand il le retrouve. Elle ne sort pas de la liste blanche
+    // par hasard : c'est un chemin de cache, pas une donnée d'utilisateur.
+    const env = minimalEnv('win32', { ...complet, PSModuleAnalysisCachePath: 'C:\\cache\\psmac' })
+    assert.equal(env.PSModuleAnalysisCachePath, 'C:\\cache\\psmac')
+  })
+
   it('n’invente pas de PSModulePath sans SystemRoot', () => {
     assert.equal(minimalEnv('win32', { PATH: 'C:\\bin' }).PSModulePath, undefined)
   })

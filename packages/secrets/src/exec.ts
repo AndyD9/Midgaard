@@ -23,6 +23,18 @@ import { join } from 'node:path'
 /** Délai au-delà duquel un utilitaire est considéré bloqué. */
 export const EXEC_TIMEOUT_MS = 10_000
 
+/**
+ * Délai accordé à PowerShell, plus large et mesuré.
+ *
+ * PowerShell reconstruit son **cache d'analyse de modules** quand il n'en
+ * trouve pas : 8 à 15 s sur un runner Windows, contre 264 ms une fois le cache
+ * en place. C'est long, mais ce n'est pas un blocage — et couper à 10 s ferait
+ * échouer le tout premier appel d'une machine au cache froid, là où patienter
+ * une fois suffit. Le délai reste borné : il protège d'une attente infinie, pas
+ * d'une lenteur légitime.
+ */
+export const POWERSHELL_TIMEOUT_MS = 40_000
+
 /** Sortie d'un utilitaire. `code` vaut `null` s'il a été tué par un signal. */
 export interface ExecOutcome {
   code: number | null
@@ -40,6 +52,8 @@ export interface ExecOutcome {
  * @param file     binaire à lancer, résolu via le `PATH` reconstruit
  * @param args     arguments, passés tels quels sans interprétation shell
  * @param stdin    donnée à écrire sur l'entrée standard, par exemple un secret
+ * @param timeoutMs délai propre à cet appel ; {@link POWERSHELL_TIMEOUT_MS} pour
+ *                  PowerShell, qui a une lenteur légitime au premier démarrage
  * @param extraEnv variables ajoutées à {@link minimalEnv} pour ce seul appel.
  *                 C'est ainsi qu'une donnée variable atteint un script sans être
  *                 concaténée à son code — voir le coffre DPAPI. Écrire dans
@@ -51,13 +65,14 @@ export function run(
   args: string[],
   stdin?: string,
   extraEnv?: NodeJS.ProcessEnv,
+  timeoutMs: number = EXEC_TIMEOUT_MS,
 ): Promise<ExecOutcome> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       file,
       args,
       {
-        timeout: EXEC_TIMEOUT_MS,
+        timeout: timeoutMs,
         // Un secret peut faire quelques kilo-octets ; une liste de modèles, plus.
         maxBuffer: 1024 * 1024,
         env: { ...minimalEnv(), ...extraEnv },
@@ -78,7 +93,7 @@ export function run(
           code: typeof err?.code === 'number' ? err.code : err ? 1 : 0,
           stdout: String(stdout),
           stderr: timedOut
-            ? `${file} n'a pas rendu la main en ${EXEC_TIMEOUT_MS / 1000} s et a été tué${
+            ? `${file} n'a pas rendu la main en ${timeoutMs / 1000} s et a été tué${
                 String(stderr).trim() ? ` — ${String(stderr).trim()}` : ''
               }`
             : String(stderr),
@@ -131,6 +146,14 @@ export function minimalEnv(
     // machine où le trousseau fonctionne pourtant, et le harness se rabat sur
     // le fichier en croyant qu'il n'y a pas de trousseau.
     'DBUS_SESSION_BUS_ADDRESS', 'XDG_RUNTIME_DIR',
+    // PowerShell range là son cache d'analyse de modules. Sans cette variable,
+    // il le reconstruit à **chaque** appel : 8 à 15 s, contre 264 ms quand il
+    // le retrouve. Trouvée par bissection sur les 145 variables que notre liste
+    // écartait, après deux hypothèses fausses — ce n'était ni l'environnement
+    // perdu, ni `PSModulePath`. Absente de la plupart des machines, où
+    // PowerShell retombe sur un emplacement par défaut sous `LOCALAPPDATA`,
+    // que l'on transmet déjà.
+    'PSModuleAnalysisCachePath',
   ]
   const env: NodeJS.ProcessEnv = { LC_ALL: 'C' }
   for (const k of keep) if (source[k] !== undefined) env[k] = source[k]

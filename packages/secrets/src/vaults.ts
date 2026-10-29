@@ -12,7 +12,7 @@
  */
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { run } from './exec.ts'
+import { POWERSHELL_TIMEOUT_MS, run } from './exec.ts'
 import { normalizeRef, VaultError, type SecretVault } from './types.ts'
 
 /** Nom de service commun aux magasins système. */
@@ -245,6 +245,7 @@ async function powershell(script: string, ref: string, stdin?: string) {
     ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
     stdin,
     { MIDGAARD_SECRET_DIR: dir, MIDGAARD_SECRET_PATH: join(dir, `${normalizeRef(ref)}.dpapi`) },
+    POWERSHELL_TIMEOUT_MS,
   )
 }
 
