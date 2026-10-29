@@ -69,7 +69,7 @@ async function listProviders(config: HarnessConfig): Promise<number> {
     console.log('Aucun fournisseur configuré.')
     console.log()
     console.log('Pour en ajouter un :')
-    console.log(dim('  npm run harness -- providers add venice --model qwen3-235b-a22b-instruct-2507'))
+    console.log(dim('  npm run harness -- providers add venice --model deepseek-v4-flash-0731'))
     return 0
   }
 
@@ -106,7 +106,7 @@ async function addProvider(config: HarnessConfig, args: string[]): Promise<numbe
   const model = option(args, 'model')
   if (!model) {
     console.error('Il faut un modèle par défaut : --model <identifiant>')
-    console.error(dim(`Exemple pour Venice : --model qwen3-235b-a22b-instruct-2507`))
+    console.error(dim(`Exemple pour Venice : --model deepseek-v4-flash-0731`))
     return 1
   }
 
@@ -205,7 +205,7 @@ export async function agents(config: HarnessConfig): Promise<number> {
     console.log(`  ${dim(a.description || '(sans description)')}`)
     if (!a.enabled) {
       console.log(`  ${yellow('désactivé')} ${dim('— aucun fournisseur de modèle configuré pour ce profil')}`)
-      console.log(`  ${dim('npm run harness -- providers add venice --model qwen3-235b-a22b-instruct-2507')}`)
+      console.log(`  ${dim('npm run harness -- providers add venice --model deepseek-v4-flash-0731')}`)
     } else if (a.provider_id) {
       console.log(`  ${dim(`fournisseur ${a.provider_id} · ${a.model ?? 'modèle par défaut'} · outils : ${a.tools.join(', ') || 'aucun'}`)}`)
       console.log(

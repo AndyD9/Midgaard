@@ -52,7 +52,7 @@ n'appellent aucun modèle. Le Researcher reste visible mais **désactivé**, et 
 le dit. Pour l'activer :
 
 ```bash
-npm run harness -- providers add venice --model qwen3-235b-a22b-instruct-2507
+npm run harness -- providers add venice --model deepseek-v4-flash-0731
 ```
 
 La clé est demandée **sans écho** et déposée dans le coffre système (trousseau

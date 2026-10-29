@@ -128,7 +128,7 @@ function describeBalances(info: WireKeyInfo): string {
  *
  * @example
  * const adapter = createOpenAiAdapter({
- *   id: 'venice', preset: 'venice', model: 'qwen3-235b-a22b-instruct-2507',
+ *   id: 'venice', preset: 'venice', model: 'deepseek-v4-flash-0731',
  *   baseUrl: 'https://api.venice.ai/api/v1', apiKey, webSearch: true, redact, price,
  * })
  */

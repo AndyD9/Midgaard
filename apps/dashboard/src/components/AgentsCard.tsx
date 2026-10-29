@@ -67,7 +67,7 @@ export function AgentsCard() {
                 <p className="text-xs text-waiting">
                   Aucun fournisseur de modèle configuré. Dans un terminal, à la racine du dépôt :{' '}
                   <code className="rounded bg-canvas px-1 font-mono">
-                    npm run harness -- providers add venice --model qwen3-235b-a22b-instruct-2507
+                    npm run harness -- providers add venice --model deepseek-v4-flash-0731
                   </code>
                 </p>
               )}

@@ -360,7 +360,7 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
             ? 'aucun : seul le profil « simulated » peut tourner'
             : `${declared.length} déclaré(s), ${tested} joignable(s) au dernier test`,
         ...(declared.length === 0
-          ? { fix: 'npm run harness -- providers add venice --model qwen3-235b-a22b-instruct-2507' }
+          ? { fix: 'npm run harness -- providers add venice --model deepseek-v4-flash-0731' }
           : tested === declared.length
             ? {}
             : { fix: 'npm run harness -- providers test <identifiant>' }),

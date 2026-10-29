@@ -151,7 +151,7 @@ export type ModelPrice = z.infer<typeof modelPriceSchema>
  * Le plan (§4) interdit d'écrire les prix en dur dans le code et exige
  * d'afficher la date de dernière mise à jour : un tarif périmé qu'on croit
  * courant est pire qu'un tarif absent. Les clés sont `<preset>:<modèle>`, par
- * exemple `venice:qwen3-235b-a22b-instruct-2507` — le tarif suit l'endpoint, pas
+ * exemple `venice:deepseek-v4-flash-0731` — le tarif suit l'endpoint, pas
  * l'instance de configuration, car deux configurations vers Venice facturent
  * pareil.
  */
