@@ -6,6 +6,10 @@ import { z } from 'zod'
 import { taskEventSchema } from './events.ts'
 import { approvalSchema } from './approvals.ts'
 import { NEXT_ACTIONS, taskSchema } from './task.ts'
+import { agentSchema, requestedLimitsSchema } from './agent.ts'
+import { connectionTestSchema, PROVIDER_PRESETS, providerConfigSchema, WEB_SEARCH_MODES } from './provider.ts'
+import { pricingTableSchema } from './usage.ts'
+import { toolCallSchema } from './tools.ts'
 
 /**
  * Version du protocole, annoncée par `GET /api/health`.
@@ -20,9 +24,14 @@ import { NEXT_ACTIONS, taskSchema } from './task.ts'
  *  - 2 : pauses d'approbation numérotées (`approval_seq`, `known_approval`) ;
  *  - 3 : Slice 1 — persistance SQLite, journal d'événements, WebSocket, routes
  *        préfixées `/api`, statuts `preparing`/`cancel_requested`/`interrupted`/
- *        `timed_out`/`budget_exceeded`.
+ *        `timed_out`/`budget_exceeded` ;
+ *  - 4 : Slice 2 — agents réels. La tâche porte `agent_id`, `context`, `limits`
+ *        et `usage` ; le journal gagne `tool.*`, `usage.updated` et
+ *        `task.budget_exceeded` ; les routes `/api/agents` et `/api/providers`
+ *        apparaissent. Un daemon de protocole 3 ne sait rien de tout cela, et
+ *        rendrait des tâches sans coût ni agent : il doit être remplacé.
  */
-export const PROTOCOL_VERSION = 3
+export const PROTOCOL_VERSION = 4
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({
@@ -59,10 +68,25 @@ export const healthSchema = z.object({
 })
 export type Health = z.infer<typeof healthSchema>
 
-/** Corps de `POST /api/tasks`. Les mêmes bornes sont revérifiées côté daemon. */
+/**
+ * Corps de `POST /api/tasks`. Les mêmes bornes sont revérifiées côté daemon.
+ *
+ * `duration_s` et `needs_approval` ne concernent que le profil `simulated` ; un
+ * agent réel s'arrête sur son résultat ou ses limites, et c'est sa politique
+ * d'outils qui décide des approbations. Ils sont conservés parce que le profil
+ * simulé reste le seul moyen d'exercer la machine à états sans dépenser de jetons.
+ */
 export const createTaskRequestSchema = z.object({
   objective: z.string().min(1).max(4000),
+  /** Profil d'agent. Par défaut `simulated`, qui n'appelle aucun modèle. */
+  agent_id: z.string().min(1).max(64).default('simulated'),
+  /** Contexte fourni par Claude : ce que l'agent n'a pas à redécouvrir lui-même. */
+  context: z.string().max(100_000).optional(),
+  /** Limites demandées. Elles ne peuvent qu'**abaisser** celles du profil. */
+  limits: requestedLimitsSchema.optional(),
+  /** Tâche simulée seulement : durée totale. */
   duration_s: z.number().int().min(1).max(900).default(20),
+  /** Tâche simulée seulement : insère une pause d'approbation. */
   needs_approval: z.boolean().default(false),
 })
 export type CreateTaskRequest = z.infer<typeof createTaskRequestSchema>
@@ -75,6 +99,51 @@ export const taskViewSchema = z.object({
   approval: approvalSchema.nullable().default(null),
 })
 export type TaskView = z.infer<typeof taskViewSchema>
+
+/** Réponse de `GET /api/agents`. */
+export const agentsResponseSchema = z.object({ agents: z.array(agentSchema) })
+export type AgentsResponse = z.infer<typeof agentsResponseSchema>
+
+/** Réponse de `GET /api/providers`. Ne contient **aucune clé**, seulement des références. */
+export const providersResponseSchema = z.object({
+  providers: z.array(providerConfigSchema),
+  /** Tarifs en vigueur, avec leur date de relevé : l'interface doit pouvoir dire s'ils ont vieilli. */
+  pricing: z.object({ updated_at: z.iso.datetime(), source: z.string(), models: z.number().int().min(0) }),
+})
+export type ProvidersResponse = z.infer<typeof providersResponseSchema>
+
+/**
+ * Corps de `POST /api/providers` — déclaration ou mise à jour d'un fournisseur.
+ *
+ * `api_key` est le **seul** endroit du protocole où une clé circule, et elle n'y
+ * fait que passer : le daemon la dépose dans le coffre système et n'en garde
+ * qu'une référence. Elle n'est jamais relue, jamais renvoyée, jamais journalisée.
+ */
+export const upsertProviderRequestSchema = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().min(1).max(200).optional(),
+  preset: z.enum(PROVIDER_PRESETS).default('venice'),
+  base_url: z.url().optional(),
+  default_model: z.string().min(1),
+  api_key: z.string().min(1).optional(),
+  web_search: z.enum(WEB_SEARCH_MODES).optional(),
+})
+export type UpsertProviderRequest = z.infer<typeof upsertProviderRequestSchema>
+
+/** Réponse de `POST /api/providers/:id/test` — le « Test connection » du plan. */
+export const connectionTestResponseSchema = z.object({
+  provider: providerConfigSchema,
+  test: connectionTestSchema,
+})
+export type ConnectionTestResponse = z.infer<typeof connectionTestResponseSchema>
+
+/** Réponse de `GET /api/tasks/:id/tools` — les appels d'outils d'une tâche. */
+export const toolCallsResponseSchema = z.object({ tool_calls: z.array(toolCallSchema) })
+export type ToolCallsResponse = z.infer<typeof toolCallsResponseSchema>
+
+/** Réponse de `GET /api/pricing`. */
+export const pricingResponseSchema = z.object({ pricing: pricingTableSchema })
+export type PricingResponse = z.infer<typeof pricingResponseSchema>
 
 /** Réponse de `GET /api/tasks/:id/wait`. */
 export const waitResponseSchema = taskViewSchema.extend({

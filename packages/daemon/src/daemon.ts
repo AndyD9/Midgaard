@@ -34,6 +34,7 @@ import {
   type Health,
 } from '@midgaard/contracts'
 import { HarnessStore } from '@midgaard/persistence'
+import { ensureBuiltinAgents } from './agents.ts'
 import { EventBus } from './bus.ts'
 import { createRequestHandler } from './http.ts'
 import { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'
@@ -248,6 +249,10 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
   // de découverte : aucun client ne peut voir une tâche encore marquée `running`
   // alors que le processus qui la faisait avancer est mort.
   tasks.recoverFromRestart()
+  // Les profils livrés d'office sont (re)posés à chaque démarrage, pour qu'une
+  // montée de version livre ses consignes système corrigées sans que
+  // l'utilisateur ait à supprimer sa base.
+  ensureBuiltinAgents(store, log)
   publishRuntime()
 
   const lease = setInterval(checkLease, config.leaseMs)

@@ -17,13 +17,23 @@ import { z } from 'zod'
 import { taskStatusSchema } from './task.ts'
 
 /**
- * Types d'événements émis en Slice 1.
+ * Types d'événements émis.
  *
- * Le vocabulaire suit le plan (§6). `agent.message` sert dès maintenant à la
- * narration des étapes simulées : le dashboard a ainsi quelque chose à montrer,
- * et le canal est déjà en place pour les vrais agents de la Slice 2.
- * `tool.requested|completed`, `artifact.created` et `usage.updated` arriveront
- * avec eux.
+ * Le vocabulaire suit le plan (§6). `agent.message` portait en Slice 1 la
+ * narration des étapes simulées ; il porte désormais aussi le texte produit par
+ * un vrai modèle à chaque itération. La Slice 2 ajoute les quatre derniers :
+ *
+ *  - `tool.requested` / `tool.completed` encadrent chaque appel d'outil. Les
+ *    deux, et pas seulement le second : un outil qui ne rend jamais la main
+ *    laisserait sinon un trou que rien n'explique dans la timeline ;
+ *  - `usage.updated` suit la consommation après chaque appel modèle. C'est lui
+ *    qui permet de voir un budget se remplir **pendant** la tâche, au lieu de
+ *    découvrir la facture à la fin ;
+ *  - `task.budget_exceeded` est distinct de `task.failed` : rien n'a échoué, une
+ *    limite a été atteinte, et confondre les deux enverrait l'utilisateur
+ *    chercher un bug qui n'existe pas.
+ *
+ * `artifact.created` arrivera en Slice 3, avec les worktrees qui en produisent.
  */
 export const EVENT_TYPES = [
   'task.created',
@@ -33,9 +43,13 @@ export const EVENT_TYPES = [
   'task.failed',
   'task.cancelled',
   'task.interrupted',
+  'task.budget_exceeded',
   'agent.message',
   'approval.requested',
   'approval.resolved',
+  'tool.requested',
+  'tool.completed',
+  'usage.updated',
 ] as const
 export type EventType = (typeof EVENT_TYPES)[number]
 

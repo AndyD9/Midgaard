@@ -20,15 +20,28 @@ import {
   ACTIVE_STATUSES,
   IllegalTransitionError,
   canTransition,
+  emptyUsage,
   isTerminal,
+  type Agent,
+  type AgentKind,
+  type AgentLimits,
   type Approval,
   type ApprovalStatus,
+  type ConnectionTest,
   type EventType,
   type HarnessConfig,
+  type ProviderConfig,
+  type ProviderKind,
+  type ProviderPreset,
   type Task,
   type TaskEvent,
   type TaskResult,
   type TaskStatus,
+  type ToolCall,
+  type ToolCallStatus,
+  type ToolDecision,
+  type Usage,
+  type WebSearchMode,
 } from '@midgaard/contracts'
 import { migrate } from './migrations.ts'
 
@@ -48,6 +61,10 @@ interface TaskRow {
   ended_at: string | null
   result_json: string | null
   error: string | null
+  agent_id: string
+  context: string | null
+  limits_json: string
+  usage_json: string
 }
 
 /** Ligne `task_events` telle que SQLite la rend. */
@@ -64,6 +81,8 @@ interface EventRow {
 /** Champs d'une tâche qu'une transition peut mettre à jour au passage. */
 export interface TaskPatch {
   step?: number
+  /** Consommation cumulée, remplacée en bloc : c'est la boucle qui additionne, pas la base. */
+  usage?: Usage
   needs_approval?: boolean
   approval_seq?: number
   started_at?: string | null
@@ -118,6 +137,10 @@ function toTask(row: TaskRow): Task {
     ended_at: row.ended_at,
     result: row.result_json ? (JSON.parse(row.result_json) as TaskResult) : null,
     error: row.error,
+    agent_id: row.agent_id,
+    context: row.context,
+    limits: JSON.parse(row.limits_json) as AgentLimits,
+    usage: JSON.parse(row.usage_json) as Usage,
   }
 }
 
@@ -227,15 +250,24 @@ export class HarnessStore {
    *
    * @returns la tâche créée et l'événement à diffuser
    */
-  createTask(input: { objective: string; durationS: number; stepsTotal: number; needsApproval: boolean }): Recorded {
+  createTask(input: {
+    objective: string
+    agentId: string
+    context: string | null
+    limits: AgentLimits
+    durationS: number
+    stepsTotal: number
+    needsApproval: boolean
+  }): Recorded {
     const now = new Date().toISOString()
     const id = randomUUID()
     return this.tx(() => {
       this.db
         .prepare(
           `INSERT INTO tasks (id, objective, status, step, steps_total, needs_approval, approval_seq,
-                              duration_s, created_at, updated_at)
-           VALUES (:id, :objective, 'queued', 0, :steps_total, :needs_approval, 0, :duration_s, :now, :now)`,
+                              duration_s, created_at, updated_at, agent_id, context, limits_json, usage_json)
+           VALUES (:id, :objective, 'queued', 0, :steps_total, :needs_approval, 0, :duration_s, :now, :now,
+                   :agent_id, :context, :limits, :usage)`,
         )
         .run({
           id,
@@ -244,11 +276,18 @@ export class HarnessStore {
           needs_approval: input.needsApproval ? 1 : 0,
           duration_s: input.durationS,
           now,
+          agent_id: input.agentId,
+          context: input.context,
+          limits: JSON.stringify(input.limits),
+          usage: JSON.stringify(emptyUsage()),
         })
       const event = this.insertEvent(
         id,
         'queued',
-        { type: 'task.created', payload: { objective: input.objective, duration_s: input.durationS } },
+        {
+          type: 'task.created',
+          payload: { objective: input.objective, agent_id: input.agentId, limits: input.limits },
+        },
         now,
       )
       return { task: this.getTask(id)!, event }
@@ -326,6 +365,7 @@ export class HarnessStore {
         params[column] = value
       }
       if (patch.step !== undefined) assign('step', patch.step)
+      if (patch.usage !== undefined) assign('usage_json', JSON.stringify(patch.usage))
       if (patch.needs_approval !== undefined) assign('needs_approval', patch.needs_approval ? 1 : 0)
       if (patch.approval_seq !== undefined) assign('approval_seq', patch.approval_seq)
       if (patch.started_at !== undefined) assign('started_at', patch.started_at)
@@ -486,5 +526,348 @@ export class HarnessStore {
         .prepare("SELECT * FROM approvals WHERE status = 'pending' AND expires_at <= :now")
         .all({ now: now.toISOString() }),
     )
+  }
+
+  // --- Fournisseurs --------------------------------------------------------
+
+  /**
+   * Déclare ou met à jour un fournisseur.
+   *
+   * **Ne reçoit jamais de clé d'API**, seulement la référence qui la désigne
+   * dans le coffre. Le daemon dépose la clé avant d'appeler cette méthode ; si
+   * l'ordre était inverse, un échec de coffre laisserait une configuration qui
+   * promet une clé inexistante.
+   *
+   * Le `last_test` d'une configuration existante est **effacé** : changer
+   * d'endpoint, de modèle ou de clé invalide le dernier test réussi, et
+   * continuer à l'afficher ferait croire à une connexion vérifiée qui ne l'est
+   * plus.
+   */
+  upsertProvider(input: {
+    id: string
+    name: string
+    kind: ProviderKind
+    preset: ProviderPreset
+    baseUrl: string | null
+    defaultModel: string
+    secretRef: string | null
+    webSearch: WebSearchMode
+  }): ProviderConfig {
+    const now = new Date().toISOString()
+    this.db
+      .prepare(
+        `INSERT INTO provider_configs
+           (id, name, kind, preset, base_url, default_model, secret_ref, web_search,
+            created_at, updated_at, last_test_json)
+         VALUES (:id, :name, :kind, :preset, :base_url, :default_model, :secret_ref, :web_search,
+                 :now, :now, NULL)
+         ON CONFLICT(id) DO UPDATE SET
+           name = :name, kind = :kind, preset = :preset, base_url = :base_url,
+           default_model = :default_model, secret_ref = :secret_ref, web_search = :web_search,
+           updated_at = :now, last_test_json = NULL`,
+      )
+      .run({
+        id: input.id,
+        name: input.name,
+        kind: input.kind,
+        preset: input.preset,
+        base_url: input.baseUrl,
+        default_model: input.defaultModel,
+        secret_ref: input.secretRef,
+        web_search: input.webSearch,
+        now,
+      })
+    return this.getProvider(input.id)!
+  }
+
+  getProvider(id: string): ProviderConfig | null {
+    const found = row<ProviderRow>(this.db.prepare('SELECT * FROM provider_configs WHERE id = :id').get({ id }))
+    return found ? toProvider(found) : null
+  }
+
+  /** Fournisseurs déclarés, dans l'ordre de déclaration. */
+  listProviders(): ProviderConfig[] {
+    return rows<ProviderRow>(
+      this.db.prepare('SELECT * FROM provider_configs ORDER BY created_at ASC').all(),
+    ).map(toProvider)
+  }
+
+  /** Enregistre le résultat d'un « Test connection ». @returns `null` si le fournisseur n'existe plus */
+  recordProviderTest(id: string, test: ConnectionTest): ProviderConfig | null {
+    const info = this.db
+      .prepare('UPDATE provider_configs SET last_test_json = :t, updated_at = :now WHERE id = :id')
+      .run({ id, t: JSON.stringify(test), now: new Date().toISOString() })
+    return info.changes === 1 ? this.getProvider(id) : null
+  }
+
+  /**
+   * Supprime un fournisseur. Les profils qui s'y référaient ne sont **pas**
+   * supprimés : c'est au daemon de les désactiver, pour que l'utilisateur
+   * retrouve sa configuration après avoir changé de clé.
+   *
+   * @returns vrai si quelque chose a été supprimé
+   */
+  deleteProvider(id: string): boolean {
+    return this.db.prepare('DELETE FROM provider_configs WHERE id = :id').run({ id }).changes === 1
+  }
+
+  // --- Agents --------------------------------------------------------------
+
+  /** Déclare ou met à jour un profil d'agent. */
+  upsertAgent(input: {
+    id: string
+    name: string
+    kind: AgentKind
+    description: string
+    providerId: string | null
+    model: string | null
+    systemPrompt: string
+    tools: string[]
+    limits: AgentLimits
+    enabled: boolean
+  }): Agent {
+    const now = new Date().toISOString()
+    this.db
+      .prepare(
+        `INSERT INTO agents
+           (id, name, kind, description, provider_id, model, system_prompt, tools_json,
+            limits_json, enabled, created_at, updated_at)
+         VALUES (:id, :name, :kind, :description, :provider_id, :model, :system_prompt, :tools,
+                 :limits, :enabled, :now, :now)
+         ON CONFLICT(id) DO UPDATE SET
+           name = :name, kind = :kind, description = :description, provider_id = :provider_id,
+           model = :model, system_prompt = :system_prompt, tools_json = :tools,
+           limits_json = :limits, enabled = :enabled, updated_at = :now`,
+      )
+      .run({
+        id: input.id,
+        name: input.name,
+        kind: input.kind,
+        description: input.description,
+        provider_id: input.providerId,
+        model: input.model,
+        system_prompt: input.systemPrompt,
+        tools: JSON.stringify(input.tools),
+        limits: JSON.stringify(input.limits),
+        enabled: input.enabled ? 1 : 0,
+        now,
+      })
+    return this.getAgent(input.id)!
+  }
+
+  getAgent(id: string): Agent | null {
+    const found = row<AgentRow>(this.db.prepare('SELECT * FROM agents WHERE id = :id').get({ id }))
+    return found ? toAgent(found) : null
+  }
+
+  /** Profils déclarés, le simulé en premier puis par ordre de déclaration. */
+  listAgents(): Agent[] {
+    return rows<AgentRow>(this.db.prepare('SELECT * FROM agents ORDER BY created_at ASC').all()).map(toAgent)
+  }
+
+  /** Active ou désactive un profil. @returns le profil, ou `null` s'il n'existe pas */
+  setAgentEnabled(id: string, enabled: boolean): Agent | null {
+    const info = this.db
+      .prepare('UPDATE agents SET enabled = :e, updated_at = :now WHERE id = :id')
+      .run({ id, e: enabled ? 1 : 0, now: new Date().toISOString() })
+    return info.changes === 1 ? this.getAgent(id) : null
+  }
+
+  /** Profils rattachés à un fournisseur donné, pour les désactiver quand il disparaît. */
+  agentsUsingProvider(providerId: string): Agent[] {
+    return rows<AgentRow>(
+      this.db.prepare('SELECT * FROM agents WHERE provider_id = :p').all({ p: providerId }),
+    ).map(toAgent)
+  }
+
+  // --- Appels d'outils -----------------------------------------------------
+
+  /**
+   * Journalise un appel d'outil demandé par le modèle.
+   *
+   * Écrit **avant** l'exécution, et non après : un outil qui part en boucle ou
+   * ne rend jamais la main doit être visible dans le dashboard pendant qu'il
+   * dure. Un journal qui n'enregistre que les fins ne montre jamais ce qui bloque.
+   *
+   * @param argumentsJson arguments **déjà expurgés** par l'appelant
+   */
+  createToolCall(input: {
+    taskId: string
+    step: number
+    callId: string
+    name: string
+    decision: ToolDecision
+    status: ToolCallStatus
+    argumentsJson: string
+  }): ToolCall {
+    const id = randomUUID()
+    const now = new Date().toISOString()
+    this.db
+      .prepare(
+        `INSERT INTO tool_calls (id, task_id, step, call_id, name, status, decision,
+                                 arguments_json, requested_at)
+         VALUES (:id, :task_id, :step, :call_id, :name, :status, :decision, :args, :now)`,
+      )
+      .run({
+        id,
+        task_id: input.taskId,
+        step: input.step,
+        call_id: input.callId,
+        name: input.name,
+        status: input.status,
+        decision: input.decision,
+        args: input.argumentsJson,
+        now,
+      })
+    return this.getToolCall(id)!
+  }
+
+  getToolCall(id: string): ToolCall | null {
+    const found = row<ToolCallRow>(this.db.prepare('SELECT * FROM tool_calls WHERE id = :id').get({ id }))
+    return found ? toToolCall(found) : null
+  }
+
+  /**
+   * Clôt un appel d'outil.
+   * @param patch `summary` et `error` doivent être **expurgés** par l'appelant
+   * @returns l'appel mis à jour, ou `null` s'il n'existe pas
+   */
+  finishToolCall(
+    id: string,
+    patch: {
+      status: ToolCallStatus
+      summary?: string | null
+      bytes?: number | null
+      durationMs?: number | null
+      error?: string | null
+    },
+  ): ToolCall | null {
+    const info = this.db
+      .prepare(
+        `UPDATE tool_calls
+         SET status = :status, result_summary = :summary, result_bytes = :bytes,
+             duration_ms = :duration, error = :error, ended_at = :now
+         WHERE id = :id`,
+      )
+      .run({
+        id,
+        status: patch.status,
+        summary: patch.summary ?? null,
+        bytes: patch.bytes ?? null,
+        duration: patch.durationMs ?? null,
+        error: patch.error ?? null,
+        now: new Date().toISOString(),
+      })
+    return info.changes === 1 ? this.getToolCall(id) : null
+  }
+
+  /** Appels d'outils d'une tâche, dans l'ordre où ils ont été demandés. */
+  toolCalls(taskId: string): ToolCall[] {
+    return rows<ToolCallRow>(
+      this.db
+        .prepare('SELECT * FROM tool_calls WHERE task_id = :id ORDER BY requested_at ASC, rowid ASC')
+        .all({ id: taskId }),
+    ).map(toToolCall)
+  }
+}
+
+/** Ligne `provider_configs` telle que SQLite la rend. */
+interface ProviderRow {
+  id: string
+  name: string
+  kind: string
+  preset: string
+  base_url: string | null
+  default_model: string
+  secret_ref: string | null
+  web_search: string
+  created_at: string
+  updated_at: string
+  last_test_json: string | null
+}
+
+function toProvider(row: ProviderRow): ProviderConfig {
+  return {
+    id: row.id,
+    name: row.name,
+    kind: row.kind as ProviderKind,
+    preset: row.preset as ProviderPreset,
+    base_url: row.base_url,
+    default_model: row.default_model,
+    secret_ref: row.secret_ref,
+    web_search: row.web_search as WebSearchMode,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    last_test: row.last_test_json ? (JSON.parse(row.last_test_json) as ConnectionTest) : null,
+  }
+}
+
+/** Ligne `agents` telle que SQLite la rend. */
+interface AgentRow {
+  id: string
+  name: string
+  kind: string
+  description: string
+  provider_id: string | null
+  model: string | null
+  system_prompt: string
+  tools_json: string
+  limits_json: string
+  enabled: number
+  created_at: string
+  updated_at: string
+}
+
+function toAgent(row: AgentRow): Agent {
+  return {
+    id: row.id,
+    name: row.name,
+    kind: row.kind as AgentKind,
+    description: row.description,
+    provider_id: row.provider_id,
+    model: row.model,
+    system_prompt: row.system_prompt,
+    tools: JSON.parse(row.tools_json) as string[],
+    limits: JSON.parse(row.limits_json) as AgentLimits,
+    enabled: row.enabled === 1,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+/** Ligne `tool_calls` telle que SQLite la rend. */
+interface ToolCallRow {
+  id: string
+  task_id: string
+  step: number
+  call_id: string
+  name: string
+  status: string
+  decision: string
+  arguments_json: string
+  result_summary: string | null
+  result_bytes: number | null
+  duration_ms: number | null
+  error: string | null
+  requested_at: string
+  ended_at: string | null
+}
+
+function toToolCall(row: ToolCallRow): ToolCall {
+  return {
+    id: row.id,
+    task_id: row.task_id,
+    step: row.step,
+    call_id: row.call_id,
+    name: row.name,
+    status: row.status as ToolCallStatus,
+    decision: row.decision as ToolDecision,
+    arguments_json: row.arguments_json,
+    result_summary: row.result_summary,
+    result_bytes: row.result_bytes,
+    duration_ms: row.duration_ms,
+    error: row.error,
+    requested_at: row.requested_at,
+    ended_at: row.ended_at,
   }
 }

@@ -15,6 +15,8 @@
  * ```
  */
 import { z } from 'zod'
+import { agentLimitsSchema } from './agent.ts'
+import { usageSchema } from './usage.ts'
 
 /** Statuts finaux : une tâche qui y entre n'en sort plus. */
 export const TERMINAL_STATUSES = [
@@ -97,11 +99,31 @@ export class IllegalTransitionError extends Error {
   }
 }
 
-/** Résultat structuré d'une tâche terminée. Enrichi en Slice 2 (usage, artefacts). */
+/**
+ * Résultat structuré d'une tâche terminée.
+ *
+ * L'agent le produit en appelant l'outil terminal `submit_result`, jamais en
+ * laissant la boucle deviner la fin depuis du texte libre (§4 du plan) : un
+ * modèle qui écrit « voilà, j'ai fini » sans appeler l'outil n'a pas fini, il a
+ * seulement arrêté de parler.
+ *
+ * `untrusted` est le champ qui compte pour la sécurité : il dit si `details`
+ * contient du contenu venu du web. Quand il est vrai, le serveur MCP encadre le
+ * résultat avant de le rendre à Claude (voir `wrapUntrusted`).
+ */
 export const taskResultSchema = z.object({
+  /** Une phrase : la réponse, pas le récit de la recherche. */
   summary: z.string(),
+  /** Corps du résultat, en Markdown. Vide pour une tâche simulée. */
+  details: z.string().default(''),
   /** Étapes franchies, telles que l'exécutant les a rapportées. */
   steps: z.array(z.string()).default([]),
+  /** Sources citées par l'agent. Une affirmation sans source se repère ainsi. */
+  citations: z
+    .array(z.object({ title: z.string(), url: z.string() }))
+    .default([]),
+  /** Vrai si le résultat reprend du contenu extérieur, donc non fiable. */
+  untrusted: z.boolean().default(false),
 })
 export type TaskResult = z.infer<typeof taskResultSchema>
 
@@ -115,6 +137,14 @@ export const taskSchema = z.object({
   /** Étape courante ; `0` tant que la tâche n'a pas démarré. */
   step: z.number().int().min(0),
   steps_total: z.number().int().min(1),
+  /** Profil d'agent qui exécute. `simulated` pour les tâches factices de la Slice 1. */
+  agent_id: z.string(),
+  /** Contexte fourni par Claude à la délégation. L'agent ne refait pas l'exploration du dépôt (§4 du plan). */
+  context: z.string().nullable(),
+  /** Limites effectivement appliquées : celles du profil, abaissées par la délégation. */
+  limits: agentLimitsSchema,
+  /** Consommation cumulée, et d'où vient le montant. Toujours présente, à zéro pour une tâche simulée. */
+  usage: usageSchema,
   /** Vrai tant qu'une étape exige encore une approbation humaine. */
   needs_approval: z.boolean(),
   /**
@@ -123,7 +153,12 @@ export const taskSchema = z.object({
    * (voir {@link isActionable}) — correctif du défaut n° 2 de la Slice 0.
    */
   approval_seq: z.number().int().min(0),
-  /** Durée totale simulée, en secondes. Disparaîtra avec les vrais agents (Slice 2). */
+  /**
+   * Durée totale simulée, en secondes. **N'a de sens que pour le profil
+   * `simulated`** : un agent réel s'arrête sur son résultat, son budget ou ses
+   * limites, jamais sur un minuteur. Conservée parce que le profil simulé reste
+   * le seul moyen d'exercer le harness sans dépenser de jetons.
+   */
   duration_s: z.number().int().min(1),
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),

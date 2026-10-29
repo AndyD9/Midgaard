@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, it } from 'node:test'
-import { IllegalTransitionError, loadConfig } from '@midgaard/contracts'
+import { DEFAULT_RESEARCHER_LIMITS, IllegalTransitionError, loadConfig } from '@midgaard/contracts'
 import { HarnessStore, SCHEMA_VERSION, migrate } from '@midgaard/persistence'
 
 let home: string
@@ -25,7 +25,15 @@ afterEach(() => {
 
 /** Tâche de test, prête à avancer. */
 function newTask(needsApproval = false) {
-  return store.createTask({ objective: 'objectif', durationS: 10, stepsTotal: 5, needsApproval })
+  return store.createTask({
+    objective: 'objectif',
+    agentId: 'simulated',
+    context: null,
+    limits: DEFAULT_RESEARCHER_LIMITS,
+    durationS: 10,
+    stepsTotal: 5,
+    needsApproval,
+  })
 }
 
 describe('migrations', () => {
@@ -79,7 +87,7 @@ describe('création et journal', () => {
     const { task } = newTask()
     store.record(task.id, 'preparing', { type: 'task.started' })
     store.record(task.id, 'running', { type: 'task.progress' }, { step: 1 })
-    store.record(task.id, 'completed', { type: 'task.completed' }, { result: { summary: 'ok', steps: [] } })
+    store.record(task.id, 'completed', { type: 'task.completed' }, { result: { summary: 'ok', details: '', steps: [], citations: [], untrusted: false } })
     const events = store.taskEvents(task.id)
     assert.deepEqual(
       events.map((e) => e.status),
@@ -132,7 +140,7 @@ describe('redémarrage', () => {
     const finished = newTask().task
     store.record(finished.id, 'preparing', { type: 'task.started' })
     store.record(finished.id, 'running', { type: 'task.progress' })
-    store.record(finished.id, 'completed', { type: 'task.completed' }, { result: { summary: 'ok', steps: [] } })
+    store.record(finished.id, 'completed', { type: 'task.completed' }, { result: { summary: 'ok', details: '', steps: [], citations: [], untrusted: false } })
 
     const interrupted = store.markInterrupted()
     assert.equal(interrupted.length, 3, 'queued, running et waiting_approval doivent tous être interrompus')
@@ -207,7 +215,7 @@ describe('lecture', () => {
     newTask()
     store.record(a.id, 'preparing', { type: 'task.started' })
     store.record(a.id, 'running', { type: 'task.progress' })
-    store.record(a.id, 'completed', { type: 'task.completed' }, { result: { summary: 'ok', steps: [] } })
+    store.record(a.id, 'completed', { type: 'task.completed' }, { result: { summary: 'ok', details: '', steps: [], citations: [], untrusted: false } })
     assert.deepEqual(store.countTasks(), { total: 2, active: 1 })
   })
 

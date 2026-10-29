@@ -22,12 +22,30 @@ export interface Migration {
 }
 
 /**
- * Migrations, dans l'ordre. La version 1 est le schéma de la Slice 1.
+ * Limites par défaut appliquées aux tâches de la Slice 1, qui n'en avaient pas.
  *
- * Les tables `projects`, `agents`, `tool_calls`, `artifacts`, `usage`,
- * `provider_configs` et `workspaces` prévues au plan (§6) arriveront avec les
- * fonctionnalités qui les remplissent (Slices 2 et 3) : créer des tables vides
- * d'avance fige un schéma qu'on n'a pas encore éprouvé.
+ * Écrites en toutes lettres dans le SQL de la migration 2 plutôt qu'importées de
+ * `@midgaard/contracts` : une migration publiée ne se modifie plus, et elle doit
+ * donc produire le même résultat dans dix versions, même si les valeurs par
+ * défaut du code ont changé entre-temps. Importer une constante vivante ferait
+ * dériver une migration figée.
+ */
+const SLICE1_DEFAULT_LIMITS =
+  '{"max_steps":12,"max_cost_usd":0.5,"timeout_s":300,"max_output_tokens":4096,"max_tool_calls_per_step":5}'
+
+/** Consommation nulle, pour les tâches antérieures au comptage des coûts. */
+const ZERO_USAGE =
+  '{"model_calls":0,"input_tokens":0,"output_tokens":0,"reasoning_tokens":0,"cached_tokens":0,' +
+  '"web_searches":0,"cost_usd":0,"cost_source":"unknown","cost_usd_estimated":null,"cost_usd_reported":null}'
+
+/**
+ * Migrations, dans l'ordre. La version 1 est le schéma de la Slice 1, la
+ * version 2 celui de la Slice 2.
+ *
+ * Les tables `projects`, `artifacts` et `workspaces` prévues au plan (§6)
+ * arriveront avec la Slice 3, qui les remplit : créer des tables vides d'avance
+ * fige un schéma qu'on n'a pas encore éprouvé. `usage` n'aura pas de table —
+ * voir la migration 2.
  */
 export const MIGRATIONS: readonly Migration[] = [
   {
@@ -85,7 +103,88 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX approvals_status_idx ON approvals(status);
     `,
   },
+  {
+    version: 2,
+    label: 'Slice 2 — agents, fournisseurs, appels d\'outils, consommation',
+    sql: `
+      -- Les tâches gagnent de quoi dire QUI les exécute, avec QUEL contexte,
+      -- sous QUELLES limites, et ce qu'elles ont COÛTÉ.
+      --
+      -- 'agent_id' prend 'simulated' par défaut : les tâches de la Slice 1 ont
+      -- toutes été exécutées par le moteur simulé, et le dire après coup est
+      -- exact, alors que les laisser sans agent obligerait tout le code aval à
+      -- traiter un cas « tâche sans exécutant » qui n'existe pas.
+      ALTER TABLE tasks ADD COLUMN agent_id    TEXT NOT NULL DEFAULT 'simulated';
+      ALTER TABLE tasks ADD COLUMN context     TEXT;
+      ALTER TABLE tasks ADD COLUMN limits_json TEXT NOT NULL DEFAULT '${SLICE1_DEFAULT_LIMITS}';
+      ALTER TABLE tasks ADD COLUMN usage_json  TEXT NOT NULL DEFAULT '${ZERO_USAGE}';
+      CREATE INDEX tasks_agent_idx ON tasks(agent_id);
+
+      -- Fournisseurs de modèles. 'secret_ref' désigne une clé dans le coffre
+      -- système : cette table n'en contient jamais aucune, pour qu'une base
+      -- copiée ou sauvegardée ne donne accès à rien (§5 du plan).
+      CREATE TABLE provider_configs (
+        id             TEXT PRIMARY KEY,
+        name           TEXT NOT NULL,
+        kind           TEXT NOT NULL,
+        preset         TEXT NOT NULL,
+        base_url       TEXT,
+        default_model  TEXT NOT NULL,
+        secret_ref     TEXT,
+        web_search     TEXT NOT NULL DEFAULT 'off',
+        created_at     TEXT NOT NULL,
+        updated_at     TEXT NOT NULL,
+        last_test_json TEXT
+      );
+
+      -- Profils d'agents. 'provider_id' est volontairement SANS clé étrangère :
+      -- supprimer un fournisseur ne doit pas faire disparaître les profils qui
+      -- s'y référaient, sinon l'utilisateur perd sa configuration en voulant
+      -- changer de clé. Un profil orphelin se désactive, il ne s'efface pas.
+      CREATE TABLE agents (
+        id            TEXT PRIMARY KEY,
+        name          TEXT NOT NULL,
+        kind          TEXT NOT NULL,
+        description   TEXT NOT NULL DEFAULT '',
+        provider_id   TEXT,
+        model         TEXT,
+        system_prompt TEXT NOT NULL DEFAULT '',
+        tools_json    TEXT NOT NULL DEFAULT '[]',
+        limits_json   TEXT NOT NULL,
+        enabled       INTEGER NOT NULL DEFAULT 1,
+        created_at    TEXT NOT NULL,
+        updated_at    TEXT NOT NULL
+      );
+
+      -- Appels d'outils. Arguments et résultats y sont stockés EXPURGÉS : si une
+      -- clé traverse un outil, elle ne doit pas se retrouver en clair dans une
+      -- base que l'utilisateur sauvegardera sans y penser.
+      CREATE TABLE tool_calls (
+        id             TEXT PRIMARY KEY,
+        task_id        TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        step           INTEGER NOT NULL,
+        call_id        TEXT NOT NULL,
+        name           TEXT NOT NULL,
+        status         TEXT NOT NULL,
+        decision       TEXT NOT NULL,
+        arguments_json TEXT NOT NULL DEFAULT '{}',
+        result_summary TEXT,
+        result_bytes   INTEGER,
+        duration_ms    INTEGER,
+        error          TEXT,
+        requested_at   TEXT NOT NULL,
+        ended_at       TEXT
+      );
+      CREATE INDEX tool_calls_task_idx ON tool_calls(task_id, requested_at);
+    `,
+  },
 ]
+
+// Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',
+// et son historique est déjà dans le journal, où chaque 'usage.updated' porte le
+// cumul du moment. Une table de plus n'ajouterait qu'une troisième copie à tenir
+// cohérente avec les deux autres. Le plan (§6) la prévoyait ; c'est un écart
+// assumé, documenté dans docs/SLICE2.md.
 
 /** Version de schéma attendue par ce code. */
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version

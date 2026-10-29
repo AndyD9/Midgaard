@@ -1,37 +1,39 @@
 /**
- * @file Moteur de tâches : la machine à états en marche.
+ * @file Gérant des tâches : la machine à états en marche, et la frontière avec
+ * les exécutants.
  *
- * En Slice 1, les tâches sont **simulées** — des étapes minutées, avec une pause
- * d'approbation facultative. On valide la machine à états, la persistance, le
- * journal, l'attente bloquante et les approbations ; les vrais agents arrivent en
- * Slice 2 et remplaceront `tick()` sans toucher au reste.
+ * Ce module garde **tout ce qui ne dépend pas de l'exécutant** : création,
+ * transitions, décisions humaines, expirations, annulation, attente bloquante.
+ * Ce qui se passe entre le démarrage et la fin appartient à un
+ * {@link TaskEngine} — étapes minutées pour le profil simulé, boucle modèle pour
+ * un agent réel.
  *
- * Déroulé d'une tâche de `duration_s` secondes :
+ * Cette coupure est l'encaissement du pari de la Slice 1, qui avait conçu
+ * `tick()` pour être remplacé sans toucher au reste. Elle l'a été ; le reste n'a
+ * pas bougé.
  *
- * ```text
- *  t=0        queued      création
- *  t≈0        preparing   task.started
- *  t=1·D/5    running     étape 1
- *  …
- *  t=3·D/5    running     étape 3 — ou waiting_approval si needs_approval
- *  …
- *  t=5·D/5    completed   résultat
- * ```
- *
- * Toutes les écritures passent par le bus ({@link EventBus}), jamais par le dépôt
- * directement : c'est ce qui garantit qu'aucun changement d'état n'échappe aux
- * long-polls ni aux dashboards connectés.
+ * Toutes les écritures passent par le bus ({@link EventBus}), jamais par le
+ * dépôt directement : c'est ce qui garantit qu'aucun changement d'état n'échappe
+ * aux long-polls ni aux dashboards connectés.
  */
 import { createHash } from 'node:crypto'
-import type { Approval, HarnessConfig, Task, TaskEvent } from '@midgaard/contracts'
-import { isActionable, isTerminal, nextActionFor } from '@midgaard/contracts'
+import type {
+  Agent,
+  Approval,
+  HarnessConfig,
+  RequestedLimits,
+  Task,
+  TaskEvent,
+  ToolCall,
+} from '@midgaard/contracts'
+import { SIMULATED_AGENT_ID, isActionable, isTerminal, nextActionFor, tightenLimits } from '@midgaard/contracts'
 import type { HarnessStore } from '@midgaard/persistence'
 import type { EventBus } from './bus.ts'
+import { SimulatedEngine, STEPS_TOTAL } from './engines/simulated.ts'
+import type { EngineContext, TaskEngine } from './engines/types.ts'
 
-/** Nombre d'étapes d'une tâche simulée. */
-export const STEPS_TOTAL = 5
-/** Étape à laquelle une tâche `needs_approval` se met en pause. */
-export const APPROVAL_STEP = 3
+export { STEPS_TOTAL, APPROVAL_STEP } from './engines/simulated.ts'
+
 /**
  * Intervalle maximal de balayage des approbations expirées.
  *
@@ -55,14 +57,13 @@ export interface TaskView {
   approval: Approval | null
 }
 
-/** Pilote les tâches simulées et applique la machine à états. */
+/** Pilote les tâches et applique la machine à états. */
 export class TaskManager {
   private readonly config: HarnessConfig
   private readonly store: HarnessStore
   private readonly bus: EventBus
   private readonly log: (...a: unknown[]) => void
-  /** Minuteur de la prochaine étape, par tâche. Vit dans ce processus seulement. */
-  private readonly timers = new Map<string, NodeJS.Timeout>()
+  private readonly engines = new Map<string, TaskEngine>()
   private sweeper: NodeJS.Timeout | null = null
 
   constructor(config: HarnessConfig, store: HarnessStore, bus: EventBus, log: (...a: unknown[]) => void) {
@@ -70,6 +71,33 @@ export class TaskManager {
     this.store = store
     this.bus = bus
     this.log = log
+    this.register(new SimulatedEngine(this.engineContext()))
+  }
+
+  /**
+   * Déclare un moteur pour un type de profil.
+   *
+   * Le moteur simulé est enregistré par le constructeur ; le daemon ajoute celui
+   * des agents réels une fois le coffre ouvert et les fournisseurs lus. Un profil
+   * dont le moteur n'est pas enregistré refuse les délégations plutôt que de
+   * faire semblant de démarrer.
+   */
+  register(engine: TaskEngine): void {
+    this.engines.set(engine.kind, engine)
+  }
+
+  /** Ce que les moteurs empruntent au daemon. */
+  private engineContext(): EngineContext {
+    return {
+      config: this.config,
+      store: this.store,
+      bus: this.bus,
+      log: this.log,
+      requestApproval: (taskId, operation, payload) => this.openApproval(taskId, operation, payload),
+      concludeCancellation: (taskId) => {
+        this.finishCancellation(taskId)
+      },
+    }
   }
 
   /**
@@ -99,128 +127,110 @@ export class TaskManager {
     return interrupted.length
   }
 
-  /** Arrête tous les minuteurs. L'état reste en base ; les tâches actives seront
+  /** Arrête tous les moteurs. L'état reste en base ; les tâches actives seront
    * marquées `interrupted` au prochain démarrage. */
   stop(): void {
-    for (const t of this.timers.values()) clearTimeout(t)
-    this.timers.clear()
+    for (const engine of this.engines.values()) engine.stop()
     if (this.sweeper) clearInterval(this.sweeper)
   }
 
   // --- Cycle de vie --------------------------------------------------------
 
-  /** Crée une tâche et programme son démarrage. */
-  create(input: { objective: string; durationS: number; needsApproval: boolean }): Task {
+  /**
+   * Crée une tâche et la confie au moteur de son profil.
+   *
+   * Les refus arrivent **avant** la création : une tâche créée puis échouée
+   * aussitôt parce que son agent n'existe pas pollue l'historique et oblige
+   * Claude à lire un statut pour comprendre une erreur de saisie.
+   *
+   * @returns la tâche créée, ou un refus explicite
+   */
+  create(input: {
+    objective: string
+    agentId: string
+    context: string | null
+    requestedLimits?: RequestedLimits | undefined
+    durationS: number
+    needsApproval: boolean
+  }): { task: Task } | Refusal {
+    const agent = this.store.getAgent(input.agentId)
+    if (!agent) {
+      return {
+        error: 'agent_not_found',
+        status: 404,
+        detail: { agent_id: input.agentId, available: this.store.listAgents().map((a) => a.id) },
+      }
+    }
+    if (!agent.enabled) {
+      return {
+        error: 'agent_disabled',
+        status: 409,
+        detail: { agent_id: agent.id, reason: this.whyDisabled(agent) },
+      }
+    }
+    if (!this.engines.has(agent.kind)) {
+      return { error: 'engine_unavailable', status: 503, detail: { agent_id: agent.id, kind: agent.kind } }
+    }
+
+    // Les limites du profil sont un **plafond** : la délégation ne peut que les
+    // abaisser. Sans cette règle, Claude fixerait lui-même son budget, et le
+    // budget ne protégerait plus personne.
+    const limits = tightenLimits(agent.limits, input.requestedLimits ?? {})
     const { task } = this.bus.createTask({
       objective: input.objective,
+      agentId: agent.id,
+      context: input.context,
+      limits,
       durationS: input.durationS,
       stepsTotal: STEPS_TOTAL,
       needsApproval: input.needsApproval,
     })
-    this.log(`tâche ${short(task.id)} créée (${input.durationS}s, approbation=${input.needsApproval})`)
-    // Démarrage au tour de boucle suivant : la réponse HTTP de création part
-    // avant, donc l'appelant reçoit bien `queued` puis observe la suite.
-    this.schedule(task.id, 1)
-    return task
+    this.log(`tâche ${short(task.id)} créée pour ${agent.id} (budget ${limits.max_cost_usd} $)`)
+    this.engines.get(agent.kind)!.start(task, agent)
+    return { task }
   }
 
-  /** Durée d'une étape pour cette tâche, en millisecondes. */
-  private stepMs(task: Task): number {
-    return Math.max(1, Math.round((task.duration_s * 1000) / task.steps_total))
-  }
-
-  private schedule(taskId: string, delayMs: number): void {
-    const timer = setTimeout(() => {
-      this.timers.delete(taskId)
-      try {
-        this.tick(taskId)
-      } catch (e) {
-        this.log(`erreur sur la tâche ${short(taskId)} :`, e)
-        this.bus.record(taskId, 'failed', { type: 'task.failed' }, { error: (e as Error).message })
-      }
-    }, delayMs)
-    this.timers.set(taskId, timer)
+  /** Pourquoi un profil est désactivé, en une phrase destinée à l'utilisateur. */
+  private whyDisabled(agent: Agent): string {
+    if (agent.provider_id === null) {
+      return 'aucun fournisseur de modèle n\'est configuré pour ce profil'
+    }
+    if (!this.store.getProvider(agent.provider_id)) {
+      return `le fournisseur « ${agent.provider_id} » n'existe plus`
+    }
+    return 'profil désactivé'
   }
 
   /**
-   * Fait avancer une tâche simulée d'une étape.
-   *
-   * Reprend l'état depuis la base à chaque fois plutôt que de le garder en
-   * mémoire : une annulation ou une approbation a pu survenir entre la
-   * programmation du minuteur et son déclenchement, et la base est la seule
-   * source de vérité.
+   * Met une tâche en pause et crée la demande d'approbation correspondante.
+   * Appelé par les moteurs via {@link EngineContext.requestApproval}.
    */
-  private tick(taskId: string): void {
+  private openApproval(
+    taskId: string,
+    operation: string,
+    payload: Record<string, unknown> = {},
+  ): Approval | null {
     const task = this.store.getTask(taskId)
-    if (!task) return
-    // Garde-fou : une annulation a pu arriver entre la programmation et l'exécution.
-    if (isTerminal(task.status) || task.status === 'waiting_approval') return
-
-    if (task.status === 'queued') {
-      this.bus.record(taskId, 'preparing', {
-        type: 'task.started',
-        payload: { message: 'préparation de l\'exécutant (tâche simulée : aucun agent réel en Slice 1)' },
-      })
-      this.schedule(taskId, this.stepMs(task))
-      return
-    }
-
-    const step = task.step + 1
-
-    if (step >= task.steps_total) {
-      const result = {
-        summary: `Tâche simulée terminée : ${task.objective}`,
-        steps: Array.from({ length: task.steps_total }, (_, i) => `étape simulée ${i + 1}/${task.steps_total}`),
-      }
-      // `cancel_requested → completed` est légal : une tâche peut franchir sa
-      // dernière étape avant d'avoir pris connaissance de l'annulation.
-      this.bus.record(taskId, 'completed', { type: 'task.completed', payload: { result } }, { step, result })
-      this.log(`tâche ${short(taskId)} terminée`)
-      return
-    }
-
-    if (task.needs_approval && step === APPROVAL_STEP) {
-      this.pauseForApproval(task, step)
-      return
-    }
-
-    this.bus.record(
-      taskId,
-      task.status === 'cancel_requested' ? null : 'running',
-      { type: 'task.progress', payload: { step, steps_total: task.steps_total } },
-      { step },
-    )
-    // Une annulation demandée pendant l'étape précédente est honorée ici : la
-    // tâche s'arrête au premier point de contrôle, sans tuer quoi que ce soit.
-    if (task.status === 'cancel_requested') {
-      this.finishCancellation(taskId)
-      return
-    }
-    this.schedule(taskId, this.stepMs(task))
-  }
-
-  /** Met la tâche en pause et crée la demande d'approbation correspondante. */
-  private pauseForApproval(task: Task, step: number): void {
+    if (!task || isTerminal(task.status) || task.status === 'waiting_approval') return null
     const seq = task.approval_seq + 1
-    const operation = `étape ${step}/${task.steps_total} de « ${task.objective} »`
     const approval = this.store.createApproval({
       taskId: task.id,
       seq,
       operation,
       // L'empreinte lie la décision à cette opération précise : si l'opération
-      // change, l'approbation ne s'y applique plus. En Slice 3 elle couvrira la
-      // commande, ses arguments et le chemin visé.
+      // change, l'approbation ne s'y applique plus.
       operationHash: createHash('sha256').update(`${task.id}\u0000${seq}\u0000${operation}`).digest('hex'),
       ttlMs: this.config.approvalTtlMs,
     })
     this.bus.record(
       task.id,
       'waiting_approval',
-      { type: 'approval.requested', payload: { approval_id: approval.id, operation, step } },
-      { step, approval_seq: seq },
+      { type: 'approval.requested', payload: { ...payload, approval_id: approval.id, operation } },
+      { approval_seq: seq, ...(typeof payload.step === 'number' ? { step: payload.step } : {}) },
     )
     this.bus.emitApproval(approval)
     this.log(`tâche ${short(task.id)} en attente d'approbation (${approval.id})`)
+    return approval
   }
 
   // --- Décisions humaines --------------------------------------------------
@@ -253,7 +263,9 @@ export class TaskManager {
       { needs_approval: false },
     )!
     this.log(`approbation ${approvalId} accordée par ${by}, tâche ${short(task.id)} relancée`)
-    this.schedule(task.id, this.stepMs(task))
+    const agent = this.store.getAgent(done.task.agent_id)
+    const engine = agent ? this.engines.get(agent.kind) : undefined
+    if (agent && engine) engine.resume(done.task, agent)
     return this.view(done.task)
   }
 
@@ -276,6 +288,9 @@ export class TaskManager {
       { needs_approval: false, error: reason ? `approbation refusée : ${reason}` : 'approbation refusée' },
     )!
     this.log(`approbation ${approvalId} refusée par ${by}`)
+    const agent = this.store.getAgent(done.task.agent_id)
+    const engine = agent ? this.engines.get(agent.kind) : undefined
+    engine?.cancel(done.task)
     return this.view(done.task)
   }
 
@@ -284,9 +299,9 @@ export class TaskManager {
    *
    * Une tâche en pause d'approbation s'arrête tout de suite : elle n'exécute
    * rien, il n'y a aucun point de contrôle à attendre. Une tâche en marche passe
-   * par `cancel_requested` et s'arrête à son étape suivante — c'est la forme
-   * coopérative qu'exigeront les vrais agents, qu'on ne peut pas interrompre au
-   * milieu d'un appel de modèle sans en perdre le coût.
+   * par `cancel_requested` et s'arrête quand son moteur atteint un point de
+   * contrôle — forme coopérative qu'exigent les agents réels, qu'on ne peut pas
+   * interrompre au milieu d'un appel de modèle sans en perdre le coût déjà payé.
    */
   cancel(taskId: string, reason?: string): TaskView | Refusal {
     const task = this.store.getTask(taskId)
@@ -302,7 +317,11 @@ export class TaskManager {
       if (resolved) this.bus.emitApproval(resolved)
     }
 
+    const agent = this.store.getAgent(task.agent_id)
+    const engine = agent ? this.engines.get(agent.kind) : undefined
+
     if (task.status === 'waiting_approval') {
+      engine?.cancel(task)
       const done = this.bus.record(
         taskId,
         'cancelled',
@@ -317,12 +336,12 @@ export class TaskManager {
       type: 'task.cancelled',
       payload: { reason, phase: 'requested' },
     })!
-    // Tâches simulées : le point de contrôle est immédiat. Avec de vrais agents,
-    // on attendrait ici la fin de l'itération en cours.
-    clearTimeout(this.timers.get(taskId))
-    this.timers.delete(taskId)
-    const done = this.finishCancellation(taskId, reason) ?? requested
-    this.log(`tâche ${short(taskId)} annulée`)
+    // Le moteur dit s'il s'est arrêté net ou s'il s'arrêtera à son prochain
+    // point de contrôle. Dans le second cas la tâche reste `cancel_requested`,
+    // et c'est exact : elle n'est pas encore arrêtée.
+    const stoppedNow = engine ? engine.cancel(requested.task) : true
+    const done = (stoppedNow ? this.finishCancellation(taskId, reason) : null) ?? requested
+    this.log(`tâche ${short(taskId)} annulation ${stoppedNow ? 'effective' : 'demandée'}`)
     return this.view(done.task)
   }
 
@@ -354,6 +373,8 @@ export class TaskManager {
       this.bus.emitApproval(resolved)
       const task = this.store.getTask(due.task_id)
       if (!task || task.status !== 'waiting_approval') continue
+      const agent = this.store.getAgent(task.agent_id)
+      if (agent) this.engines.get(agent.kind)?.cancel(task)
       this.bus.record(
         task.id,
         'timed_out',
@@ -384,6 +405,11 @@ export class TaskManager {
   /** Timeline complète d'une tâche. */
   events(taskId: string): TaskEvent[] {
     return this.store.taskEvents(taskId)
+  }
+
+  /** Appels d'outils d'une tâche, dans l'ordre. Vide pour une tâche simulée. */
+  toolCalls(taskId: string): ToolCall[] {
+    return this.store.toolCalls(taskId)
   }
 
   /**
@@ -433,6 +459,9 @@ export class TaskManager {
     return { ...this.view(task), waited_ms: Date.now() - started }
   }
 }
+
+/** Identifiant du profil simulé, réexporté pour les appelants du daemon. */
+export { SIMULATED_AGENT_ID }
 
 /**
  * Délai en texte lisible. En minutes au-delà d'une minute, en secondes en deçà :

@@ -10,7 +10,7 @@
  * La diffusion est **synchrone et après commit** : au moment où un abonné est
  * réveillé, la base contient déjà l'état qu'il va lire.
  */
-import type { Approval, Task, TaskEvent, TaskStatus } from '@midgaard/contracts'
+import type { AgentLimits, Approval, Task, TaskEvent, TaskStatus } from '@midgaard/contracts'
 import type { EventInput, HarnessStore, Recorded, TaskPatch } from '@midgaard/persistence'
 
 /** Ce qu'un abonné reçoit : l'événement, et l'état de la tâche juste après. */
@@ -49,7 +49,15 @@ export class EventBus {
   }
 
   /** Crée une tâche, puis diffuse son `task.created`. */
-  createTask(input: { objective: string; durationS: number; stepsTotal: number; needsApproval: boolean }): Recorded {
+  createTask(input: {
+    objective: string
+    agentId: string
+    context: string | null
+    limits: AgentLimits
+    durationS: number
+    stepsTotal: number
+    needsApproval: boolean
+  }): Recorded {
     return this.emit(this.store.createTask(input))
   }
 

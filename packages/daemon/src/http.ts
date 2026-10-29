@@ -153,12 +153,16 @@ async function handleTasks(
       if (!parsed.success) {
         return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
       }
-      const task = deps.tasks.create({
+      const created = deps.tasks.create({
         objective: parsed.data.objective.trim(),
+        agentId: parsed.data.agent_id,
+        context: parsed.data.context ?? null,
+        requestedLimits: parsed.data.limits,
         durationS: parsed.data.duration_s,
         needsApproval: parsed.data.needs_approval,
       })
-      return send(res, 201, deps.tasks.view(task))
+      if ('error' in created) return send(res, created.status, { error: created.error, ...created.detail })
+      return send(res, 201, deps.tasks.view(created.task))
     }
     if (method === 'GET') {
       const status = url.searchParams.get('status') ?? undefined
