@@ -144,7 +144,7 @@ Files/Diff. Le profil `developer` rejoindra `simulated` et `researcher` dans
 `packages/daemon/src/agents.ts`, et son moteur sera l'`AgentEngine` existant avec
 une autre boîte à outils : la boucle n'a pas à changer.
 
-S'y ajoutent trois dettes nées de la Slice 2, détaillées dans
+S'y ajoutent cinq dettes nées de la Slice 2, détaillées dans
 [docs/SLICE2.md](docs/SLICE2.md) :
 
 1. **Éprouver l'adaptateur Gemini contre l'API réelle.** Il est écrit d'après la
@@ -156,10 +156,15 @@ S'y ajoutent trois dettes nées de la Slice 2, détaillées dans
    la question se répond en un appel.
 3. **Vérifier le coffre sur Windows et Linux.** DPAPI et libsecret sont écrits,
    pas constatés.
-
-Et un point toujours ouvert : **un test Playwright du dashboard**, reporté une
-seconde fois — maintenant que l'interface porte des coûts et des appels
-d'outils, la régression visuelle devient coûteuse à surveiller à la main.
+4. **Un test Playwright du dashboard**, reporté une seconde fois — l'interface
+   porte désormais des coûts, des appels d'outils et des sources, et sa seule
+   couverture actuelle est celle des fonctions pures de `src/lib/utils.ts`.
+5. **Le conseil de `doctor` sur le coffre ne dépend pas de la plateforme.**
+   Quand le coffre système manque, il propose d'installer `libsecret`, ce qui
+   n'a de sens que sous Linux. Trouvé en déroulant le parcours d'un clone frais,
+   pas celui qu'on connaît déjà — et c'est la même famille que les défauts de
+   l'essai en vraie session : un message qui ne mène pas à une manette
+   atteignable. Trois lignes dans `packages/cli/src/commands.ts`.
 
 Les « Tasks » MCP natives restent tranchées : `claude-code` 2.1.309 ne déclare
 pas la capacité `tasks`, donc elles sont inutilisables et `harness_wait_for_task`

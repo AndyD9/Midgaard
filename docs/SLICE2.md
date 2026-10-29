@@ -771,7 +771,7 @@ c'est précisément la discipline que l'encadrement `<untrusted_data>` impose.
 ## Ce qui attend la Slice 3
 
 Le plan prévoyait déjà `workspace`, les outils d'écriture et l'UI d'approbation
-bloquante. S'y ajoutent quatre choses nées de cette slice :
+bloquante. S'y ajoutent cinq choses nées de cette slice :
 
 1. **Éprouver Gemini contre l'API réelle**, et trancher `generateContent` contre
    l'Interactions API.
@@ -786,3 +786,15 @@ bloquante. S'y ajoutent quatre choses nées de cette slice :
    premier test, mais il ne couvre que des fonctions pures : aucun rendu, aucune
    régression visuelle. C'est le report qui dure depuis la Slice 1, et l'interface
    porte désormais des coûts, des appels d'outils et des sources.
+5. **Le conseil de `doctor` sur le coffre ne dépend pas de la plateforme.**
+   Quand le coffre système manque, il propose d'installer `libsecret`
+   (`packages/cli/src/commands.ts`) — ce qui n'a de sens que sous Linux, et
+   envoie dans le mur sur macOS ou Windows.
+
+   Le défaut est mineur : il ne se déclenche que si le trousseau système est
+   indisponible. Ce qui l'est moins, c'est **comment** il a été trouvé — en
+   clonant le dépôt depuis GitHub dans un dossier vierge et en déroulant le
+   parcours d'un nouveau venu, plutôt que celui qu'on connaît déjà. C'est la
+   même famille que les cinq défauts de l'essai en vraie session : un message
+   qui ne mène pas à une manette atteignable. Les deux exercices se ressemblent
+   — emprunter un chemin qu'on n'emprunte jamais soi-même.
