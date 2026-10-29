@@ -106,12 +106,15 @@ budgets et limites, outils de lecture et `http_fetch`, registre d'agents avec
 coûts. Le moteur de tâches simulé (`packages/daemon/src/task-manager.ts`) est
 conçu pour que seul `tick()` soit remplacé.
 
-Deux points laissés ouverts par la Slice 1, à trancher là :
+Un point reste ouvert : **un test Playwright du dashboard**, reporté en Slice 3
+quand l'interface portera des diffs.
 
-- **Les « Tasks » MCP natives.** L'instrumentation est posée : le serveur MCP
-  écrit les capacités du client dans `~/.midgaard/mcp-trace.jsonl`
-  (`client.initialized`, `supports_native_tasks`). Lire cette ligne après une
-  vraie session Claude Code avant de décider. Le raisonnement est dans
-  [docs/SLICE1.md](docs/SLICE1.md).
-- **Un test Playwright du dashboard**, reporté en Slice 3 quand l'interface
-  portera des diffs.
+Les « Tasks » MCP natives, elles, sont tranchées : `claude-code` 2.1.309 ne
+déclare pas la capacité `tasks`, donc elles sont inutilisables et
+`harness_wait_for_task` reste nécessaire. Le serveur MCP écrit les capacités du
+client dans `~/.midgaard/mcp-trace.jsonl` (`client.initialized`,
+`supports_native_tasks`) à **chaque** connexion : relire cette ligne après une
+montée de version du client, c'est tout ce qu'il faut pour rouvrir la question.
+Le même relevé montre deux capacités à regarder en Slice 3 — `elicitation` et
+l'extension `io.modelcontextprotocol/ui` — détaillées dans
+[docs/SLICE1.md](docs/SLICE1.md).

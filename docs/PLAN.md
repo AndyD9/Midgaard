@@ -230,4 +230,4 @@ Scénario d'acceptation final, joué manuellement sur macOS puis Windows : la de
 4. Politique de rétention des worktrees et des logs (proposition : worktrees conservés jusqu'à suppression manuelle, logs 30 jours). → Slice 3
 5. Politique de merge des worktrees — **recommandation : manuelle uniquement dans le MVP.** Le harness ne merge jamais tout seul. → Slice 3
 
-Point ajouté en Slice 1, à trancher en Slice 2 : **adoption des « Tasks » MCP natives**. Elles ne sont utilisables que si le client les déclare ; l'instrumentation qui le dira est en place. Raisonnement complet dans [SLICE1.md](SLICE1.md).
+Point ajouté puis refermé en Slice 1 : ✅ **adoption des « Tasks » MCP natives** — **non**. Elles ne sont utilisables que si le client déclare la capacité `tasks` ; `claude-code` 2.1.309 ne la déclare pas (relevé dans `~/.midgaard/mcp-trace.jsonl`). `harness_wait_for_task` reste nécessaire. À revérifier à chaque montée de version du client ; raisonnement complet dans [SLICE1.md](SLICE1.md).

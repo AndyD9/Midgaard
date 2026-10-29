@@ -21,7 +21,7 @@ et les coûts.
 | Slice | Contenu | État |
 |---|---|---|
 | 0 | Spike : Claude Code → MCP → daemon, attente longue, approbation humaine | ✅ **Terminée**, validée en sessions réelles |
-| 1 | Squelette observable : persistance SQLite, dashboard temps réel, CLI `harness` | ✅ **Terminée**, 91 vérifications automatiques |
+| 1 | Squelette observable : persistance SQLite, dashboard temps réel, CLI `harness` | ✅ **Terminée**, 91 vérifications + essai en session réelle |
 | 2 | Agents réels (Researcher), providers OpenAI et Gemini, coûts | À faire |
 | 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | À faire |
 | 4 | Durcissement sécurité, distribution npm | À faire |

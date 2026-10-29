@@ -4,11 +4,13 @@
 persistance SQLite, dashboard temps réel, CLI `harness`, et un daemon qui
 s'arrête tout seul.
 
-**Verdict : livrable atteint.** Claude délègue une tâche factice, l'utilisateur
-en voit le cycle de vie en direct, l'approuve ou l'annule depuis le dashboard,
-redémarre le daemon et retrouve l'historique avec les tâches en vol marquées
-`interrupted`. 91 vérifications automatiques, 0 échec. Le monorepo remplace
-`spike/`, supprimé.
+**Verdict : livrable atteint, et vérifié en session réelle.** Claude délègue une
+tâche factice, l'utilisateur en voit le cycle de vie en direct, l'approuve ou
+l'annule depuis le dashboard, redémarre le daemon et retrouve l'historique avec
+les tâches en vol marquées `interrupted`. 91 vérifications automatiques, 0 échec,
+plus un essai de bout en bout dans une vraie session Claude Code 2.1.309 où une
+attente de 95 s a tenu jusqu'à la décision humaine. Le monorepo remplace `spike/`,
+supprimé.
 
 ---
 
@@ -59,6 +61,48 @@ approbation d'une tâche en pause, mise à jour de la timeline en direct,
 redémarrage du daemon, affichage de la tâche `interrupted`. Le plan prévoyait
 Playwright ; il est reporté en Slice 3, quand l'interface portera des diffs et
 que la régression visuelle deviendra coûteuse à surveiller à la main.
+
+---
+
+## Test en session réelle
+
+**Date :** 2026-10-29 · **Client :** `claude-code` **2.1.309**, app desktop.
+Sources : `~/.midgaard/mcp-trace.jsonl`, `~/.midgaard/daemon.log` et la base.
+
+C'est le seul test qui vaut pour l'ergonomie : le client du SDK utilisé par
+`test:wait` n'a ni les mêmes délais ni les mêmes habitudes que le client réel.
+
+### Chronologie (UTC)
+
+| Heure | Événement |
+|---|---|
+| 04:40:35 | Claude Code lance le serveur MCP ; capacités du client enregistrées |
+| 04:40:44 | Premier appel d'outil → le daemon démarre seul, migration 1 appliquée, écoute sur **7777** |
+| 04:40:47 | Délégation : tâche de 40 s avec approbation |
+| 04:40:50 | Attente n° 1, `timeout_s` **120** (la valeur par défaut) |
+| 04:40:53 | Le dashboard se connecte (reprise depuis la séquence 0) |
+| 04:41:11 | Pause d'approbation → l'attente rend la main après **20,7 s**, 1 notification |
+| 04:41:20 | Attente n° 2, `timeout_s` **300 choisi par Claude**, `known_approval` 1 → **bloque** |
+| 04:42:39 | Approbation humaine **dans le dashboard**, 88 s après la pause |
+| 04:42:55 | Tâche terminée ; l'attente rend `result_ready` après **95,4 s**, 6 notifications |
+
+### Ce qui est confirmé
+
+| Question | Réponse |
+|---|---|
+| Claude suit-il `next_action` ? | **Oui** : seconde attente 8,6 s après la première — le temps d'écrire la consigne à l'utilisateur |
+| Prévient-il *avant* de bloquer ? | **Oui**, et c'est ce qui a permis à l'humain d'approuver pendant le blocage |
+| La seconde attente bloque-t-elle vraiment ? | **Oui** : un seul appel de 95,4 s, 6 notifications, aucune coupure, aucune boucle |
+| Tente-t-il d'approuver lui-même ? | **Non** : aucun outil ne le lui permet |
+| Le dashboard sert-il à quelque chose ? | **Oui** : l'approbation a été donnée là, et la base la trace `by: dashboard` |
+| Le résultat est-il récupéré ? | **Oui** — c'est précisément ce qui avait échoué au premier essai de la Slice 0 |
+| Le daemon démarre-t-il seul ? | **Oui**, au premier appel d'outil, sur le port 7777 attendu |
+
+Le constat de la Slice 0 se répète : **Claude choisit lui-même son délai**. 120 s
+(la valeur par défaut) pour la première attente, 300 s pour la seconde, une fois
+qu'il sait attendre un humain. Les 95,4 s de blocage dépassent largement la
+coupure à 60 s mesurée sans notifications de progression — l'attente par tranches
+fait son travail.
 
 ---
 
@@ -148,7 +192,7 @@ outil qui rend du vide est exactement l'erreur du défaut n° 1 de la Slice 0.
 
 ---
 
-## Les « Tasks » MCP natives : évaluation
+## Les « Tasks » MCP natives : tranché, et pas en leur faveur
 
 Le SDK 1.32 implémente la primitive du protocole pour les requêtes longues :
 `tasks/get`, `tasks/result`, `tasks/list`, `tasks/cancel`, et
@@ -156,24 +200,47 @@ Le SDK 1.32 implémente la primitive du protocole pour les requêtes longues :
 `harness_wait_for_task` : rendre la main tout de suite et laisser le client
 revenir chercher le résultat.
 
-**Décision : ne pas l'adopter en Slice 1.** La raison est dans le protocole
-lui-même : une requête ne devient une tâche que si **le client** le demande, et
-il ne le demande que s'il déclare la capacité `tasks`. Un serveur ne peut pas
-l'imposer sans casser tous les clients qui l'ignorent. La question n'est donc pas
-« est-ce mieux ? » mais « Claude Code le déclare-t-il ? », et seule une vraie
-session peut y répondre — le client du SDK utilisé par les tests ne prouve rien
-du client réel.
+La question n'était pas « est-ce mieux ? » mais « Claude Code le déclare-t-il ? ».
+Une requête ne devient une tâche que si **le client** le demande, et il ne le
+demande que s'il annonce la capacité `tasks` ; un serveur ne peut pas l'imposer
+sans casser tous les clients qui l'ignorent.
 
-L'instrumentation est en place : le serveur MCP écrit les capacités annoncées par
-son client dans `~/.midgaard/mcp-trace.jsonl` à chaque connexion
-(`client.initialized`, champ `supports_native_tasks`). Il suffira d'ouvrir une
-session Claude Code et de lire cette ligne.
+**Réponse mesurée, et non supposée.** Capacités annoncées par `claude-code`
+2.1.309 à la connexion, relevées dans `~/.midgaard/mcp-trace.jsonl` :
 
-Même si la réponse est oui, le remplacement n'est pas automatique : notre attente
-porte une sémantique que le protocole n'a pas — la pause d'approbation annoncée
-une seule fois par client (`approval_seq`), et le `next_action` qui dit à Claude
-quoi faire. Ce sont ces deux choses, pas le mécanisme d'attente, qui ont fait la
-différence en Slice 0.
+```json
+{"elicitation":{"form":{},"url":{}},
+ "roots":{"listChanged":true},
+ "extensions":{"io.modelcontextprotocol/ui":{"mimeTypes":["text/html;profile=mcp-app"]}}}
+```
+
+Pas de `tasks`. **Les « Tasks » MCP natives ne sont pas utilisables** avec ce
+client : `harness_wait_for_task` et son attente par tranches restent nécessaires.
+À revérifier à chaque montée de version du client — la ligne est écrite à chaque
+connexion, il suffit de la relire.
+
+Et même le jour où la capacité apparaîtra, le remplacement ne sera pas mécanique :
+notre attente porte une sémantique que le protocole n'a pas — la pause
+d'approbation annoncée une seule fois par client (`approval_seq`) et le
+`next_action` qui dit à Claude quoi faire. Ce sont ces deux choses, pas le
+mécanisme d'attente, qui ont fait la différence en Slice 0.
+
+### Deux capacités repérées au passage
+
+Le relevé en montre deux dont on n'avait pas tenu compte, et qui touchent
+directement ce que la Slice 3 doit construire :
+
+- **`elicitation`** (`form` et `url`) : le serveur peut demander une saisie à
+  l'utilisateur *à travers le client*. Tentant pour les approbations — mais à
+  manier avec précaution : la demande transiterait par le tour de Claude, alors
+  que tout l'intérêt du dispositif actuel est que la décision humaine lui échappe.
+  À étudier comme **complément** au dashboard, jamais comme remplacement.
+- **`extensions.io.modelcontextprotocol/ui`** acceptant
+  `text/html;profile=mcp-app` : le client sait afficher une interface HTML fournie
+  par le serveur. De quoi présenter un diff dans la session elle-même en Slice 3.
+
+Aucune des deux n'est utilisée, et aucune n'a été essayée. C'est une observation
+consignée, pas une décision.
 
 ---
 
