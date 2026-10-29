@@ -94,6 +94,36 @@ Deux pannes, avant même son premier lancement, dans du code qui avait l'air jus
 Les deux étaient exactement ce que « écrit d'après la documentation, jamais
 exécuté » laisse passer.
 
+### Puis le premier passage en CI en a montré deux de plus
+
+Le workflow a tourné le 2026-10-29. **macOS au vert, Linux sans trousseau au
+vert, Windows et Linux-avec-trousseau au rouge** — et les deux rouges disaient
+quelque chose de vrai :
+
+- **DPAPI bloquait dix secondes par appel, puis se faisait tuer.** Le préambule
+  PowerShell composait le chemin avec deux `Join-Path`, dont le paramètre est
+  **obligatoire** : reçu `$null`, PowerShell ne lève pas, il **pose une
+  question** et attend sur l'entrée standard — que `run()` ne fermait que
+  lorsqu'il avait un secret à écrire. Six cas, six expirations. Deux
+  corrections, toutes deux générales : le chemin se calcule désormais dans Node
+  (`dpapiDir`, testable depuis n'importe quelle plateforme) et le script ne
+  contient plus aucune applet dont un paramètre pourrait être nul ; et `run()`
+  **ferme toujours** l'entrée standard, pour qu'une question lise une fin de
+  fichier et échoue avec son message au lieu d'attendre.
+- **`available()` prouve que le service répond, pas qu'il peut ranger.** Sur le
+  runner, `secret-tool lookup` réussissait — code 1, sortie d'erreur muette,
+  donc « disponible » — alors que le trousseau n'avait **aucune collection par
+  défaut** et que chaque `store` échouait sur
+  « Object does not exist at path …/collection/login ». C'est une limite réelle
+  de la sonde, et elle est assumée : la combler demanderait d'écrire un secret
+  d'essai à chaque démarrage. Ce qui est garanti, c'est que l'échec porte le
+  message de `secret-tool`, et non un silence.
+
+Troisième correction née de ces deux-là : **un utilitaire tué par le délai le
+dit maintenant.** Il ressortait en « code 1 » avec une sortie d'erreur vide,
+indistinguable d'un échec ordinaire — ce qui a coûté un aller-retour de CI pour
+comprendre que DPAPI n'échouait pas, il attendait.
+
 ## API
 
 ```ts

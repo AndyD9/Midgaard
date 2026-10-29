@@ -12,7 +12,7 @@ import { VAULT_IDS, type SecretVault, type VaultId } from './types.ts'
 
 export { normalizeRef, VaultError, VAULT_IDS } from './types.ts'
 export type { SecretVault, VaultId } from './types.ts'
-export { fileVault, libsecret, macosKeychain, windowsDpapi } from './vaults.ts'
+export { dpapiDir, fileVault, libsecret, macosKeychain, windowsDpapi } from './vaults.ts'
 
 /** Variable qui force un coffre, surtout utile aux tests et au dépannage. */
 export const VAULT_ENV = 'MIDGAARD_VAULT'

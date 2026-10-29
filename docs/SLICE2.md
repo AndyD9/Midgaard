@@ -13,8 +13,9 @@ d'instance unique, 7 d'intégration, 7 d'interface, 12 de bout en bout MCP et 5
 d'essai réel, 0 échec.
 
 *(Ce document a été complété le 2026-10-29 : trois des cinq dettes qu'il
-ouvrait sont soldées, et le § « Les dettes, soldées » raconte les quatre pannes
-réelles que leur fermeture a révélées.)*
+ouvrait sont soldées, et le § « Les dettes, soldées » raconte les six pannes
+réelles que leur fermeture a révélées — dont deux par le premier passage en
+intégration continue.)*
 
 L'essai en vraie session Claude Code, que la version précédente de ce document
 annonçait comme restant à faire, **a eu lieu** : il confirme les invariants — une
@@ -794,10 +795,12 @@ racontées plus bas. Ce qui manque ici n'est pas du code, c'est une clé.
 
 ## Les dettes, soldées — 2026-10-29
 
-Trois dettes fermées, et **quatre pannes réelles** trouvées en les fermant. La
+Trois dettes fermées, et **six pannes réelles** trouvées en les fermant — deux
+d'entre elles par le premier passage en intégration continue, qui a rougi sur
+deux postes et avait raison. La
 leçon est la même pour les trois, et elle est désagréable : *du code écrit
 d'après une documentation, relu et plausible, ne vaut rien tant qu'il n'a pas
-tourné.* Les quatre pannes vivaient dans du code qu'on aurait signé sans hésiter.
+tourné.* Les six pannes vivaient dans du code qu'on aurait signé sans hésiter.
 
 ### Dette n° 3 — le coffre, sur les trois plateformes
 
@@ -847,12 +850,47 @@ aurait pris la sonde libsecret trop indulgente. Chaque poste pose
 été retenu — sans quoi un poste sans trousseau sauterait la batterie et passerait
 au vert sans rien avoir éprouvé. Un saut n'est pas une réussite.
 
-**Ce qui reste vrai de la dette :** rien de tout cela n'est encore *constaté* sur
-Windows et Linux. Le workflow est écrit et sa syntaxe vérifiée ; il n'a pas
-tourné, faute d'avoir été poussé. Les deux pannes qu'il vise ont été trouvées par
-le raisonnement et la reproduction locale, pas par lui. La dette ne sera
-pleinement close qu'au premier vert des quatre postes — et ce document le dira
-alors, pas avant.
+#### Le premier passage en CI, et ce qu'il a coûté
+
+Le workflow a tourné le 2026-10-29, aussitôt poussé. **Deux postes au vert —
+macOS et Linux sans trousseau — et deux au rouge.** C'était l'objet de
+l'exercice, et les deux rouges ont payé leur place :
+
+- **DPAPI expirait sur chacun des six cas**, à dix secondes exactement : il ne
+  tombait pas, il **attendait**. Le préambule PowerShell composait le chemin
+  avec deux `Join-Path`, dont le paramètre est **obligatoire** — reçu `$null`,
+  PowerShell ne lève pas, il pose une question et attend sur l'entrée standard,
+  que `run()` ne fermait que lorsqu'il avait un secret à écrire. À noter que
+  `MIDGAARD_REQUIRE_VAULT`, lui, passait : `openVault` élisait bien DPAPI, et
+  c'est pour cela que le poste a échoué **sur la conformité** au lieu de sauter
+  en silence. Deux corrections, toutes deux générales : le chemin se calcule
+  désormais dans Node (`dpapiDir`, testable ici même, sur un Mac), et `run()`
+  ferme **toujours** l'entrée standard — une question lit alors une fin de
+  fichier et échoue avec son message, au lieu d'attendre dix secondes une
+  réponse qui ne viendra pas.
+- **libsecret se disait disponible sur un trousseau sans collection.** Sur le
+  runner, `secret-tool lookup` réussissait — code 1, sortie d'erreur muette,
+  donc « disponible » même selon la sonde resserrée — alors que chaque `store`
+  échouait sur « Object does not exist at path …/collection/login ». La sonde
+  prouve que le **service** répond ; elle ne prouve pas qu'il a **où ranger**.
+  Limite réelle, et assumée : la combler demanderait d'écrire un secret d'essai
+  à chaque démarrage. La recette de CI crée maintenant la collection — le
+  premier essai la déverrouillait avec un mot de passe **vide**, ce qui ne la
+  crée pas — et un dépôt d'essai la vérifie **avant** la suite, pour qu'un poste
+  rouge désigne la recette plutôt que le code.
+
+Et une troisième correction, née des deux : **un utilitaire tué par le délai le
+dit.** Il ressortait en « code 1 » avec une sortie d'erreur vide, exactement
+comme un échec ordinaire. C'est ce qui a d'abord fait chercher la panne de DPAPI
+dans `set` — le seul appel qui écrit sur l'entrée standard — alors que `get` sur
+une référence absente expirait tout autant. Un message qui ne nomme que le
+symptôme oriente son lecteur vers le mauvais endroit : c'est, mot pour mot, le
+défaut n° 2 de l'essai en vraie session, cette fois dans notre propre outillage.
+
+**Ce qui reste vrai de la dette :** les deux pannes du premier passage sont
+corrigées, et ces correctifs n'ont **pas encore** de vert en face d'eux. macOS
+et Linux-sans-trousseau sont constatés ; Windows et libsecret ne le seront qu'au
+prochain passage — et ce document le dira alors, pas avant.
 
 ### Dette n° 4 — le dashboard, rendu dans un navigateur
 
@@ -922,15 +960,22 @@ celui qu'un développeur de ce projet rencontre le plus souvent.
 
 ### Ce que les trois ont en commun
 
-Les quatre pannes ont la même forme, et c'est celle des cinq défauts de l'essai
+Les six pannes ont la même forme, et c'est celle des cinq défauts de l'essai
 en vraie session : **un système qui répond quelque chose de plausible au lieu de
 signaler qu'il ne peut pas répondre.** DPAPI rendait une clé — la mauvaise.
 libsecret se disait prêt — il ne l'était pas. La carte des exécutants ne
 s'affichait pas — sans un mot. Le dashboard affichait « déconnecté » — sans dire
 qu'il ne reviendrait jamais.
 
+S'y ajoutent les deux que la CI a révélées, et qui disent la même chose d'un cran
+plus loin : DPAPI n'échouait pas, il **attendait** — et notre propre outillage
+présentait cette attente comme un échec ordinaire. libsecret se déclarait prêt
+sur un trousseau qui n'avait nulle part où ranger.
+
 Aucune n'aurait été trouvée par une relecture. Toutes l'ont été en **exécutant ce
-qu'on n'exécutait pas** : le coffre réel, le navigateur réel. C'est le même
-exercice que le clone depuis GitHub dans un dossier vierge qui avait révélé la
-dette n° 5 — emprunter un chemin qu'on n'emprunte jamais soi-même.
+qu'on n'exécutait pas** : le coffre réel, le navigateur réel, les trois
+plateformes réelles. C'est le même exercice que le clone depuis GitHub dans un
+dossier vierge qui avait révélé la dette n° 5 — emprunter un chemin qu'on
+n'emprunte jamais soi-même. Chaque fois qu'on l'a fait dans cette slice, il y
+avait quelque chose.
 

@@ -33,6 +33,7 @@ import { after, describe, it } from 'node:test'
 import {
   VAULT_ENV,
   VAULT_IDS,
+  dpapiDir,
   fileVault,
   libsecret,
   macosKeychain,
@@ -238,6 +239,26 @@ describe('normalizeRef', () => {
 
   it('borne la longueur, parce qu’elle finit en nom de fichier', () => {
     assert.equal(normalizeRef('a'.repeat(500)).length, 120)
+  })
+})
+
+// --- dpapiDir : le chemin Windows, vérifiable depuis n’importe où -----------
+
+describe('dpapiDir', () => {
+  // Ce chemin se calculait dans le script PowerShell, où rien ne pouvait le
+  // vérifier — et où une variable absente faisait **poser une question** à
+  // `Join-Path`, donc expirer l'appel au bout de dix secondes. Calculé dans
+  // Node, il se teste sur n'importe quelle plateforme, celle-ci comprise.
+  it('range les secrets sous %LOCALAPPDATA%\\Midgaard\\secrets', () => {
+    assert.equal(dpapiDir({ LOCALAPPDATA: '/base' }), join('/base', 'Midgaard', 'secrets'))
+  })
+
+  it('rend null quand LOCALAPPDATA manque ou est vide', () => {
+    // Pas de repli inventé : sans magasin, DPAPI n'est pas utilisable, et
+    // `available()` doit pouvoir le dire au lieu de laisser le script le
+    // découvrir en bloquant.
+    assert.equal(dpapiDir({}), null)
+    assert.equal(dpapiDir({ LOCALAPPDATA: '   ' }), null)
   })
 })
 

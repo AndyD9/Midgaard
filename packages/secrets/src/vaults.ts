@@ -173,15 +173,42 @@ export const windowsDpapi: SecretVault = {
 }
 
 /**
- * Préambule commun des scripts PowerShell : arrête au premier incident et
- * calcule le chemin du secret **depuis l'environnement**, jamais depuis une
- * chaîne interpolée.
+ * Préambule commun des scripts PowerShell : arrête au premier incident, et
+ * **lit** le chemin du secret dans l'environnement — il n'en calcule plus
+ * aucun.
+ *
+ * Le calcul se faisait ici, par deux `Join-Path`. C'était une mauvaise place
+ * pour deux raisons, et la CI Windows a fait payer les deux d'un coup :
+ *
+ *  - `Join-Path` a un paramètre **obligatoire**. S'il reçoit `$null` — ce qui
+ *    arrive dès que `$env:LOCALAPPDATA` manque de l'environnement reconstruit —
+ *    PowerShell ne lève pas : il **pose une question** et attend la réponse sur
+ *    l'entrée standard. Les six cas de conformité ont expiré à 10 s chacun ;
+ *  - un chemin calculé dans un script encodé en base64 n'est vérifiable par
+ *    rien. Calculé dans Node, il l'est.
+ *
+ * Le script n'appelle donc plus aucune applet dont un paramètre pourrait être
+ * nul, et `run()` ferme désormais l'entrée standard dans tous les cas : une
+ * question éventuelle lit une fin de fichier et échoue avec son message.
  */
 const PS_PREAMBLE = `
 $ErrorActionPreference = 'Stop'
-$dir = Join-Path $env:LOCALAPPDATA 'Midgaard\\secrets'
-$p = Join-Path $dir ($env:MIDGAARD_SECRET_REF + '.dpapi')
+$dir = $env:MIDGAARD_SECRET_DIR
+$p = $env:MIDGAARD_SECRET_PATH
 `.trim()
+
+/**
+ * Dossier des secrets DPAPI sur cette machine.
+ *
+ * @param env environnement à consulter ; injecté pour pouvoir être testé
+ * @returns le dossier, ou `null` si Windows ne dit pas où se trouve
+ *          `LOCALAPPDATA` — auquel cas DPAPI n'est pas utilisable, ce que
+ *          `available()` doit pouvoir répondre sans deviner
+ */
+export function dpapiDir(env: NodeJS.ProcessEnv = process.env): string | null {
+  const base = env.LOCALAPPDATA?.trim()
+  return base ? join(base, 'Midgaard', 'secrets') : null
+}
 
 /**
  * Lance un script PowerShell.
@@ -192,18 +219,24 @@ $p = Join-Path $dir ($env:MIDGAARD_SECRET_REF + '.dpapi')
  * Windows, PowerShell 7 non.
  */
 async function powershell(script: string, ref: string, stdin?: string) {
+  const dir = dpapiDir()
+  // Plutôt que de laisser le script se débrouiller avec une variable absente,
+  // on refuse ici, avec la raison. DPAPI range ses fichiers sous
+  // `%LOCALAPPDATA%` : sans elle, il n'y a pas de magasin où aller.
+  if (!dir) {
+    throw new VaultError('windows-dpapi', 'LOCALAPPDATA absent de l’environnement : magasin introuvable')
+  }
   const encoded = Buffer.from(script, 'utf16le').toString('base64')
-  // La référence voyage par l'environnement **du seul processus fils**, passée
-  // en argument à `run`.
+  // Le chemin voyage par l'environnement **du seul processus fils**, passé en
+  // argument à `run`.
   //
-  // Elle transitait auparavant par `process.env`, ce qui ne marchait pas :
-  // `run` reconstruit l'environnement du fils à partir d'une liste blanche où
-  // cette variable ne figurait pas. Le script lisait donc `$null`, et
-  // `Join-Path $dir ($null + '.dpapi')` désignait **le même fichier pour
+  // La référence transitait auparavant par `process.env`, ce qui ne marchait
+  // pas : `run` reconstruit l'environnement du fils à partir d'une liste
+  // blanche où cette variable ne figurait pas. Le script lisait donc `$null`,
+  // et `Join-Path $dir ($null + '.dpapi')` désignait **le même fichier pour
   // toutes les références** — chaque clé déposée écrasait la précédente, et
   // toute relecture rendait la dernière écrite, sans la moindre erreur.
-  // Mesuré en reproduisant la transmission, pas déduit (dette n° 3 de la
-  // Slice 2 : DPAPI était écrit, pas constaté).
+  // Mesuré en reproduisant la transmission, pas déduit.
   //
   // Au passage, écrire dans `process.env` rendait aussi deux `set` concurrents
   // capables de se voler leur référence. Un argument n'a pas ce défaut.
@@ -211,7 +244,7 @@ async function powershell(script: string, ref: string, stdin?: string) {
     'powershell.exe',
     ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
     stdin,
-    { MIDGAARD_SECRET_REF: normalizeRef(ref) },
+    { MIDGAARD_SECRET_DIR: dir, MIDGAARD_SECRET_PATH: join(dir, `${normalizeRef(ref)}.dpapi`) },
   )
 }
 

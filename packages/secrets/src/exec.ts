@@ -63,21 +63,34 @@ export function run(
         windowsHide: true,
       },
       (error, stdout, stderr) => {
-        const err = error as (NodeJS.ErrnoException & { code?: number | string }) | null
+        const err = error as (NodeJS.ErrnoException & { code?: number | string; killed?: boolean }) | null
         // ENOENT : le binaire n'existe pas sur cette machine. C'est le cas
         // nominal quand on sonde les coffres pour savoir lequel est utilisable.
         if (err && (err.code === 'ENOENT' || err.code === 'EACCES')) return reject(err)
+        // Un utilitaire tué par le délai doit le **dire**. Sans cette ligne, il
+        // ressort en « code 1 » avec une sortie d'erreur vide, exactement comme
+        // un échec ordinaire — et on cherche la panne là où elle n'est pas.
+        // Mesuré : six cas Windows expirés à 10 s se sont présentés en CI comme
+        // « windows-dpapi : code 1 ».
+        const timedOut = Boolean(err?.killed)
         resolve({
           code: typeof err?.code === 'number' ? err.code : err ? 1 : 0,
           stdout: String(stdout),
-          stderr: String(stderr),
+          stderr: timedOut
+            ? `${file} n'a pas rendu la main en ${EXEC_TIMEOUT_MS / 1000} s et a été tué${
+                String(stderr).trim() ? ` — ${String(stderr).trim()}` : ''
+              }`
+            : String(stderr),
         })
       },
     )
     child.on('error', reject)
-    if (stdin !== undefined) {
-      child.stdin?.end(stdin)
-    }
+    // Toujours fermer l'entrée standard, même quand on n'a rien à écrire. Un
+    // utilitaire qui se met à poser une question — PowerShell le fait dès qu'un
+    // paramètre obligatoire reçoit `$null` — lit alors une fin de fichier et
+    // échoue aussitôt avec son message, au lieu d'attendre une réponse qui ne
+    // viendra jamais et de se faire tuer au bout du délai.
+    child.stdin?.end(stdin ?? '')
   })
 }
 

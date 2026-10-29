@@ -162,14 +162,20 @@ une autre boîte à outils : la boucle n'a pas à changer.
 Des cinq dettes nées de la Slice 2, **trois sont soldées** le 2026-10-29 ; le
 récit complet est au § « Les dettes, soldées » de [docs/SLICE2.md](docs/SLICE2.md).
 Ce qu'elles ont coûté vaut d'être su avant d'en ouvrir d'autres : les trois ont
-révélé **quatre pannes réelles** dans du code qui avait l'air juste, et aucune
+révélé **six pannes réelles** dans du code qui avait l'air juste, et aucune
 n'était visible sans exécuter ce qu'on n'exécutait pas.
 
 - **Coffre (dette n° 3)** — `tests/unit/secrets.test.ts` passe la même batterie
   au coffre réel de la machine, et `.github/workflows/vault.yml` la lance sur
   macOS, Windows et Linux (avec **et** sans trousseau). Écrire la batterie a
   suffi à trouver deux pannes : DPAPI rangeait **toutes** les références dans un
-  seul fichier, et libsecret se déclarait disponible sans bus de session.
+  seul fichier, et libsecret se déclarait disponible sans bus de session. Le
+  premier passage en CI en a montré deux de plus : DPAPI **attendait** dix
+  secondes par appel (`Join-Path` pose une question quand son paramètre
+  obligatoire est nul, et l'entrée standard n'était pas fermée), et la sonde
+  libsecret prouve que le service répond, pas qu'il a une collection où ranger.
+  **macOS et Linux-sans-trousseau sont au vert ; Windows et libsecret attendent
+  leur premier.**
 - **Dashboard (dette n° 4)** — `npm run test:ui` : 7 scénarios dans un vrai
   navigateur. Deux pannes trouvées : la carte « Exécutants » ne s'affichait
   **jamais** au premier chargement (ses requêtes partaient avant le bootstrap et
