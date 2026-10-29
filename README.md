@@ -24,7 +24,7 @@ et les coûts.
 |---|---|---|
 | 0 | Spike : Claude Code → MCP → daemon, attente longue, approbation humaine | ✅ **Terminée**, validée en sessions réelles |
 | 1 | Squelette observable : persistance SQLite, dashboard temps réel, CLI `harness` | ✅ **Terminée**, 91 vérifications + essai en session réelle |
-| 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 158 vérifications + essai en session réelle ; coût **exact au microdollar** contre le solde Venice, trois fois |
+| 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 160 vérifications + essai en session réelle ; coût **exact au microdollar** contre le solde Venice, trois fois |
 | 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | À faire |
 | 4 | Durcissement sécurité, distribution npm | À faire |
 
@@ -119,7 +119,7 @@ Depuis la racine du dépôt :
 
 | Suite | Durée | Contenu |
 |---|---|---|
-| `npm run test:unit` | ~1 s | 121 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils, boucle d'agent |
+| `npm run test:unit` | ~1 s | 126 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils, boucle d'agent |
 | `npm run test:lock` | ~30 s | Instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s | Redémarrage, reprise WebSocket, sécurité, expiration, inactivité |
 | `npm run test:wait` | ~3 min | 12 scénarios de bout en bout avec le client MCP officiel |

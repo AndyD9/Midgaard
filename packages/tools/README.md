@@ -8,7 +8,7 @@ qui les rendent réversibles.
 |---|---|
 | `read_file` | Un fichier texte du projet |
 | `list_directory` | Le contenu d'un dossier, sans récursion |
-| `search_files` | Une expression régulière sur les fichiers du projet |
+| `search_files` | Une expression régulière sur les fichiers d'un **répertoire** du projet |
 | `http_fetch` | Une URL publique, HTML converti en texte |
 | `submit_result` | **Le seul outil qui termine une tâche** |
 
@@ -34,6 +34,25 @@ entre-temps, l'identité ne correspond plus et l'ouverture est refusée.
 
 Le message de refus ne dit jamais **où** menait le lien : un agent manipulé par
 un contenu web n'a pas à apprendre l'arborescence de la machine.
+
+## Un refus vaut mieux qu'un faux négatif
+
+`search_files` cherche dans un **répertoire**. Si on lui passe un chemin de
+fichier, il **refuse en disant quoi faire** — chercher dans le répertoire parent,
+ou lire le fichier avec `read_file`.
+
+Il a longtemps répondu « aucune correspondance » à la place : `readdir` lève
+`ENOTDIR` sur un fichier, et le `catch` qui rend la marche tolérante aux
+dossiers illisibles avalait l'erreur à la racine de la recherche. Le défaut a
+été trouvé en vraie session : un agent a cherché un symbole **qui existait**,
+l'a cru absent sur la foi de ce zéro, a reformulé quatre fois et y a laissé son
+budget d'étapes.
+
+La leçon est plus générale que l'outil : **un faux négatif est pire qu'un
+refus**, parce qu'il a l'air d'une réponse. Un modèle ne peut pas distinguer
+« je n'ai rien trouvé » de « je n'ai rien cherché » — alors l'outil doit le
+faire pour lui. La tolérance reste là où elle a un sens : un sous-dossier
+illisible n'interrompt toujours pas une recherche en cours.
 
 ## `http_fetch`
 

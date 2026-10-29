@@ -8,7 +8,7 @@ corresponde à la facture.
 **État : livrable atteint, mesuré, et éprouvé en vraie session.** Un Researcher
 exécute de vraies tâches sur Venice, et **le coût affiché correspond au centime
 près au solde débité** — vérifié **trois** fois, à 0,0 % d'écart, en relevant le
-solde chez le fournisseur avant et après. 124 vérifications unitaires, 10
+solde chez le fournisseur avant et après. 126 vérifications unitaires, 10
 d'instance unique, 7 d'intégration, 12 de bout en bout MCP et 5 d'essai réel,
 0 échec.
 
@@ -16,7 +16,9 @@ L'essai en vraie session Claude Code, que la version précédente de ce document
 annonçait comme restant à faire, **a eu lieu** : il confirme les invariants — une
 attente de 62,6 s sans coupure dans le vrai client, le `context` qui évite la
 redécouverte, le web encadré et sourcé — et **rapporte quatre défauts
-d'ergonomie**, consignés et non corrigés.
+d'ergonomie**. Le premier — `search_files` qui rendait « 0 correspondance »
+sur un chemin de fichier — **est corrigé**, avec son test de non-régression. Les
+trois autres sont consignés pour que l'auteur tranche.
 
 Ce qui n'a **pas** encore eu lieu est dit tel quel au § « Limites connues » :
 aucune ligne de ce document ne décrit quelque chose qui n'existe pas.
@@ -239,7 +241,7 @@ supplémentaire. Toujours aucun jeton facturé par un test.
 
 | Suite | Contenu | Résultat |
 |---|---|---|
-| `npm run test:unit` | 121 tests : machine à états, persistance, configuration, **normalisation des deux adaptateurs**, **coûts**, **sécurité des outils**, **boucle d'agent** | 121/121, ~1 s |
+| `npm run test:unit` | 126 tests : machine à états, persistance, configuration, **normalisation des deux adaptateurs**, **coûts**, **sécurité des outils**, **boucle d'agent** | 126/126, ~1 s |
 | `npm run test:lock` | 8 daemons lancés ensemble, 10 manches | 10/10, ~30 s |
 | `npm run test:restart` | 7 scénarios sur de vrais processus et de vraies sockets | 7/7, ~45 s |
 | `npm run test:wait` | 12 scénarios de bout en bout, client MCP officiel | 12/12, ~178 s |
@@ -469,7 +471,8 @@ protection-là n'a pas été éprouvée ; seule l'attribution l'a été.
 
 ### Les quatre défauts d'ergonomie
 
-Aucun n'est corrigé : ils sont consignés pour que l'auteur tranche.
+Le premier est corrigé ; les trois autres sont consignés pour que l'auteur
+tranche.
 
 #### 1. `search_files` répond « 0 correspondance » au lieu d'une erreur
 
@@ -496,6 +499,33 @@ d'étapes. **C'est la cause première de l'échec de la délégation n° 1.** Un
 Seconde lecture possible : le résumé « 0 correspondance(s) dans **0** fichier(s) »
 disait la vérité — zéro fichier parcouru — mais personne ne lit « 0 fichier »
 comme « ton chemin n'est pas un répertoire ».
+
+**Corrigé.** `search_files` vérifie désormais que la racine de la recherche est
+un répertoire et refuse sinon, en disant quoi faire :
+
+```text
+search_files searches a directory, and "packages/agent-runtime/src/loop.ts" is
+not one. Search "packages/agent-runtime/src" instead and narrow with glob, or
+read the file with read_file.
+```
+
+L'appel exact qui avait menti pendant l'essai a été rejoué contre le dépôt :
+il refuse, et le répertoire qu'il propose rend les 5 occurrences réelles de
+`checkLimits`, `loop.ts:186` comprise. La tolérance reste où elle a un sens —
+un sous-dossier illisible n'interrompt toujours pas une recherche.
+
+Un refus ne coûte pas la tâche, et c'est ce qui rend le correctif sûr : la
+boucle rattrape une `ToolError` et la rend au modèle en `Failed: …`
+(`loop.ts:463-468`), en la journalisant comme appel échoué. Le modèle lit donc
+le message, apprend qu'il s'est trompé de forme, et corrige au tour suivant —
+là où il croyait auparavant un zéro et s'entêtait. Échanger un faux négatif
+contre une erreur dure aurait été un mauvais marché ; ce n'est pas ce qui se
+passe.
+
+Deux tests le verrouillent, et le second compte autant que le premier : il
+vérifie que le motif **existe** quand on cherche comme il faut. Sans lui, le
+test du refus passerait aussi pour un motif simplement absent. Retirer la garde
+fait bien échouer le premier et seulement lui — vérifié.
 
 #### 2. Le motif d'échec ne nomme pas la cause, et le conseil vise un réglage hors d'atteinte
 
@@ -609,12 +639,13 @@ c'est précisément la discipline que l'encadrement `<untrusted_data>` impose.
 
 ## Limites connues
 
-- **Quatre défauts d'ergonomie ouverts, trouvés en vraie session et non corrigés** :
-  `search_files` rend « 0 correspondance » au lieu d'une erreur quand `path` est
-  un fichier ; un échec par plafond d'étapes ne nomme pas sa cause et conseille
+- **Trois défauts d'ergonomie ouverts**, trouvés en vraie session et **non
+  corrigés** : un échec par plafond d'étapes ne nomme pas sa cause et conseille
   un réglage hors d'atteinte ; `step` affiche le dénominateur de l'exécutant
   simulé (« 6/5 ») ; un écart de coût dû au cache est imputé à la table de
   tarifs. Détail et emplacements au § « Essai en vraie session Claude Code ».
+  Le quatrième — `search_files` qui rendait « 0 correspondance » sur un chemin
+  de fichier — est corrigé.
 - **L'approbation humaine n'a pas été rejouée en Slice 2.** Aucun outil du
   `researcher` n'en demande — c'est en lecture seule. Ce chemin a été vérifié
   en Slice 1, et le sera de nouveau en Slice 3 avec les outils d'écriture.
@@ -667,7 +698,9 @@ bloquante. S'y ajoutent quatre choses nées de cette slice :
    appels, ou l'Interactions API.
 3. **Vérifier le coffre sur Windows et Linux.** DPAPI et libsecret sont écrits,
    pas constatés.
-4. **Trancher les quatre défauts d'ergonomie** relevés en vraie session, listés
-   au § « Les quatre défauts d'ergonomie ». Le premier — `search_files` qui rend
-   « 0 correspondance » sur un chemin de fichier — fait perdre de l'argent à
-   chaque agent qui s'y fie, et se corrige en une ligne.
+4. **Trancher les trois défauts d'ergonomie restants**, listés au § « Les quatre
+   défauts d'ergonomie ». Le quatrième, `search_files`, est corrigé — c'était
+   le seul à faire perdre de l'argent à chaque agent qui s'y fiait. Les trois
+   autres trompent le lecteur sans lui coûter : un message d'échec qui tait sa
+   cause, un dénominateur emprunté à l'exécutant simulé, un écart de coût mal
+   imputé.

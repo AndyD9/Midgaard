@@ -153,6 +153,30 @@ describe('list_directory et search_files', () => {
       /invalid regular expression/,
     )
   })
+
+  // Le défaut trouvé en vraie session : `readdir` lève `ENOTDIR` sur un fichier, et
+  // le `catch` de la marche l'avalait. La recherche rendait alors « aucune
+  // correspondance » — un faux négatif que rien ne distingue d'une vraie absence,
+  // et qu'un modèle croit sur parole. On vérifie le refus, et surtout qu'il **ne
+  // ressemble pas** à un résultat vide.
+  it('refuse un chemin de fichier au lieu de rendre « aucune correspondance »', async () => {
+    await assert.rejects(
+      () => search().run({ pattern: 'motif', path: 'src/a.ts' } as never, ctx()),
+      (e: Error) => {
+        assert.match(e.message, /is not one/, 'le refus dit que le chemin n\'est pas un répertoire')
+        assert.match(e.message, /Search "src" instead/, 'et il dit quoi faire à la place')
+        assert.doesNotMatch(e.message, /aucune correspondance/)
+        return true
+      },
+    )
+  })
+
+  // Le même motif, cherché comme il faut, existe bel et bien : sans ce second
+  // temps, le test ci-dessus passerait aussi si le motif était simplement absent.
+  it('trouve ce motif quand on lui passe le répertoire', async () => {
+    const res = await search().run({ pattern: 'motif', path: 'src' } as never, ctx())
+    assert.match(res.content, /a\.ts:1:/)
+  })
 })
 
 describe('http_fetch — politique', () => {

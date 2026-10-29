@@ -12,7 +12,7 @@
  * ses réponses. Les lister ferait payer au modèle des jetons pour du bruit.
  */
 import { readdir, stat } from 'node:fs/promises'
-import { join, relative } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { z } from 'zod'
 import type { ToolResult } from '@midgaard/contracts'
 import { openUnderRoot, resolveUnderRoot } from './paths.ts'
@@ -128,7 +128,13 @@ export const listDirectoryTool: Tool<z.infer<typeof listSchema>> = {
 
 const searchSchema = z.object({
   pattern: z.string().min(1).describe('Regular expression to search for, JavaScript syntax'),
-  path: z.string().default('.').describe('Directory to search in, relative to the project root'),
+  path: z
+    .string()
+    .default('.')
+    .describe(
+      'Directory to search in, relative to the project root. Must be a directory, not a file: ' +
+        'to search inside one file, pass its directory and narrow with glob, or read it with read_file.',
+    ),
   glob: z
     .string()
     .optional()
@@ -155,6 +161,27 @@ export const searchFilesTool: Tool<z.infer<typeof searchSchema>> = {
     }
 
     const root = await resolveUnderRoot(ctx.root, args.path)
+
+    // `walk` tolère un dossier illisible : une recherche ne doit pas mourir
+    // parce qu'un dossier parmi mille refuse le listage. À la **racine** de la
+    // recherche, cette même tolérance rendait un chiffre faux — `readdir` lève
+    // `ENOTDIR` sur un fichier, le `catch` l'avalait, et le modèle recevait
+    // « 0 correspondance » au lieu d'une erreur. Un faux négatif est pire qu'un
+    // refus : il a l'air d'une réponse, et le modèle le croit. Mesuré en vraie
+    // session — l'agent a cherché un symbole qui existait, l'a cru absent, et y
+    // a laissé son budget d'étapes (docs/SLICE2.md, § défaut n° 1).
+    //
+    // Ce `stat` n'est pas un contrôle de sécurité : `resolveUnderRoot` a déjà
+    // vérifié la racine, et chaque fichier parcouru est rouvert sous contrôle par
+    // `openUnderRoot`. Il ne sert qu'à refuser proprement plutôt qu'à mentir.
+    if (!(await stat(root)).isDirectory()) {
+      const parent = dirname(args.path) || '.'
+      throw new ToolError(
+        `search_files searches a directory, and "${args.path}" is not one. ` +
+          `Search "${parent}" instead and narrow with glob, or read the file with read_file.`,
+      )
+    }
+
     const matches: string[] = []
     let scanned = 0
     let capped = false
