@@ -7,7 +7,7 @@
  */
 import { CircleDot } from 'lucide-react'
 import type { Approval, Task } from '@midgaard/contracts'
-import { cn, formatDateTime, formatTime } from '@/lib/utils'
+import { cn, formatCost, formatDateTime, formatTime } from '@/lib/utils'
 import { Badge, toneForStatus } from './ui/badge'
 
 export function TaskList({
@@ -57,7 +57,11 @@ export function TaskList({
             </div>
             <p className="mt-1.5 line-clamp-2 text-sm">{task.objective}</p>
             <p className="mt-1 font-mono text-[11px] text-muted">
-              {task.id.slice(0, 8)} · étape {task.step}/{task.steps_total}
+              {task.agent_id} · étape {task.step}/{task.steps_total}
+              {/* Le coût n'apparaît que s'il a été mesuré : afficher « 0 $ » sur
+                  une tâche qui n'a appelé aucun modèle serait une mesure fausse. */}
+              {task.usage.model_calls > 0 &&
+                ` · ${task.usage.cost_source === 'unknown' ? 'coût inconnu' : formatCost(task.usage.cost_usd)}`}
             </p>
           </button>
         </li>

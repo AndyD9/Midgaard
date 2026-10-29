@@ -178,6 +178,21 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX tool_calls_task_idx ON tool_calls(task_id, requested_at);
     `,
   },
+  {
+    version: 3,
+    label: 'Slice 2 — racine de lecture d\'une tâche',
+    sql: `
+      -- Dossier que l'agent a le droit de lire, transmis par le serveur MCP à la
+      -- délégation (son propre dossier de travail, donc le dépôt ouvert dans la
+      -- session Claude Code).
+      --
+      -- NULL pour les tâches simulées, qui ne lisent rien. Une migration à part
+      -- de la 2 parce que celle-ci était déjà appliquée aux bases de développement
+      -- quand le besoin est apparu : une migration publiée ne se modifie plus,
+      -- même la veille.
+      ALTER TABLE tasks ADD COLUMN project_dir TEXT;
+    `,
+  },
 ]
 
 // Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',

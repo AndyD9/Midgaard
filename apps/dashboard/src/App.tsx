@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useHarness } from '@/lib/useHarness'
+import { AgentsCard } from './components/AgentsCard'
 import { StatusBar } from './components/StatusBar'
 import { TaskInspector } from './components/TaskInspector'
 import { TaskList } from './components/TaskList'
@@ -87,18 +88,25 @@ export function App() {
   )
 }
 
-/** Écran vide : il explique quoi faire, plutôt que de rester muet. */
+/**
+ * Écran vide : il explique quoi faire, plutôt que de rester muet.
+ *
+ * Il montre aussi l'état réel des exécutants. Quelqu'un qui ouvre le dashboard
+ * sans avoir configuré de clé doit l'apprendre **ici**, et non en voyant sa
+ * première délégation refusée.
+ */
 function Empty() {
   return (
-    <div className="mx-auto max-w-md space-y-3 pt-16 text-center">
-      <h2 className="text-lg font-semibold">Rien à observer pour l'instant</h2>
-      <p className="text-sm text-muted">
-        Ouvre une session Claude Code sur un dossier où le serveur <code className="font-mono">midgaard</code>{' '}
-        est déclaré, et demande-lui de déléguer une tâche. Elle apparaîtra ici en direct.
-      </p>
-      <p className="text-sm text-muted">
-        En Slice 1, les tâches sont <strong>simulées</strong> : aucun agent réel ne tourne encore.
-      </p>
+    <div className="mx-auto max-w-xl space-y-5 pt-10">
+      <div className="space-y-3 text-center">
+        <h2 className="text-lg font-semibold">Rien à observer pour l'instant</h2>
+        <p className="text-sm text-muted">
+          Ouvre une session Claude Code sur un dossier où le serveur{' '}
+          <code className="font-mono">midgaard</code> est déclaré, et demande-lui de déléguer une tâche.
+          Elle apparaîtra ici en direct.
+        </p>
+      </div>
+      <AgentsCard />
     </div>
   )
 }

@@ -11,7 +11,9 @@ import { loadConfig } from '@midgaard/contracts'
 import { startDaemon } from './daemon.ts'
 
 const config = loadConfig(process.env)
-const daemon = await startDaemon(config)
+// L'environnement est transmis explicitement : il sert de dernier recours pour
+// une clé de fournisseur, et c'est ici — et seulement ici — qu'on le lit.
+const daemon = await startDaemon(config, { env: process.env })
 
 // Code 0 : un autre daemon fait déjà le travail, ce n'est pas une erreur.
 if (!daemon) process.exit(0)

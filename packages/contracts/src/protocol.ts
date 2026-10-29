@@ -82,6 +82,11 @@ export const createTaskRequestSchema = z.object({
   agent_id: z.string().min(1).max(64).default('simulated'),
   /** Contexte fourni par Claude : ce que l'agent n'a pas à redécouvrir lui-même. */
   context: z.string().max(100_000).optional(),
+  /**
+   * Dossier que l'agent pourra lire. Le serveur MCP y met son propre dossier de
+   * travail, c'est-à-dire le dépôt ouvert dans la session Claude Code.
+   */
+  project_dir: z.string().max(4096).optional(),
   /** Limites demandées. Elles ne peuvent qu'**abaisser** celles du profil. */
   limits: requestedLimitsSchema.optional(),
   /** Tâche simulée seulement : durée totale. */

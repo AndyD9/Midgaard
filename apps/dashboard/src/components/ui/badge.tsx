@@ -27,6 +27,8 @@ const badgeVariants = cva(
 )
 
 export type Tone = NonNullable<VariantProps<typeof badgeVariants>['tone']>
+/** Alias lisible pour les composants qui indexent un ton par statut. */
+export type BadgeTone = Tone
 
 /**
  * Rôle de couleur d'un statut de tâche.

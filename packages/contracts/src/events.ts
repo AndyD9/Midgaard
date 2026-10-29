@@ -29,9 +29,9 @@ import { taskStatusSchema } from './task.ts'
  *  - `usage.updated` suit la consommation après chaque appel modèle. C'est lui
  *    qui permet de voir un budget se remplir **pendant** la tâche, au lieu de
  *    découvrir la facture à la fin ;
- *  - `task.budget_exceeded` est distinct de `task.failed` : rien n'a échoué, une
- *    limite a été atteinte, et confondre les deux enverrait l'utilisateur
- *    chercher un bug qui n'existe pas.
+ *  - `task.budget_exceeded` et `task.timed_out` sont distincts de `task.failed` :
+ *    rien n'a échoué, une limite a été atteinte, et confondre les deux enverrait
+ *    l'utilisateur chercher un bug qui n'existe pas.
  *
  * `artifact.created` arrivera en Slice 3, avec les worktrees qui en produisent.
  */
@@ -44,6 +44,7 @@ export const EVENT_TYPES = [
   'task.cancelled',
   'task.interrupted',
   'task.budget_exceeded',
+  'task.timed_out',
   'agent.message',
   'approval.requested',
   'approval.resolved',

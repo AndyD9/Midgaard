@@ -53,6 +53,7 @@ export class EventBus {
     objective: string
     agentId: string
     context: string | null
+    projectDir: string | null
     limits: AgentLimits
     durationS: number
     stepsTotal: number

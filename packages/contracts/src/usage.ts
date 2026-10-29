@@ -213,3 +213,39 @@ export function settleCost(
   if (estimated !== null) return { cost_usd: estimated, cost_source: 'pricing_table' }
   return { cost_usd: 0, cost_source: 'unknown' }
 }
+
+/**
+ * Résume une consommation en un objet compact, destiné à Claude et au dashboard.
+ *
+ * **La provenance du montant y figure toujours.** Un coût affiché sans dire s'il
+ * vient de la facture ou d'une estimation invite à le prendre pour argent
+ * comptant ; `cost_source` est donc rendu avec le chiffre, et jamais après.
+ *
+ * Quand la source est inconnue, le champ `cost_usd` est **absent** plutôt qu'à
+ * zéro : un zéro se lit « gratuit », et c'est faux.
+ */
+export function formatUsage(usage: Usage): Record<string, unknown> {
+  const tokens = {
+    input: usage.input_tokens,
+    output: usage.output_tokens,
+    ...(usage.reasoning_tokens > 0 ? { reasoning: usage.reasoning_tokens } : {}),
+    ...(usage.cached_tokens > 0 ? { cached_input: usage.cached_tokens } : {}),
+  }
+  return {
+    model_calls: usage.model_calls,
+    tokens,
+    ...(usage.web_searches > 0 ? { web_searches: usage.web_searches } : {}),
+    ...(usage.cost_source === 'unknown'
+      ? { cost: 'unknown: no price on record for this model' }
+      : {
+          cost_usd: Number(usage.cost_usd.toFixed(6)),
+          cost_source:
+            usage.cost_source === 'provider'
+              ? 'billed by the provider'
+              : 'estimated from the local price table',
+        }),
+    ...(usage.cost_usd_reported !== null && usage.cost_usd_estimated !== null
+      ? { cost_usd_estimated: Number(usage.cost_usd_estimated.toFixed(6)) }
+      : {}),
+  }
+}

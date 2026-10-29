@@ -7,10 +7,11 @@
  * rejoués arrivent après des événements plus récents.
  */
 import {
-  CircleCheck, CircleSlash, CircleX, Flag, Hourglass, MessageSquare, Play, ShieldCheck, ShieldQuestion,
+  CircleCheck, CircleSlash, CircleX, Coins, Flag, Hourglass, MessageSquare, Play, ShieldCheck,
+  ShieldQuestion, TimerOff, Wallet, Wrench,
 } from 'lucide-react'
 import type { EventType, TaskEvent } from '@midgaard/contracts'
-import { formatDateTime, formatTime } from '@/lib/utils'
+import { formatCost, formatDateTime, formatTime } from '@/lib/utils'
 
 /** Icône et libellé français de chaque type d'événement. */
 const EVENT_LOOK: Record<EventType, { icon: typeof Flag; label: string; className: string }> = {
@@ -21,9 +22,14 @@ const EVENT_LOOK: Record<EventType, { icon: typeof Flag; label: string; classNam
   'task.failed': { icon: CircleX, label: 'Échec', className: 'text-danger' },
   'task.cancelled': { icon: CircleSlash, label: 'Annulation', className: 'text-danger' },
   'task.interrupted': { icon: CircleSlash, label: 'Interrompue par un redémarrage', className: 'text-danger' },
+  'task.budget_exceeded': { icon: Wallet, label: 'Budget atteint', className: 'text-waiting' },
+  'task.timed_out': { icon: TimerOff, label: 'Délai dépassé', className: 'text-waiting' },
   'agent.message': { icon: MessageSquare, label: 'Message', className: 'text-muted' },
   'approval.requested': { icon: ShieldQuestion, label: 'Approbation demandée', className: 'text-waiting' },
   'approval.resolved': { icon: ShieldCheck, label: 'Approbation tranchée', className: 'text-done' },
+  'tool.requested': { icon: Wrench, label: 'Outil demandé', className: 'text-running' },
+  'tool.completed': { icon: Wrench, label: 'Outil terminé', className: 'text-muted' },
+  'usage.updated': { icon: Coins, label: 'Consommation', className: 'text-muted' },
 }
 
 /**
@@ -44,6 +50,25 @@ function describe(event: TaskEvent): string | null {
   }
   if (event.type === 'task.interrupted') return `statut précédent : ${String(p.previous_status)}`
   if (event.type === 'task.cancelled' && p.reason) return String(p.reason)
+  if (event.type === 'tool.requested') {
+    const decision = p.decision === 'allow' ? '' : ` (${String(p.decision)})`
+    return `${String(p.name)}${decision}`
+  }
+  if (event.type === 'tool.completed') {
+    return p.error ? `échec — ${String(p.error)}` : (p.summary as string | null) ?? String(p.status)
+  }
+  // La consommation est l'événement le plus fréquent d'une tâche réelle : son
+  // résumé doit tenir en quelques caractères, sinon la timeline devient un
+  // relevé comptable qu'on ne lit plus.
+  if (event.type === 'usage.updated') {
+    const usage = p.usage as { cost_usd?: number; cost_source?: string; model_calls?: number } | undefined
+    if (!usage) return null
+    const cost = usage.cost_source === 'unknown' ? 'coût inconnu' : formatCost(usage.cost_usd ?? 0)
+    return `${usage.model_calls} appel(s) · ${cost}`
+  }
+  if (event.type === 'task.budget_exceeded' || event.type === 'task.timed_out') {
+    return (p.reason as string | undefined) ?? null
+  }
   return null
 }
 

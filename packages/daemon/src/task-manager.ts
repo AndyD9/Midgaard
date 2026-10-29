@@ -71,7 +71,7 @@ export class TaskManager {
     this.store = store
     this.bus = bus
     this.log = log
-    this.register(new SimulatedEngine(this.engineContext()))
+    this.register(new SimulatedEngine(this.engineContextFor()))
   }
 
   /**
@@ -86,8 +86,14 @@ export class TaskManager {
     this.engines.set(engine.kind, engine)
   }
 
-  /** Ce que les moteurs empruntent au daemon. */
-  private engineContext(): EngineContext {
+  /**
+   * Ce que les moteurs empruntent au daemon.
+   *
+   * Public pour que le daemon puisse construire le moteur des agents réels, qui
+   * a besoin de dépendances que le gérant n'a pas à connaître — le coffre et la
+   * table de tarifs.
+   */
+  engineContextFor(): EngineContext {
     return {
       config: this.config,
       store: this.store,
@@ -149,6 +155,7 @@ export class TaskManager {
     objective: string
     agentId: string
     context: string | null
+    projectDir: string | null
     requestedLimits?: RequestedLimits | undefined
     durationS: number
     needsApproval: boolean
@@ -180,6 +187,9 @@ export class TaskManager {
       objective: input.objective,
       agentId: agent.id,
       context: input.context,
+      // Une tâche simulée ne lit rien : lui attribuer une racine laisserait
+      // croire qu'elle y touche.
+      projectDir: agent.kind === 'simulated' ? null : input.projectDir,
       limits,
       durationS: input.durationS,
       stepsTotal: STEPS_TOTAL,

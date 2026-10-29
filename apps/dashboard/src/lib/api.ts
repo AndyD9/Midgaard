@@ -11,7 +11,7 @@
  * Le jeton reste en mémoire : ni `localStorage`, ni cookie, ni URL. Il change à
  * chaque démarrage du daemon, et un rechargement de page le redemande.
  */
-import type { Approval, Health, Task, TaskEvent } from '@midgaard/contracts'
+import type { Agent, Approval, Health, ProviderConfig, Task, TaskEvent, ToolCall } from '@midgaard/contracts'
 
 /** Jeton d'API, en mémoire uniquement. */
 let token: string | null = null
@@ -85,6 +85,29 @@ export function reject(approvalId: string, reason?: string): Promise<{ task: Tas
 /** Demande l'annulation d'une tâche. */
 export function cancelTask(taskId: string, reason?: string): Promise<{ task: Task }> {
   return api(`/api/tasks/${taskId}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) })
+}
+
+/** Appels d'outils d'une tâche, dans l'ordre où ils ont été demandés. */
+export function fetchToolCalls(taskId: string): Promise<{ tool_calls: ToolCall[] }> {
+  return api(`/api/tasks/${taskId}/tools`)
+}
+
+/** Profils d'agents déclarés, avec leur état d'activation. */
+export function fetchAgents(): Promise<{ agents: Agent[] }> {
+  return api('/api/agents')
+}
+
+/**
+ * Fournisseurs déclarés et date des tarifs.
+ *
+ * Ne contient **aucune clé** : `ProviderConfig` ne porte qu'une référence vers
+ * le coffre. Le dashboard n'en voit jamais une.
+ */
+export function fetchProviders(): Promise<{
+  providers: ProviderConfig[]
+  pricing: { updated_at: string; source: string; models: number }
+}> {
+  return api('/api/providers')
 }
 
 /** Approbations en attente, pour un rafraîchissement ponctuel. */

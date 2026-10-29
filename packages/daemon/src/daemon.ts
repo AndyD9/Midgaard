@@ -34,8 +34,13 @@ import {
   type Health,
 } from '@midgaard/contracts'
 import { HarnessStore } from '@midgaard/persistence'
+import { loadPricing } from '@midgaard/providers'
+import { openVault } from '@midgaard/secrets'
+import type { PricingTable } from '@midgaard/contracts'
 import { ensureBuiltinAgents } from './agents.ts'
 import { EventBus } from './bus.ts'
+import { AgentEngine } from './engines/agent.ts'
+import type { ProviderServiceDeps } from './providers.ts'
 import { createRequestHandler } from './http.ts'
 import { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'
 import { securityContext, type SecurityContext } from './security.ts'
@@ -83,6 +88,14 @@ export interface Daemon {
 export interface StartOptions {
   /** Journalisation ; par défaut sur stderr. **Jamais stdout** dans un contexte MCP. */
   log?: (...a: unknown[]) => void
+  /**
+   * Environnement consulté en dernier recours pour une clé de fournisseur.
+   *
+   * Injecté plutôt que lu ici : seuls les `main.ts` lisent `process.env`, et
+   * les tests doivent pouvoir faire tourner un daemon sans qu'une clé traîne
+   * dans leur propre environnement.
+   */
+  env?: NodeJS.ProcessEnv
 }
 
 /**
@@ -108,6 +121,39 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
   const store = HarnessStore.open(config, log)
   const bus = new EventBus(store)
   const tasks = new TaskManager(config, store, bus, log)
+
+  // Coffre et tarifs : résolus une fois au démarrage, puis injectés partout.
+  // Le coffre est **mesuré**, pas déduit de la plateforme — un Linux sans
+  // session graphique n'a pas de trousseau, et un macOS restreint peut refuser.
+  const vault = await openVault(config, options.env ?? {})
+  if (!vault.osBacked) {
+    log(`coffre : ${vault.label} — les clés ne sont PAS protégées par le système`)
+  } else {
+    log(`coffre : ${vault.label}`)
+  }
+  let pricing: PricingTable = loadPricing(config, (m) => log(m))
+  log(`tarifs : ${Object.keys(pricing.entries).length} modèle(s), relevés le ${pricing.updated_at.slice(0, 10)}`)
+
+  const providers: ProviderServiceDeps = {
+    config,
+    store,
+    vault,
+    env: options.env ?? {},
+    pricing: () => pricing,
+    setPricing: (table) => {
+      pricing = table
+    },
+    log,
+  }
+
+  tasks.register(
+    new AgentEngine({
+      ctx: tasks.engineContextFor(),
+      vault,
+      pricing: () => pricing,
+      env: options.env ?? {},
+    }),
+  )
   const files = new StaticFiles(config.dashboardDir ?? defaultDashboardDir())
   if (!files.available) log('dashboard non compilé : les URL de dashboard ne seront pas annoncées')
 
@@ -155,6 +201,7 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
       log,
       touch,
       shutdown: (reason) => close(reason),
+      providers,
     }),
   )
   stream.attach(server)

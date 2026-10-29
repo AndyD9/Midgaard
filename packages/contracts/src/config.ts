@@ -70,6 +70,23 @@ export interface HarnessConfig {
   leaseMs: number
   /** Dossier des fichiers compilés du dashboard ; `null` = emplacement par défaut du paquet. */
   dashboardDir: string | null
+  /**
+   * Ce que le harness fait d'un hôte absent de la liste blanche, quand un agent
+   * appelle `http_fetch` :
+   *  - `open` (défaut) : laisser passer tout hôte **public** ;
+   *  - `approval` : suspendre la tâche et demander un humain ;
+   *  - `allowlist` : refuser.
+   *
+   * Le plan (§5) prévoyait la liste blanche seule. En pratique, un Researcher
+   * qui ne peut lire que des domaines prévus d'avance ne sert à rien : personne
+   * ne connaît à l'avance l'URL de la documentation qu'il faudra consulter. Le
+   * mécanisme existe donc, réglable, et le défaut est **annoncé** plutôt que
+   * présenté comme une liste blanche qui n'en serait pas une. Les adresses
+   * privées et l'IMDS restent refusées dans les trois cas.
+   */
+  httpPolicy: 'open' | 'approval' | 'allowlist'
+  /** Hôtes toujours autorisés. Motifs `exemple.org` ou `*.exemple.org`. */
+  allowHosts: string[]
 }
 
 /** Valeurs lisibles depuis l'environnement. Tout le reste est dérivé. */
@@ -79,10 +96,22 @@ export interface ConfigEnv {
   MIDGAARD_IDLE_SHUTDOWN_S?: string | undefined
   MIDGAARD_APPROVAL_TTL_S?: string | undefined
   MIDGAARD_DASHBOARD_DIR?: string | undefined
+  MIDGAARD_HTTP_POLICY?: string | undefined
+  MIDGAARD_HTTP_ALLOW?: string | undefined
 }
 
 /** Port par défaut, repris du plan (`http://127.0.0.1:7777`). */
 export const DEFAULT_PORT = 7777
+
+/**
+ * Lit `MIDGAARD_HTTP_POLICY`. Une valeur inconnue retombe sur `open` plutôt que
+ * de faire échouer le démarrage : une faute de frappe ne doit pas empêcher le
+ * harness de tourner, et les adresses privées restent refusées de toute façon.
+ */
+function parsePolicy(raw: string | undefined): 'open' | 'approval' | 'allowlist' {
+  const value = raw?.trim()
+  return value === 'approval' || value === 'allowlist' ? value : 'open'
+}
 
 /**
  * Construit la configuration à partir de l'environnement, puis des surcharges.
@@ -119,6 +148,11 @@ export function loadConfig(env: ConfigEnv = {}, overrides: Partial<HarnessConfig
     waitSliceMs: 15_000,
     leaseMs: 1_000,
     dashboardDir: env.MIDGAARD_DASHBOARD_DIR ?? null,
+    httpPolicy: parsePolicy(env.MIDGAARD_HTTP_POLICY),
+    allowHosts: (env.MIDGAARD_HTTP_ALLOW ?? '')
+      .split(',')
+      .map((h) => h.trim())
+      .filter(Boolean),
   }
   // Les surcharges s'appliquent en dernier, mais les chemins dérivés de `home`
   // ont déjà été calculés : une surcharge de `home` seule doit donc les recalculer.

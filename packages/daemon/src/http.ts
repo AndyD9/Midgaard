@@ -23,6 +23,13 @@
  * | GET  | `/api/tasks/:id/wait?timeout_ms=&known_approval=` | Long-poll | 200, 404 |
  * | GET  | `/api/tasks/:id/events` | Timeline complète | 200, 404 |
  * | POST | `/api/tasks/:id/cancel` | Annulation | 200, 404, 409 |
+ * | GET  | `/api/tasks/:id/tools` | Appels d'outils d'une tâche | 200, 404 |
+ * | GET  | `/api/agents` | Profils d'agents | 200 |
+ * | GET  | `/api/providers` | Fournisseurs **sans aucune clé** | 200 |
+ * | POST | `/api/providers` | Déclare un fournisseur, dépose sa clé au coffre | 200, 400, 500 |
+ * | DELETE | `/api/providers/:id` | Retire un fournisseur et sa clé | 200, 404 |
+ * | POST | `/api/providers/:id/test` | « Test connection » | 200, 404 |
+ * | POST | `/api/providers/:id/pricing` | Relève les tarifs chez le fournisseur | 200, 400, 404, 502 |
  * | GET  | `/api/approvals` | Demandes en attente | 200 |
  * | POST | `/api/approvals/:id/approve` | Décision humaine | 200, 404, 409 |
  * | POST | `/api/approvals/:id/reject` | Décision humaine | 200, 404, 409 |
@@ -34,10 +41,17 @@
  * corps invalide ou trop gros, 405 sur méthode inconnue.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { createTaskRequestSchema, type Health } from '@midgaard/contracts'
+import { createTaskRequestSchema, upsertProviderRequestSchema, type Health } from '@midgaard/contracts'
 import type { HarnessStore } from '@midgaard/persistence'
 import type { TaskManager } from './task-manager.ts'
 import type { StaticFiles } from './static-files.ts'
+import {
+  deleteProvider,
+  refreshPricing,
+  testProvider,
+  upsertProvider,
+  type ProviderServiceDeps,
+} from './providers.ts'
 import { checkEnvelope, checkToken, type SecurityContext } from './security.ts'
 
 /** Taille maximale d'un corps de requête, contre l'épuisement mémoire. */
@@ -59,6 +73,8 @@ export interface HttpDeps {
   touch: () => void
   /** Demande l'arrêt du daemon (route `/api/shutdown`). */
   shutdown: (reason: string) => void
+  /** Service des fournisseurs : coffre, tests de connexion, tarifs. */
+  providers: ProviderServiceDeps
 }
 
 /** Envoie une réponse JSON, sauf si la connexion est déjà close — cas normal
@@ -126,6 +142,11 @@ export function createRequestHandler(deps: HttpDeps) {
 
       if (section === 'approvals') return handleApprovals(deps, res, method, id, action, req)
       if (section === 'tasks') return handleTasks(deps, res, method, url, id, action, req)
+      if (section === 'agents') return handleAgents(deps, res, method, id)
+      if (section === 'providers') return handleProviders(deps, res, method, id, action, req)
+      if (section === 'pricing' && method === 'GET') {
+        return send(res, 200, { pricing: deps.providers.pricing() })
+      }
 
       return send(res, 404, { error: 'not_found' })
     } catch (e) {
@@ -157,6 +178,7 @@ async function handleTasks(
         objective: parsed.data.objective.trim(),
         agentId: parsed.data.agent_id,
         context: parsed.data.context ?? null,
+        projectDir: parsed.data.project_dir ?? null,
         requestedLimits: parsed.data.limits,
         durationS: parsed.data.duration_s,
         needsApproval: parsed.data.needs_approval,
@@ -182,6 +204,7 @@ async function handleTasks(
 
   if (method === 'GET' && !action) return send(res, 200, view)
   if (method === 'GET' && action === 'events') return send(res, 200, { events: deps.tasks.events(id) })
+  if (method === 'GET' && action === 'tools') return send(res, 200, { tool_calls: deps.tasks.toolCalls(id) })
 
   if (method === 'GET' && action === 'wait') {
     const asked = Number(url.searchParams.get('timeout_ms') ?? 25_000)
@@ -233,4 +256,84 @@ async function handleApprovals(
   const outcome = action === 'approve' ? deps.tasks.approve(id, by) : deps.tasks.reject(id, by, reason)
   if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
   return send(res, 200, outcome)
+}
+
+/**
+ * Routes `/api/agents…`. Lecture seule : les profils livrés d'office sont posés
+ * au démarrage, et leur activation suit celle de leur fournisseur.
+ */
+function handleAgents(deps: HttpDeps, res: ServerResponse, method: string, id: string | undefined): void {
+  if (method !== 'GET') return send(res, 405, { error: 'method_not_allowed' })
+  if (!id) return send(res, 200, { agents: deps.store.listAgents() })
+  const agent = deps.store.getAgent(id)
+  return agent ? send(res, 200, { agent }) : send(res, 404, { error: 'agent_not_found' })
+}
+
+/**
+ * Routes `/api/providers…`.
+ *
+ * ⚠️ Ce que ces routes **rendent** ne contient jamais de clé : `ProviderConfig`
+ * ne porte qu'un `secret_ref`. La seule clé qui circule ici est celle que
+ * l'utilisateur dépose, dans le corps d'un `POST`, et elle part au coffre sans
+ * être écrite nulle part ailleurs.
+ */
+async function handleProviders(
+  deps: HttpDeps,
+  res: ServerResponse,
+  method: string,
+  id: string | undefined,
+  action: string | undefined,
+  req: IncomingMessage,
+): Promise<void> {
+  if (!id) {
+    if (method === 'GET') {
+      const pricing = deps.providers.pricing()
+      return send(res, 200, {
+        providers: deps.store.listProviders(),
+        pricing: {
+          updated_at: pricing.updated_at,
+          source: pricing.source,
+          models: Object.keys(pricing.entries).length,
+        },
+      })
+    }
+    if (method === 'POST') {
+      const parsed = upsertProviderRequestSchema.safeParse(await readJson(req))
+      if (!parsed.success) return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
+      const outcome = await upsertProvider(deps.providers, parsed.data)
+      if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
+      return send(res, 200, { provider: outcome })
+    }
+    return send(res, 405, { error: 'method_not_allowed' })
+  }
+
+  if (method === 'DELETE' && !action) {
+    const outcome = await deleteProvider(deps.providers, id)
+    if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
+    return send(res, 200, outcome)
+  }
+
+  if (method === 'POST' && action === 'test') {
+    // Un test de connexion sort sur le réseau : il peut durer. Le délai est
+    // celui de l'adaptateur, et l'abandon du client coupe l'appel.
+    const aborter = new AbortController()
+    res.on('close', () => {
+      if (!res.writableFinished) aborter.abort()
+    })
+    const outcome = await testProvider(deps.providers, id, aborter.signal)
+    if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
+    return send(res, 200, outcome)
+  }
+
+  if (method === 'POST' && action === 'pricing') {
+    const aborter = new AbortController()
+    res.on('close', () => {
+      if (!res.writableFinished) aborter.abort()
+    })
+    const outcome = await refreshPricing(deps.providers, id, aborter.signal)
+    if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
+    return send(res, 200, outcome)
+  }
+
+  return send(res, 405, { error: 'method_not_allowed' })
 }

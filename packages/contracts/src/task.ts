@@ -141,6 +141,15 @@ export const taskSchema = z.object({
   agent_id: z.string(),
   /** Contexte fourni par Claude à la délégation. L'agent ne refait pas l'exploration du dépôt (§4 du plan). */
   context: z.string().nullable(),
+  /**
+   * Dossier que l'agent a le droit de lire. `null` pour une tâche simulée.
+   *
+   * **Ce n'est pas une frontière de privilège** : le daemon tourne sous le
+   * compte de l'utilisateur. C'est une frontière d'intention, qui empêche un
+   * agent dérapant — ou manipulé par une page web — d'aller fouiller ailleurs
+   * que dans le dépôt d'où la tâche a été déléguée.
+   */
+  project_dir: z.string().nullable(),
   /** Limites effectivement appliquées : celles du profil, abaissées par la délégation. */
   limits: agentLimitsSchema,
   /** Consommation cumulée, et d'où vient le montant. Toujours présente, à zéro pour une tâche simulée. */

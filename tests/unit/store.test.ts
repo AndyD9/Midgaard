@@ -29,6 +29,7 @@ function newTask(needsApproval = false) {
     objective: 'objectif',
     agentId: 'simulated',
     context: null,
+    projectDir: null,
     limits: DEFAULT_RESEARCHER_LIMITS,
     durationS: 10,
     stepsTotal: 5,

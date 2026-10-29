@@ -24,6 +24,8 @@ import {
 } from '@midgaard/contracts'
 import { HarnessStore, SCHEMA_VERSION } from '@midgaard/persistence'
 import { StaticFiles, defaultDashboardDir } from '@midgaard/daemon'
+import { loadPricing, packagedPricingPath, userPricingPath } from '@midgaard/providers'
+import { openVault } from '@midgaard/secrets'
 import { ensureDaemon } from '@midgaard/mcp-server'
 import { MIN_NODE, SERVER_NAME, mcpConfigPath, mcpServerEntry, writeMcpConfig } from './mcp-config.ts'
 import type { McpServerEntry } from './mcp-config.ts'
@@ -300,6 +302,73 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
       : 'non compilé',
     ...(dashboard.available ? {} : { fix: 'npm run build   # sinon les approbations passent par la CLI' }),
   })
+
+  // Coffre : on **mesure** lequel répond sur cette machine, plutôt que de le
+  // déduire de la plateforme. Et on dit sans détour quand il ne protège rien.
+  try {
+    const vault = await openVault(config, process.env)
+    checks.push({
+      level: vault.osBacked ? 'ok' : 'warn',
+      label: 'Coffre',
+      detail: vault.label,
+      ...(vault.osBacked
+        ? {}
+        : {
+            fix:
+              'Les clés seront en clair sur le disque, et une sauvegarde de ce dossier les emportera. ' +
+              'Installe libsecret (secret-tool) pour employer le trousseau de session.',
+          }),
+    })
+  } catch (e) {
+    checks.push({ level: 'fail', label: 'Coffre', detail: (e as Error).message })
+  }
+
+  // Tarifs : un tarif périmé qu'on croit courant est pire qu'un tarif absent,
+  // d'où l'affichage de la date et l'avertissement au-delà de 90 jours.
+  const pricing = loadPricing(config)
+  const models = Object.keys(pricing.entries).length
+  const ageDays = Math.floor((Date.now() - Date.parse(pricing.updated_at)) / 86_400_000)
+  const stale = models === 0 || ageDays > 90
+  checks.push({
+    level: stale ? 'warn' : 'ok',
+    label: 'Tarifs',
+    detail:
+      models === 0
+        ? 'aucun tarif connu : les coûts seront affichés « inconnus », jamais zéro'
+        : `${models} modèle(s), relevés il y a ${ageDays} jour(s)`,
+    ...(stale
+      ? {
+          fix:
+            `npm run harness -- pricing refresh venice   # relève les tarifs chez le fournisseur\n` +
+            `  ${dim(`ou édite ${userPricingPath(config)} (copie livrée : ${relative(process.cwd(), packagedPricingPath())})`)}`,
+        }
+      : {}),
+  })
+
+  // Fournisseurs : lus en base, sans démarrer le daemon.
+  if (existsSync(config.dbPath)) {
+    try {
+      const store = HarnessStore.open(config)
+      const declared = store.listProviders()
+      const tested = declared.filter((p) => p.last_test?.ok).length
+      store.close()
+      checks.push({
+        level: declared.length === 0 ? 'warn' : tested === declared.length ? 'ok' : 'warn',
+        label: 'Fournisseurs',
+        detail:
+          declared.length === 0
+            ? 'aucun : seul le profil « simulated » peut tourner'
+            : `${declared.length} déclaré(s), ${tested} joignable(s) au dernier test`,
+        ...(declared.length === 0
+          ? { fix: 'npm run harness -- providers add venice --model qwen3-235b-a22b-instruct-2507' }
+          : tested === declared.length
+            ? {}
+            : { fix: 'npm run harness -- providers test <identifiant>' }),
+      })
+    } catch {
+      // La base a déjà été signalée plus haut ; inutile de le redire.
+    }
+  }
 
   for (const c of checks) {
     console.log(`${mark[c.level]()} ${bold(c.label.padEnd(18))} ${c.detail}`)

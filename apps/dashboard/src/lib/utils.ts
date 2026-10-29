@@ -41,3 +41,22 @@ export function timeUntil(iso: string, now: number): string | null {
   if (ms < 60_000) return `${Math.ceil(ms / 1000)} s`
   return `${Math.ceil(ms / 60_000)} min`
 }
+
+/**
+ * Montant en dollars, lisible.
+ *
+ * Quatre décimales en dessous d'un centime : un appel d'agent coûte couramment
+ * des fractions de centime, et afficher « 0,00 $ » pour trois centièmes de
+ * centime ferait croire que le comptage ne marche pas.
+ */
+export function formatCost(usd: number): string {
+  if (usd === 0) return '0 $'
+  if (usd < 0.01) return `${usd.toFixed(4)} $`
+  return `${usd.toFixed(2)} $`
+}
+
+/** Nombre de jetons, abrégé au-delà du millier : `12 400` devient `12,4 k`. */
+export function formatTokens(count: number): string {
+  if (count < 1000) return String(count)
+  return `${(count / 1000).toFixed(1).replace('.', ',')} k`
+}

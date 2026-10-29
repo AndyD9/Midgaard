@@ -65,6 +65,7 @@ interface TaskRow {
   context: string | null
   limits_json: string
   usage_json: string
+  project_dir: string | null
 }
 
 /** Ligne `task_events` telle que SQLite la rend. */
@@ -141,6 +142,7 @@ function toTask(row: TaskRow): Task {
     context: row.context,
     limits: JSON.parse(row.limits_json) as AgentLimits,
     usage: JSON.parse(row.usage_json) as Usage,
+    project_dir: row.project_dir,
   }
 }
 
@@ -254,6 +256,7 @@ export class HarnessStore {
     objective: string
     agentId: string
     context: string | null
+    projectDir: string | null
     limits: AgentLimits
     durationS: number
     stepsTotal: number
@@ -265,9 +268,10 @@ export class HarnessStore {
       this.db
         .prepare(
           `INSERT INTO tasks (id, objective, status, step, steps_total, needs_approval, approval_seq,
-                              duration_s, created_at, updated_at, agent_id, context, limits_json, usage_json)
+                              duration_s, created_at, updated_at, agent_id, context, limits_json, usage_json,
+                              project_dir)
            VALUES (:id, :objective, 'queued', 0, :steps_total, :needs_approval, 0, :duration_s, :now, :now,
-                   :agent_id, :context, :limits, :usage)`,
+                   :agent_id, :context, :limits, :usage, :project_dir)`,
         )
         .run({
           id,
@@ -278,6 +282,7 @@ export class HarnessStore {
           now,
           agent_id: input.agentId,
           context: input.context,
+          project_dir: input.projectDir,
           limits: JSON.stringify(input.limits),
           usage: JSON.stringify(emptyUsage()),
         })

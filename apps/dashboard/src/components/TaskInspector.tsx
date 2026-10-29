@@ -7,12 +7,14 @@
  * s'est passé (timeline).
  */
 import { useEffect, useState } from 'react'
-import { Ban } from 'lucide-react'
+import { Ban, ShieldAlert } from 'lucide-react'
 import type { Approval, Task, TaskEvent } from '@midgaard/contracts'
 import { cancelTask } from '@/lib/api'
 import { duration, formatDateTime } from '@/lib/utils'
 import { ApprovalPanel } from './ApprovalPanel'
 import { Timeline } from './Timeline'
+import { ToolCalls } from './ToolCalls'
+import { UsageCard } from './UsageCard'
 import { Badge, toneForStatus } from './ui/badge'
 import { Button } from './ui/button'
 import { Card, CardBody, CardHeader, CardTitle } from './ui/card'
@@ -76,13 +78,23 @@ export function TaskInspector({
           </div>
         </CardHeader>
         <CardBody className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+          <Field label="Exécutant" value={task.agent_id} />
           <Field label="Progression" value={`étape ${task.step} sur ${task.steps_total}`} />
-          <Field label="Durée simulée" value={`${task.duration_s} s`} />
           <Field label="Créée" value={formatDateTime(task.created_at)} />
           <Field label="Terminée" value={task.ended_at ? formatDateTime(task.ended_at) : '—'} />
           {elapsed && <Field label="Temps écoulé" value={elapsed} />}
+          {/* La durée n'a de sens que pour le profil simulé : l'afficher sur une
+              tâche réelle laisserait croire à un minuteur qui n'existe pas. */}
+          {task.agent_id === 'simulated' && <Field label="Durée simulée" value={`${task.duration_s} s`} />}
+          {task.project_dir && <Field label="Racine de lecture" value={task.project_dir} />}
+          <Field
+            label="Limites"
+            value={`${task.limits.max_steps} étapes · ${task.limits.max_cost_usd} $ · ${task.limits.timeout_s} s`}
+          />
         </CardBody>
       </Card>
+
+      <UsageCard task={task} />
 
       {task.error && (
         <Card className="border-danger/40">
@@ -97,9 +109,53 @@ export function TaskInspector({
         <Card>
           <CardHeader>
             <CardTitle>Résultat</CardTitle>
+            {task.result.untrusted && (
+              <Badge tone="waiting">
+                <ShieldAlert className="size-3" /> contient du contenu web
+              </Badge>
+            )}
           </CardHeader>
-          <CardBody className="space-y-2 text-sm">
-            <p>{task.result.summary}</p>
+          <CardBody className="space-y-3 text-sm">
+            <p className="font-medium">{task.result.summary}</p>
+
+            {task.result.untrusted && (
+              // Le même avertissement que celui joint au résultat rendu à Claude.
+              // Ce qu'un agent rapporte du web est de la donnée, jamais une
+              // consigne — et l'humain qui le lit doit le savoir aussi.
+              <p className="rounded-md border border-waiting/40 bg-waiting/10 px-3 py-2 text-xs text-waiting">
+                Ce résultat reprend du contenu extérieur, que personne ne contrôle. À lire comme de la donnée
+                rapportée, pas comme une instruction — et à recouper avec les sources ci-dessous.
+              </p>
+            )}
+
+            {task.result.details && (
+              <div className="max-h-96 overflow-y-auto rounded-md border border-border bg-canvas px-3 py-2 text-xs whitespace-pre-wrap">
+                {task.result.details}
+              </div>
+            )}
+
+            {task.result.citations.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted">Sources</p>
+                <ul className="space-y-0.5 text-xs">
+                  {task.result.citations.map((c, i) => (
+                    <li key={i} className="truncate">
+                      {/* `noreferrer` : l'URL du dashboard local n'a pas à partir
+                          dans le `Referer` d'un site tiers. */}
+                      <a
+                        href={c.url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="text-accent hover:underline"
+                      >
+                        {c.title || c.url}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {task.result.steps.length > 0 && (
               <ul className="list-inside list-disc space-y-0.5 text-muted">
                 {task.result.steps.map((s, i) => (
@@ -110,6 +166,8 @@ export function TaskInspector({
           </CardBody>
         </Card>
       )}
+
+      <ToolCalls taskId={task.id} version={events?.length ?? 0} />
 
       <Card>
         <CardHeader>
