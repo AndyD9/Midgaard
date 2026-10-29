@@ -1,0 +1,17 @@
+{
+  "name": "@midgaard/providers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Adaptateurs de fournisseurs de modèles : compatible OpenAI (OpenAI, Venice) et Gemini",
+  "engines": { "node": ">=24.0.0" },
+  "exports": {
+    ".": { "midgaard-dev": "./src/index.ts", "default": "./dist/index.js" }
+  },
+  "publishConfig": {
+    "exports": {
+      ".": "./dist/index.js"
+    }
+  },
+  "dependencies": { "@midgaard/contracts": "*" }
+}

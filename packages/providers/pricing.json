@@ -1,0 +1,67 @@
+{
+  "$comment": "Tarifs des modèles, en dollars par MILLION de jetons. Éditable : ce fichier est la copie livrée, et ~/.midgaard/pricing.json la vôtre, qui a priorité. Clé : <preset>:<modèle>, en minuscules. Les entrées absentes ne sont PAS une erreur : le harness affiche alors « tarif inconnu » plutôt qu'un montant inventé. `harness pricing refresh` reconstruit les entrées Venice depuis son API.",
+  "updated_at": "2026-10-29T00:00:00.000Z",
+  "source": "https://docs.venice.ai/overview/pricing (relevé manuel) — OpenAI et Gemini volontairement absents, faute de relevé vérifié",
+  "entries": {
+    "venice:qwen3-235b-a22b-instruct-2507": {
+      "input_usd_per_mtok": 0.15,
+      "output_usd_per_mtok": 0.75,
+      "cached_input_usd_per_mtok": null,
+      "web_search_usd_per_call": 0.01
+    },
+    "venice:venice-uncensored-1-2": {
+      "input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 0.9,
+      "cached_input_usd_per_mtok": null,
+      "web_search_usd_per_call": 0.01
+    },
+    "venice:llama-3.3-70b": {
+      "input_usd_per_mtok": 0.7,
+      "output_usd_per_mtok": 2.8,
+      "cached_input_usd_per_mtok": null,
+      "web_search_usd_per_call": 0.01
+    },
+    "venice:llama-3.2-3b": {
+      "input_usd_per_mtok": 0.15,
+      "output_usd_per_mtok": 0.6,
+      "cached_input_usd_per_mtok": null,
+      "web_search_usd_per_call": 0.01
+    },
+    "venice:mistral-small-3-2-24b-instruct": {
+      "input_usd_per_mtok": 0.09375,
+      "output_usd_per_mtok": 0.25,
+      "cached_input_usd_per_mtok": null,
+      "web_search_usd_per_call": 0.01
+    },
+    "venice:deepseek-v3.2": {
+      "input_usd_per_mtok": 0.33,
+      "output_usd_per_mtok": 0.48,
+      "cached_input_usd_per_mtok": null,
+      "web_search_usd_per_call": 0.01
+    },
+    "venice:zai-org-glm-4.6": {
+      "input_usd_per_mtok": 0.43,
+      "output_usd_per_mtok": 1.75,
+      "cached_input_usd_per_mtok": null,
+      "web_search_usd_per_call": 0.01
+    },
+    "venice:openai-gpt-oss-120b": {
+      "input_usd_per_mtok": 0.07,
+      "output_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": null,
+      "web_search_usd_per_call": 0.01
+    },
+    "venice:google-gemma-3-27b-it": {
+      "input_usd_per_mtok": 0.12,
+      "output_usd_per_mtok": 0.2,
+      "cached_input_usd_per_mtok": null,
+      "web_search_usd_per_call": 0.01
+    },
+    "venice:qwen3-next-80b": {
+      "input_usd_per_mtok": 0.35,
+      "output_usd_per_mtok": 1.9,
+      "cached_input_usd_per_mtok": null,
+      "web_search_usd_per_call": 0.01
+    }
+  }
+}

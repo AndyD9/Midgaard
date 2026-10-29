@@ -4,6 +4,7 @@
   "references": [
     { "path": "packages/contracts" },
     { "path": "packages/secrets" },
+    { "path": "packages/providers" },
     { "path": "packages/persistence" },
     { "path": "packages/daemon" },
     { "path": "packages/mcp-server" },

@@ -1,0 +1,265 @@
+/**
+ * @file Adaptateur des endpoints **compatibles OpenAI** : OpenAI lui-même,
+ * Venice.ai, et tout service qui expose `POST /chat/completions`.
+ *
+ * ## Un adaptateur, trois endpoints
+ *
+ * Le plan prévoyait « un adaptateur OpenAI ». La Slice 2 a constaté que Venice
+ * expose la même API — mêmes `messages`, mêmes `tools`, mêmes `tool_calls`,
+ * même `finish_reason`. Venice n'est donc pas un adaptateur de plus : c'est le
+ * même, avec une autre `base_url` et un objet d'extension.
+ *
+ * Les différences qui restent sont traitées ici, et nulle part ailleurs :
+ *
+ * | | OpenAI | Venice |
+ * |---|---|---|
+ * | Jetons de sortie | `max_completion_tokens` | `max_tokens` |
+ * | Recherche web | outil à part, non câblé | `venice_parameters.enable_web_search` |
+ * | Coût | non annoncé → estimé | objet `cost.usd` → **la facture** |
+ * | Citations | — | `venice_parameters.web_search_citations` |
+ */
+import type { ConnectionTest, ModelPrice, ProviderPreset, Usage } from '@midgaard/contracts'
+import { addUsage, costFromTable, emptyUsage, settleCost } from '@midgaard/contracts'
+import type {
+  CompletionRequest,
+  CompletionResponse,
+  FinishReason,
+  Message,
+  ProviderAdapter,
+  ToolCallRequest,
+} from './adapter.ts'
+import { getJson, postJson } from './http.ts'
+
+/** Ce qu'il faut pour construire un adaptateur compatible OpenAI. */
+export interface OpenAiAdapterOptions {
+  id: string
+  preset: ProviderPreset
+  model: string
+  /** Sans barre oblique finale, par exemple `https://api.venice.ai/api/v1`. */
+  baseUrl: string
+  apiKey: string
+  /** Vrai si la recherche web native doit être proposée à la boucle. */
+  webSearch: boolean
+  /** Expurgation appliquée à tout message d'erreur sortant. */
+  redact: (text: string) => string
+  /** Tarif du modèle, ou `undefined` s'il est inconnu — auquel cas rien n'est inventé. */
+  price: ModelPrice | undefined
+}
+
+// --- Formes du fil ---------------------------------------------------------
+
+interface WireToolCall {
+  id: string
+  type?: string
+  function: { name: string; arguments: string }
+}
+
+interface WireResponse {
+  choices?: {
+    message?: { content?: string | null; tool_calls?: WireToolCall[] }
+    finish_reason?: string
+  }[]
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    completion_tokens_details?: { reasoning_tokens?: number }
+    prompt_tokens_details?: { cached_tokens?: number }
+  }
+  /** Propre à Venice : ce que l'appel a réellement coûté. */
+  cost?: { usd?: number; diem?: number }
+  venice_parameters?: {
+    web_search_citations?: { title?: string; url?: string; content?: string; date?: string }[]
+  }
+}
+
+interface WireModelList {
+  data?: { id?: string }[]
+}
+
+/**
+ * Construit un adaptateur compatible OpenAI.
+ *
+ * @example
+ * const adapter = createOpenAiAdapter({
+ *   id: 'venice', preset: 'venice', model: 'qwen3-235b-a22b-instruct-2507',
+ *   baseUrl: 'https://api.venice.ai/api/v1', apiKey, webSearch: true, redact, price,
+ * })
+ */
+export function createOpenAiAdapter(options: OpenAiAdapterOptions): ProviderAdapter {
+  const base = options.baseUrl.replace(/\/+$/, '')
+  const headers = { authorization: `Bearer ${options.apiKey}` }
+  // Seule Venice sait chercher sur le web sans outil tiers. OpenAI a bien un
+  // outil `web_search`, mais sur l'API Responses : il reste à câbler, et
+  // l'annoncer disponible d'ici serait annoncer ce qui n'existe pas.
+  const nativeSearch = options.preset === 'venice'
+
+  return {
+    id: options.id,
+    preset: options.preset,
+    model: options.model,
+    supportsWebSearch: nativeSearch && options.webSearch,
+
+    async complete(request: CompletionRequest): Promise<CompletionResponse> {
+      const body: Record<string, unknown> = {
+        model: options.model,
+        messages: request.messages.map(toWireMessage),
+      }
+      // Deux noms pour la même chose : les modèles récents d'OpenAI ont
+      // remplacé `max_tokens`, que Venice continue d'attendre. Et Venice refuse
+      // en 400 tout champ de premier niveau inconnu : on n'envoie pas les deux.
+      if (options.preset === 'openai') body.max_completion_tokens = request.maxOutputTokens
+      else body.max_tokens = request.maxOutputTokens
+
+      if (request.tools.length > 0) {
+        body.tools = request.tools.map((t) => ({
+          type: 'function',
+          function: { name: t.name, description: t.description, parameters: t.parameters },
+        }))
+        body.tool_choice = 'auto'
+      }
+
+      if (nativeSearch) {
+        body.venice_parameters = {
+          // `auto` et non `on` : forcer une recherche à chaque appel facturerait
+          // 0,01 $ même pour une itération qui ne fait que relire un résultat
+          // d'outil. Le modèle décide, et le compteur suit.
+          enable_web_search: request.webSearch && options.webSearch ? 'auto' : 'off',
+          // Les citations arrivent structurées (titre, URL) : c'est ce qui permet
+          // de les encadrer proprement plutôt que d'extraire des URL d'un texte.
+          enable_web_citations: true,
+          // Les blocs de raisonnement n'ont pas à polluer le texte rendu : ils
+          // sont déjà comptés à part dans l'usage.
+          strip_thinking_response: true,
+        }
+      }
+
+      const wire = await postJson<WireResponse>({
+        url: `${base}/chat/completions`,
+        headers,
+        body,
+        signal: request.signal,
+        provider: options.id,
+        redact: options.redact,
+      })
+
+      const choice = wire.choices?.[0]
+      const citations = (wire.venice_parameters?.web_search_citations ?? [])
+        .filter((c): c is { title?: string; url: string } => typeof c.url === 'string')
+        .map((c) => ({ title: c.title ?? c.url, url: c.url }))
+
+      const usage = measure(wire, citations.length, options.price)
+
+      return {
+        text: choice?.message?.content ?? '',
+        toolCalls: (choice?.message?.tool_calls ?? []).map(toToolCall),
+        usage,
+        citations,
+        finishReason: normalizeFinish(choice?.finish_reason),
+      }
+    },
+
+    async testConnection(signal): Promise<ConnectionTest> {
+      const started = Date.now()
+      try {
+        // `GET /models` prouve d'un coup trois choses : l'endpoint répond, la clé
+        // est acceptée, et le modèle configuré existe bien chez lui. Un appel de
+        // complétion le prouverait aussi — en facturant des jetons pour un test.
+        const list = await getJson<WireModelList>({
+          url: `${base}/models`,
+          headers,
+          signal,
+          provider: options.id,
+          redact: options.redact,
+        })
+        const models = (list.data ?? []).map((m) => m.id).filter((id): id is string => typeof id === 'string')
+        const known = models.includes(options.model)
+        return {
+          ok: true,
+          detail: known
+            ? `${models.length} modèle(s) disponibles, dont « ${options.model} »`
+            : `${models.length} modèle(s) disponibles, mais « ${options.model} » n'en fait pas partie`,
+          at: new Date().toISOString(),
+          latency_ms: Date.now() - started,
+          models: models.slice(0, 200),
+        }
+      } catch (e) {
+        return {
+          ok: false,
+          detail: options.redact((e as Error).message),
+          at: new Date().toISOString(),
+          latency_ms: Date.now() - started,
+          models: [],
+        }
+      }
+    },
+  }
+}
+
+/**
+ * Traduit un message neutre vers la forme du fil.
+ *
+ * Un message d'assistant portant des appels d'outils doit être **renvoyé tel
+ * quel** au tour suivant, avec ses `tool_calls` : sans eux, l'API refuse les
+ * messages de rôle `tool` qui suivent, faute de savoir à quoi ils répondent.
+ */
+function toWireMessage(message: Message): Record<string, unknown> {
+  switch (message.role) {
+    case 'assistant':
+      return {
+        role: 'assistant',
+        content: message.content || null,
+        ...(message.toolCalls.length > 0
+          ? {
+              tool_calls: message.toolCalls.map((c) => ({
+                id: c.id,
+                type: 'function',
+                function: { name: c.name, arguments: c.argumentsJson },
+              })),
+            }
+          : {}),
+      }
+    case 'tool':
+      return { role: 'tool', tool_call_id: message.callId, content: message.content }
+    default:
+      return { role: message.role, content: message.content }
+  }
+}
+
+function toToolCall(call: WireToolCall): ToolCallRequest {
+  return { id: call.id, name: call.function.name, argumentsJson: call.function.arguments || '{}' }
+}
+
+/** Traduit `finish_reason` vers le vocabulaire neutre de la boucle. */
+function normalizeFinish(reason: string | undefined): FinishReason {
+  if (reason === 'stop') return 'stop'
+  if (reason === 'tool_calls' || reason === 'function_call') return 'tool_calls'
+  if (reason === 'length') return 'length'
+  return 'other'
+}
+
+/**
+ * Mesure la consommation d'un appel, et arbitre son coût.
+ *
+ * C'est ici que se joue le livrable « le coût affiché correspond à la facture » :
+ * Venice renvoie `cost.usd`, donc on garde **son** chiffre et on note le nôtre à
+ * côté. L'écart entre les deux est ce qui révèle une table de tarifs périmée ;
+ * sans les deux, personne ne s'apercevrait jamais de la dérive.
+ */
+function measure(wire: WireResponse, searches: number, price: ModelPrice | undefined): Usage {
+  const u = wire.usage ?? {}
+  const base: Usage = {
+    ...emptyUsage(),
+    model_calls: 1,
+    input_tokens: u.prompt_tokens ?? 0,
+    output_tokens: u.completion_tokens ?? 0,
+    reasoning_tokens: u.completion_tokens_details?.reasoning_tokens ?? 0,
+    cached_tokens: u.prompt_tokens_details?.cached_tokens ?? 0,
+    web_searches: searches > 0 ? 1 : 0,
+  }
+  const estimated = costFromTable(base, price)
+  const reported = typeof wire.cost?.usd === 'number' ? wire.cost.usd : null
+  return { ...base, ...settleCost(estimated, reported), cost_usd_estimated: estimated, cost_usd_reported: reported }
+}
+
+/** Cumul de consommations, réexporté pour la boucle. */
+export { addUsage }

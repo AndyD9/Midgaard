@@ -9,6 +9,8 @@
     "@midgaard/daemon": "*",
     "@midgaard/mcp-server": "*",
     "@midgaard/persistence": "*",
+    "@midgaard/providers": "*",
+    "@midgaard/secrets": "*",
     "@modelcontextprotocol/sdk": "^1.32.2"
   }
 }
