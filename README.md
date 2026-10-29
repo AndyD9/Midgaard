@@ -122,8 +122,8 @@ Depuis la racine du dépôt :
 
 | Suite | Durée | Contenu |
 |---|---|---|
-| `npm run test:unit` | ~1 s | 164 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils, boucle d'agent, formatage des montants, coffres |
-| `npm run test:vault` | ~1 s | Les coffres seuls, sur le coffre **réel de la machine** — lancé par la CI sur macOS, Windows et Linux |
+| `npm run test:unit` | ~1 s | 174 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils, boucle d'agent, formatage des montants, coffres |
+| `npm run test:vault` | ~1 s | Les 41 cas de coffre, sur le coffre **réel de la machine** — la CI les rejoue sur macOS, Windows et Linux (avec et sans trousseau) |
 | `npm run test:lock` | ~30 s | Instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s | Redémarrage, reprise WebSocket, sécurité, expiration, inactivité |
 | `npm run test:ui` | ~1 min | 7 scénarios dans un vrai navigateur : direct, approbation au clic, reconnexion |

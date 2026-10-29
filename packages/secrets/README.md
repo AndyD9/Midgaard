@@ -94,35 +94,49 @@ Deux pannes, avant même son premier lancement, dans du code qui avait l'air jus
 Les deux étaient exactement ce que « écrit d'après la documentation, jamais
 exécuté » laisse passer.
 
-### Puis le premier passage en CI en a montré deux de plus
+### Puis la CI en a montré trois de plus
 
-Le workflow a tourné le 2026-10-29. **macOS au vert, Linux sans trousseau au
-vert, Windows et Linux-avec-trousseau au rouge** — et les deux rouges disaient
+Il a fallu **cinq passages pour obtenir quatre verts**, et chaque rouge disait
 quelque chose de vrai :
 
-- **DPAPI bloquait dix secondes par appel, puis se faisait tuer.** Le préambule
-  PowerShell composait le chemin avec deux `Join-Path`, dont le paramètre est
-  **obligatoire** : reçu `$null`, PowerShell ne lève pas, il **pose une
-  question** et attend sur l'entrée standard — que `run()` ne fermait que
-  lorsqu'il avait un secret à écrire. Six cas, six expirations. Deux
-  corrections, toutes deux générales : le chemin se calcule désormais dans Node
-  (`dpapiDir`, testable depuis n'importe quelle plateforme) et le script ne
-  contient plus aucune applet dont un paramètre pourrait être nul ; et `run()`
-  **ferme toujours** l'entrée standard, pour qu'une question lise une fin de
-  fichier et échoue avec son message au lieu d'attendre.
-- **`available()` prouve que le service répond, pas qu'il peut ranger.** Sur le
-  runner, `secret-tool lookup` réussissait — code 1, sortie d'erreur muette,
-  donc « disponible » — alors que le trousseau n'avait **aucune collection par
-  défaut** et que chaque `store` échouait sur
-  « Object does not exist at path …/collection/login ». C'est une limite réelle
-  de la sonde, et elle est assumée : la combler demanderait d'écrire un secret
-  d'essai à chaque démarrage. Ce qui est garanti, c'est que l'échec porte le
-  message de `secret-tool`, et non un silence.
+- **DPAPI reconstruisait le cache d'analyse de modules de PowerShell à chaque
+  appel** — 8 à 15 s, contre 264 ms quand il le retrouve, donc au-delà du délai.
+  Il manquait `PSModuleAnalysisCachePath` à la liste blanche : non pas une
+  variable que PowerShell lit pour travailler, mais une qu'il lit **pour ne pas
+  refaire un travail**. La variable passe désormais, et PowerShell reçoit son
+  propre délai de 40 s — un cache froid est une lenteur légitime, et couper à
+  10 s ferait échouer le premier appel d'une machine neuve.
+- **Supprimer un secret absent levait, sur les deux plateformes, pour deux
+  raisons différentes.** `secret-tool clear` sort en 1 sur un secret absent ;
+  PowerShell sort en 1 dès que sa dernière commande a échoué, même avec
+  `-ErrorAction SilentlyContinue`. macOS tenait le contrat (code 44 toléré) et
+  le repli fichier aussi (`rmSync` avec `force`) : trois plateformes, trois
+  mécanismes, un seul contrat.
+- **libsecret se déclarait disponible sur un trousseau sans collection.**
+  `secret-tool lookup` réussissait là où tout `store` échouait. La sonde prouve
+  que le service **répond**, pas qu'il a **où ranger**. Limite réelle et
+  assumée : la combler demanderait d'écrire un secret d'essai à chaque
+  démarrage.
 
-Troisième correction née de ces deux-là : **un utilitaire tué par le délai le
-dit maintenant.** Il ressortait en « code 1 » avec une sortie d'erreur vide,
-indistinguable d'un échec ordinaire — ce qui a coûté un aller-retour de CI pour
-comprendre que DPAPI n'échouait pas, il attendait.
+Deux messages ont été corrigés en chemin, parce qu'ils envoyaient au mauvais
+endroit : un utilitaire tué par le délai ressortait en « code 1 » avec une
+sortie d'erreur vide, et une panne Windows s'affichait
+`#< CLIXML <Objs Version="1.1.0.1"…` — PowerShell, flux redirigés, sérialise des
+objets au lieu d'écrire du texte. `powershellError` en extrait le message.
+
+Trois hypothèses sur la panne DPAPI ont été fausses avant qu'une **bissection**
+sur les 145 variables écartées ne nomme la bonne en sept étapes. Chercher par
+élimination coûtait un passage ; en deviner trois en a coûté trois.
+
+### État : constaté
+
+Passage `40937579307` du 2026-10-29, quatre postes au vert — trousseau macOS,
+DPAPI Windows, libsecret sous session de bureau, et le repli fichier sur un
+Linux sans trousseau. DPAPI répond en moins de 1,5 s par cas.
+
+Ce qui n'est **pas** couvert : un Windows sans PowerShell 5.1, un macOS au
+trousseau verrouillé, et un service Secret Service sans collection — ce dernier
+cas étant la limite de sonde décrite ci-dessus.
 
 ## API
 

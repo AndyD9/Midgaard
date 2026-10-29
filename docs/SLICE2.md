@@ -8,14 +8,15 @@ corresponde à la facture.
 **État : livrable atteint, mesuré, et éprouvé en vraie session.** Un Researcher
 exécute de vraies tâches sur Venice, et **le coût affiché correspond au centime
 près au solde débité** — vérifié **trois** fois, à 0,0 % d'écart, en relevant le
-solde chez le fournisseur avant et après. 164 vérifications unitaires, 10
-d'instance unique, 7 d'intégration, 7 d'interface, 12 de bout en bout MCP et 5
-d'essai réel, 0 échec.
+solde chez le fournisseur avant et après. 174 vérifications unitaires (dont 41
+de coffre, rejouées sur quatre plateformes en intégration continue), 10
+d'instance unique, 7 d'intégration, 7 d'interface dans un vrai navigateur, 12 de
+bout en bout MCP et 5 d'essai réel, 0 échec.
 
 *(Ce document a été complété le 2026-10-29 : trois des cinq dettes qu'il
-ouvrait sont soldées, et le § « Les dettes, soldées » raconte les six pannes
-réelles que leur fermeture a révélées — dont deux par le premier passage en
-intégration continue.)*
+ouvrait sont soldées, et le § « Les dettes, soldées » raconte les sept pannes
+réelles que leur fermeture a révélées — dont trois par l'intégration continue,
+qui a demandé cinq passages pour obtenir quatre verts.)*
 
 L'essai en vraie session Claude Code, que la version précédente de ce document
 annonçait comme restant à faire, **a eu lieu** : il confirme les invariants — une
@@ -759,9 +760,14 @@ c'est précisément la discipline que l'encadrement `<untrusted_data>` impose.
   un rapport encadré en `<untrusted_data>`, pas une mesure, et la dette reste
   ouverte.
 - ~~**Windows et Linux ne sont pas vérifiés automatiquement** pour le coffre.~~
-  **Réglé** le 2026-10-29 — et la phrase ci-dessus était même trop indulgente :
-  le coffre n'avait **aucun** test, pas même le repli. Voir § « Les dettes,
-  soldées ».
+  **Réglé et constaté** le 2026-10-29, passage `40937579307` : quatre postes au
+  vert. La phrase barrée était même trop indulgente — le coffre n'avait **aucun**
+  test, pas même le repli. Voir § « Les dettes, soldées », qui raconte les cinq
+  pannes qu'il a fallu cinq passages pour trouver.
+- **La sonde de libsecret ne distingue pas un service sans collection.**
+  `secret-tool lookup` réussit là où tout `store` échoue : elle prouve que le
+  service répond, pas qu'il a où ranger. La combler demanderait d'écrire un
+  secret d'essai à chaque démarrage. Constaté en CI, assumé.
 - **Le DNS rebinding reste théoriquement possible** sur `http_fetch` : on vérifie
   toutes les adresses résolues, puis `fetch` résout une seconde fois.
 - **`pricing.json` livré ne contient que des tarifs Venice**, relevés à la main
@@ -795,12 +801,12 @@ racontées plus bas. Ce qui manque ici n'est pas du code, c'est une clé.
 
 ## Les dettes, soldées — 2026-10-29
 
-Trois dettes fermées, et **six pannes réelles** trouvées en les fermant — deux
-d'entre elles par le premier passage en intégration continue, qui a rougi sur
-deux postes et avait raison. La
+Trois dettes fermées, et **sept pannes réelles** trouvées en les fermant — plus
+deux messages qui n'en étaient pas. Cinq des sept ne se voyaient que sur une
+plateforme ou dans un navigateur : rien ne les aurait montrées depuis ce Mac. La
 leçon est la même pour les trois, et elle est désagréable : *du code écrit
 d'après une documentation, relu et plausible, ne vaut rien tant qu'il n'a pas
-tourné.* Les six pannes vivaient dans du code qu'on aurait signé sans hésiter.
+tourné.* Les sept vivaient dans du code qu'on aurait signé sans hésiter.
 
 ### Dette n° 3 — le coffre, sur les trois plateformes
 
@@ -850,47 +856,97 @@ aurait pris la sonde libsecret trop indulgente. Chaque poste pose
 été retenu — sans quoi un poste sans trousseau sauterait la batterie et passerait
 au vert sans rien avoir éprouvé. Un saut n'est pas une réussite.
 
-#### Le premier passage en CI, et ce qu'il a coûté
+#### Ce que la CI a coûté, et rapporté
 
-Le workflow a tourné le 2026-10-29, aussitôt poussé. **Deux postes au vert —
-macOS et Linux sans trousseau — et deux au rouge.** C'était l'objet de
-l'exercice, et les deux rouges ont payé leur place :
+Le workflow a tourné le 2026-10-29. **Il a fallu cinq passages pour obtenir
+quatre verts**, et chacun des quatre rouges disait quelque chose de vrai. C'est
+le meilleur argument qu'on puisse donner en faveur de la dette n° 3 : rien de
+tout cela n'était visible depuis un Mac.
 
-- **DPAPI expirait sur chacun des six cas**, à dix secondes exactement : il ne
-  tombait pas, il **attendait**. Le préambule PowerShell composait le chemin
-  avec deux `Join-Path`, dont le paramètre est **obligatoire** — reçu `$null`,
-  PowerShell ne lève pas, il pose une question et attend sur l'entrée standard,
-  que `run()` ne fermait que lorsqu'il avait un secret à écrire. À noter que
-  `MIDGAARD_REQUIRE_VAULT`, lui, passait : `openVault` élisait bien DPAPI, et
-  c'est pour cela que le poste a échoué **sur la conformité** au lieu de sauter
-  en silence. Deux corrections, toutes deux générales : le chemin se calcule
-  désormais dans Node (`dpapiDir`, testable ici même, sur un Mac), et `run()`
-  ferme **toujours** l'entrée standard — une question lit alors une fin de
-  fichier et échoue avec son message, au lieu d'attendre dix secondes une
-  réponse qui ne viendra pas.
-- **libsecret se disait disponible sur un trousseau sans collection.** Sur le
-  runner, `secret-tool lookup` réussissait — code 1, sortie d'erreur muette,
-  donc « disponible » même selon la sonde resserrée — alors que chaque `store`
-  échouait sur « Object does not exist at path …/collection/login ». La sonde
-  prouve que le **service** répond ; elle ne prouve pas qu'il a **où ranger**.
-  Limite réelle, et assumée : la combler demanderait d'écrire un secret d'essai
-  à chaque démarrage. La recette de CI crée maintenant la collection — le
-  premier essai la déverrouillait avec un mot de passe **vide**, ce qui ne la
-  crée pas — et un dépôt d'essai la vérifie **avant** la suite, pour qu'un poste
-  rouge désigne la recette plutôt que le code.
+| Passage | macOS | Windows | libsecret | Linux nu | Ce que le rouge disait |
+|---|---|---|---|---|---|
+| 1 | ✓ | ✗ | ✗ | ✓ | DPAPI expire à 10 s ; trousseau Linux sans collection |
+| 2 | ✓ | ✗ | 33/34 | ✓ | la recette Linux tient ; `delete` d'un absent lève |
+| 3 | ✓ | ✗ | ✓ | ✓ | relevé : l'environnement arrive, ce sont les applets |
+| 4 | ✓ | ✗ | ✓ | ✓ | `PSModulePath` n'y change rien — hypothèse fausse |
+| 5 | ✓ | ✓ | ✓ | ✓ | — |
 
-Et une troisième correction, née des deux : **un utilitaire tué par le délai le
-dit.** Il ressortait en « code 1 » avec une sortie d'erreur vide, exactement
-comme un échec ordinaire. C'est ce qui a d'abord fait chercher la panne de DPAPI
-dans `set` — le seul appel qui écrit sur l'entrée standard — alors que `get` sur
-une référence absente expirait tout autant. Un message qui ne nomme que le
-symptôme oriente son lecteur vers le mauvais endroit : c'est, mot pour mot, le
-défaut n° 2 de l'essai en vraie session, cette fois dans notre propre outillage.
+**Trois pannes de plus, toutes sur des plateformes qu'on n'a pas.**
 
-**Ce qui reste vrai de la dette :** les deux pannes du premier passage sont
-corrigées, et ces correctifs n'ont **pas encore** de vert en face d'eux. macOS
-et Linux-sans-trousseau sont constatés ; Windows et libsecret ne le seront qu'au
-prochain passage — et ce document le dira alors, pas avant.
+- **DPAPI reconstruisait le cache d'analyse de modules de PowerShell à chaque
+  appel.** 8 à 15 s, contre 264 ms quand il le retrouve : au-delà du délai, donc
+  six cas expirés. Il manquait `PSModuleAnalysisCachePath` à la liste blanche —
+  non pas une variable que PowerShell *lit pour travailler*, mais une qu'il lit
+  **pour ne pas refaire un travail**. Deux corrections : la variable passe, et
+  PowerShell reçoit son propre délai de 40 s, parce qu'un cache froid est une
+  lenteur légitime et que couper à 10 s ferait échouer le premier appel d'une
+  machine neuve.
+- **Supprimer un secret absent levait, sur les deux plateformes, pour deux
+  raisons différentes.** `secret-tool clear` sort en 1 sur un secret absent ;
+  PowerShell sort en 1 dès que sa dernière commande a échoué, même avec
+  `-ErrorAction SilentlyContinue`. Le contrat de `SecretVault` dit pourtant que
+  l'absence n'est pas une erreur, et macOS le tenait (code 44 toléré), le repli
+  fichier aussi (`rmSync` avec `force`). Trois plateformes, trois mécanismes, un
+  seul contrat : c'est précisément ce qu'une batterie de conformité sert à tenir,
+  et ce qu'aucun test écrit plateforme par plateforme n'aurait pris.
+- **libsecret se déclarait disponible sur un trousseau sans collection.**
+  `secret-tool lookup` réussissait là où tout `store` échouait. La sonde prouve
+  que le **service** répond ; elle ne prouve pas qu'il a **où ranger**. Limite
+  réelle et assumée — la combler demanderait d'écrire un secret d'essai à chaque
+  démarrage. La recette de CI crée désormais la collection, et un dépôt d'essai
+  la vérifie *avant* la suite, pour qu'un futur rouge désigne la recette plutôt
+  que le code.
+
+**Et deux messages qui n'en étaient pas**, trouvés en cherchant les trois
+premières :
+
+- un utilitaire tué par le délai ressortait en « code 1 » avec une sortie
+  d'erreur vide, exactement comme un échec ordinaire. C'est ce qui a fait
+  chercher la panne de DPAPI dans `set` — le seul appel qui écrit sur l'entrée
+  standard — alors que `get` expirait tout autant ;
+- une panne de coffre Windows s'affichait `#< CLIXML <Objs Version="1.1.0.1"…` :
+  PowerShell, flux redirigés, ne *écrit* pas sur la sortie d'erreur, il y
+  sérialise des objets.
+
+#### Trois hypothèses fausses, et ce qu'elles apprennent
+
+Le cas DPAPI a demandé **cinq passages**, parce que les trois premières
+explications étaient les miennes et non celles de la machine :
+
+1. *« `Join-Path` pose une question quand son paramètre obligatoire est nul. »*
+   Le script n'en contient plus — toujours expiré.
+2. *« L'entrée standard reste ouverte, donc la question attend. »* Elle est
+   fermée dans tous les cas — toujours expiré.
+3. *« Il manque `PSModulePath`. »* Imposée, réduite ou absente, aucun effet. Et
+   le relevé qui semblait la confirmer disait **14 832 ms sous un délai de
+   15 s** : j'avais pris une quasi-expiration pour une réussite.
+
+La quatrième n'a pas été devinée : une bissection sur les 145 variables que la
+liste blanche écartait l'a nommée en sept étapes. Chercher par élimination
+coûtait **un** passage ; en deviner trois en a coûté **trois**.
+
+C'est, mot pour mot, le défaut n° 2 de l'essai en vraie session — *un message
+qui ne nomme qu'un symptôme oriente son lecteur vers le chiffre qu'il a sous la
+main, et ce chiffre est rarement la cause* — cette fois à mes dépens, et avec le
+dashboard, la base et le code sous les yeux. La correction du message
+d'expiration, elle, a servi dès le passage suivant : c'est elle qui a permis
+d'écarter la première hypothèse au lieu de la croire.
+
+Deux commentaires de code affirmaient la troisième explication. Ils ont été
+rectifiés **avant** toute autre chose, cause ouverte assumée : une explication
+fausse laissée dans le code est pire que pas d'explication.
+
+#### Ce que la dette vaut maintenant
+
+**Constatée, sur les quatre postes** (passage `40937579307`, 2026-10-29) :
+trousseau macOS, DPAPI Windows, libsecret sous session de bureau, et le repli
+fichier sur un Linux sans trousseau — ce dernier prouvant une *absence*, qui est
+le comportement attendu et non une panne. DPAPI répond en moins de 1,5 s par cas
+là où il expirait à 10 s.
+
+Ce qui n'est **pas** couvert, et qui est dit tel quel : la sonde de libsecret ne
+distingue pas un service sans collection, et aucun poste ne couvre un Windows
+sans PowerShell 5.1 ni un macOS au trousseau verrouillé.
 
 ### Dette n° 4 — le dashboard, rendu dans un navigateur
 
@@ -960,17 +1016,19 @@ celui qu'un développeur de ce projet rencontre le plus souvent.
 
 ### Ce que les trois ont en commun
 
-Les six pannes ont la même forme, et c'est celle des cinq défauts de l'essai
+Les sept pannes ont la même forme, et c'est celle des cinq défauts de l'essai
 en vraie session : **un système qui répond quelque chose de plausible au lieu de
 signaler qu'il ne peut pas répondre.** DPAPI rendait une clé — la mauvaise.
 libsecret se disait prêt — il ne l'était pas. La carte des exécutants ne
 s'affichait pas — sans un mot. Le dashboard affichait « déconnecté » — sans dire
 qu'il ne reviendrait jamais.
 
-S'y ajoutent les deux que la CI a révélées, et qui disent la même chose d'un cran
-plus loin : DPAPI n'échouait pas, il **attendait** — et notre propre outillage
-présentait cette attente comme un échec ordinaire. libsecret se déclarait prêt
-sur un trousseau qui n'avait nulle part où ranger.
+S'y ajoutent les trois que la CI a révélées, et qui disent la même chose d'un
+cran plus loin : DPAPI n'échouait pas, il **attendait** — et notre propre
+outillage présentait cette attente comme un échec ordinaire. libsecret se
+déclarait prêt sur un trousseau qui n'avait nulle part où ranger. Et supprimer
+un secret absent levait sur les deux plateformes, chacune par un mécanisme
+différent, alors que le contrat disait le contraire depuis le début.
 
 Aucune n'aurait été trouvée par une relecture. Toutes l'ont été en **exécutant ce
 qu'on n'exécutait pas** : le coffre réel, le navigateur réel, les trois
