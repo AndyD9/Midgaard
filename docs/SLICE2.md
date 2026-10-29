@@ -5,11 +5,14 @@ fournisseurs derrière une interface commune, une boucle avec budgets et limites
 des outils de lecture contrôlés, un coffre pour les clés, et un coût qui
 corresponde à la facture.
 
-**État : code livré et éprouvé hors ligne, essai réel en attente d'une clé.**
-121 vérifications unitaires, 7 scénarios d'intégration, 12 scénarios de bout en
-bout MCP, 0 échec. Ce qui n'a pas encore eu lieu est dit tel quel au §
-« Limites connues » — aucune ligne de ce document ne décrit quelque chose qui
-n'existe pas.
+**État : livrable atteint, et mesuré.** Un Researcher exécute de vraies tâches
+sur Venice, et **le coût affiché correspond au centime près au solde débité** —
+vérifié deux fois, à 0,0 % d'écart, en relevant le solde chez le fournisseur
+avant et après. 124 vérifications unitaires, 10 d'instance unique, 7
+d'intégration, 12 de bout en bout MCP et 5 d'essai réel, 0 échec.
+
+Ce qui n'a **pas** encore eu lieu est dit tel quel au § « Limites connues » :
+aucune ligne de ce document ne décrit quelque chose qui n'existe pas.
 
 ---
 
@@ -233,6 +236,7 @@ supplémentaire. Toujours aucun jeton facturé par un test.
 | `npm run test:lock` | 8 daemons lancés ensemble, 10 manches | 10/10, ~30 s |
 | `npm run test:restart` | 7 scénarios sur de vrais processus et de vraies sockets | 7/7, ~45 s |
 | `npm run test:wait` | 12 scénarios de bout en bout, client MCP officiel | 12/12, ~178 s |
+| `npm run test:live` | 5 scénarios **contre la vraie API Venice** — opt-in, s'abstient sans clé | 5/5, ~3 min, **0,0033 $** |
 
 ### Ce que les nouveaux tests verrouillent
 
@@ -262,29 +266,144 @@ le total inconnu, et non partiellement juste.
 
 ---
 
-## Essai en session réelle
+## Essai réel
 
-> **À faire.** Cette section sera remplie quand une clé Venice aura été déposée
-> et qu'un Researcher aura exécuté une vraie tâche depuis une session Claude
-> Code. Elle n'est pas écrite d'avance : la Slice 0 et la Slice 1 ont toutes
-> deux montré que l'essai réel apprend des choses que la suite de tests ne dit
-> pas — le client du SDK n'a ni les mêmes délais ni les mêmes habitudes que le
-> client réel.
->
-> Ce qu'il faudra vérifier :
->
-> - le coût affiché correspond-il au solde réellement débité chez Venice ?
-> - Claude passe-t-il un `context` utile, ou l'agent réexplore-t-il le dépôt ?
-> - la recherche web se déclenche-t-elle, et les citations remontent-elles ?
-> - combien d'itérations avant `submit_result` ?
-> - l'encadrement `<untrusted_data>` survit-il jusqu'à la réponse de Claude ?
+**Date :** 2026-10-29 · **Fournisseur :** Venice.ai · **Modèle :**
+`deepseek-v4-flash-0731` (0,13 / 0,26 $ le million de jetons).
 
----
+Une suite dédiée, **opt-in**, le rejoue : `npm run test:live`. Elle ne tourne
+que si une clé est déjà déposée dans le coffre, et **s'abstient** sinon — une
+absence de clé n'est pas un défaut du code. Elle est séparée de `npm test`
+parce qu'elle ne peut être ni gratuite, ni hors ligne, ni tout à fait
+reproductible, alors que les autres doivent être les trois.
+
+| # | Scénario | Résultat |
+|---|---|---|
+| L1 | Le Researcher est annoncé disponible, et il l'est | 6 outils, clé acceptée, 141 modèles |
+| L2 | Une vraie tâche aboutit à un résultat structuré | 2 appels modèle, 0,001699 $ |
+| L3 | **Le coût affiché correspond au solde débité** | 0,003307 $ comptés, 0,003307 $ débités — **0,0 % d'écart** |
+| L4 | Un budget volontairement bas arrête la tâche | `budget_exceeded` après **1 seul** appel modèle |
+| L5 | Ce qui revient du web remonte encadré, avec ses sources | 2 sources, encadrement `<untrusted_data nonce=…>` présent |
+
+### Le livrable, mesuré deux fois
+
+Le solde Venice est relevé **chez le fournisseur** avant et après, et comparé à
+ce que le harness a compté. C'est la seule vérification qui vaille : un tableau
+de tarifs peut mentir, un solde non.
+
+| | Compté par le harness | Débité par Venice | Écart |
+|---|---|---|---|
+| Suite `test:live`, 3 tâches | 0,003307 $ | 0,003307 $ | **0,0 %** |
+| Tâche isolée, dossier runtime réel | 0,002412 $ | 0,002412 $ | **0,0 %** |
+
+Exact au microdollar, deux fois. C'est possible parce que Venice annonce
+`cost.usd` sur chaque réponse et qu'on retient **son** chiffre : on ne calcule
+pas la facture, on la recopie.
+
+### Ce qu'une vraie tâche donne
+
+La tâche jouée dans le dossier runtime réel, pour qu'elle soit consultable dans
+le dashboard :
+
+> *Quels invariants le dépôt Midgaard déclare-t-il « à ne pas casser », et lequel
+> a été appris en mesurant une coupure de client MCP à 60 secondes ?*
+
+```text
+statut       completed · 54,9 s · 2 appels modèle
+jetons       18 002 entrée (dont 4 864 de cache) · 2 184 sortie (dont 707 de raisonnement)
+coût         0,002412 $ — facturé par le fournisseur
+
+étape 1   read_file   CLAUDE.md         8 ms   10 875 octets
+étape 1   read_file   docs/SLICE0.md    1 ms   16 342 octets
+étape 1   read_file   docs/SLICE1.md    1 ms   14 813 octets
+étape 2   submit_result                        confiance : high
+```
+
+Réponse rendue : « Le dépôt déclare 19 invariants « à ne pas casser » dans
+`CLAUDE.md` ; celui appris en mesurant une coupure de client MCP à 60 secondes
+est « Notifications de progression pendant toute attente longue ». » — exact.
+
+Trois choses se lisent dans ces quatre lignes :
+
+1. **Le contexte fourni par Claude fait son travail.** L'agent n'a pas exploré
+   le dépôt : il a lu les trois fichiers qu'on lui avait nommés, et rien d'autre.
+   Deux appels modèle au total. C'est précisément l'économie que le §4 du plan
+   visait — sans elle, déléguer coûte plus cher que faire soi-même.
+2. **Les appels d'outils partent en parallèle**, trois d'un coup à la même
+   itération, comme la limite `max_tool_calls_per_step` l'autorise.
+3. **La fin est un acte** : `submit_result` à l'étape 2, pas une interprétation
+   de texte libre.
+
+### L'estimation locale est systématiquement haute, et on sait pourquoi
+
+Sur cette tâche : **0,002908 $ estimés** contre **0,002412 $ facturés**, soit
++20,6 %. Ce n'est pas du bruit, c'est le cache.
+
+Venice sert 4 864 des 18 002 jetons d'entrée depuis son cache, à tarif réduit —
+mais `GET /models` **ne publie pas** ce tarif réduit, et la documentation des
+prix l'omet également. Notre table facture donc les jetons de cache au tarif
+plein, faute de mieux. Inventer un rabais plausible serait pire : le chiffre
+retenu reste celui du fournisseur, et l'estimation ne sert que de témoin.
+
+**C'est exactement ce que les deux montants côte à côte servent à révéler.**
+Sans eux, l'écart serait invisible — et sur un fournisseur qui n'annonce aucun
+coût (OpenAI, Gemini), c'est l'estimation haute qui serait affichée comme une
+facture.
+
+### Deux bogues du test, pas du produit
+
+Le premier essai a donné 2 échecs sur 5. Les deux venaient de la suite :
+
+1. **Une attente de 60 s tombe pile sur la coupure du client.** Le client du SDK
+   n'envoie aucun jeton de progression, donc le serveur ne peut pas le tenir
+   éveillé — c'est précisément ce que mesure le scénario S5 de `test:wait`, et
+   la suite réelle est tombée dedans. Ramené à 25 s par tranche. Claude, lui,
+   fournit un jeton et peut demander 300 s sans risque.
+2. **Cumuler le coût scénario par scénario était faux.** Une tâche dont
+   l'attente échoue **continue de tourner** côté daemon, et de dépenser. Son
+   coût manquait au total, et l'écart de 47,6 % accusait le comptage pour une
+   erreur du test. Le total vient désormais du registre du daemon, qui est de
+   toute façon la source de vérité.
+
+Le second est intéressant au-delà du test : il rappelle qu'**interrompre une
+attente n'arrête pas une tâche** — ce que le scénario S4 garantit depuis la
+Slice 0, et qu'il faut avoir en tête quand on compte de l'argent.
+
+### Un défaut d'affichage, corrigé au passage
+
+`budget de 0,0000 $ atteint` pour un budget de 0,000001 $ : quatre décimales
+effaçaient un montant non nul, et le message ressemblait à un bogue. Le
+formatage descend maintenant jusqu'à huit décimales quand il le faut.
+
+### Ce qui reste à faire en vraie session Claude Code
+
+Cet essai emploie le **client officiel du SDK**, le même protocole que Claude
+Code, dans de vrais processus. Il ne remplace pas un essai dans une vraie
+session : le client du SDK n'a ni les mêmes délais ni les mêmes habitudes, et
+c'est ce constat qui a produit les deux défauts majeurs des Slices 0 et 1.
+
+Il faut pour cela **ouvrir une nouvelle session** — Claude Code ne relit
+`.mcp.json` et ne relance son serveur MCP qu'à l'ouverture. Ce qu'il restera à
+observer, et que seule une vraie session peut dire :
+
+- Claude passe-t-il spontanément un `context` utile, ou laisse-t-il l'agent
+  redécouvrir le dépôt ?
+- Appelle-t-il `harness_list_agents` avant de déléguer, ou devine-t-il un
+  `agent_id` ?
+- Abaisse-t-il les limites de lui-même quand la tâche est petite ?
+- L'encadrement `<untrusted_data>` change-t-il sa façon de rapporter ce que
+  l'agent a trouvé sur le web ?
 
 ## Limites connues
 
-- **Aucun agent réel n'a encore tourné contre une vraie clé.** C'est la seule
-  chose qui manque au livrable de cette slice.
+- **Aucun essai dans une vraie session Claude Code.** L'essai réel passe par le
+  client officiel du SDK, qui parle le même protocole mais n'a ni les mêmes
+  délais ni les mêmes habitudes. Il faut ouvrir une **nouvelle** session pour
+  cela — le serveur MCP n'est relu qu'à l'ouverture.
+- **L'estimation locale est haute de ~20 % sur un modèle qui sert du cache**,
+  parce que Venice ne publie pas son tarif de cache. Sans conséquence tant que
+  le fournisseur annonce son propre coût ; à garder en tête pour OpenAI et
+  Gemini, qui ne l'annoncent pas.
 - **L'adaptateur Gemini n'a jamais été exécuté contre l'API réelle.** Écrit
   d'après la documentation REST, vérifié sur réponses enregistrées. À
   reconfirmer avec une clé. Au passage, la documentation de Google recommande

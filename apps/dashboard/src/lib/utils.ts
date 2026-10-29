@@ -51,8 +51,12 @@ export function timeUntil(iso: string, now: number): string | null {
  */
 export function formatCost(usd: number): string {
   if (usd === 0) return '0 $'
-  if (usd < 0.01) return `${usd.toFixed(4)} $`
-  return `${usd.toFixed(2)} $`
+  if (usd >= 0.01) return `${usd.toFixed(2)} $`
+  if (usd >= 0.0001) return `${usd.toFixed(4)} $`
+  // En dessous, quatre décimales afficheraient « 0,0000 $ » pour un montant non
+  // nul, ce qui ressemble à un bogue d'affichage. On montre assez de décimales
+  // pour que le chiffre reste vrai.
+  return `${usd.toFixed(8).replace(/0+$/, '')} $`
 }
 
 /** Nombre de jetons, abrégé au-delà du millier : `12 400` devient `12,4 k`. */

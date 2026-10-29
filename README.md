@@ -24,7 +24,7 @@ et les coûts.
 |---|---|---|
 | 0 | Spike : Claude Code → MCP → daemon, attente longue, approbation humaine | ✅ **Terminée**, validée en sessions réelles |
 | 1 | Squelette observable : persistance SQLite, dashboard temps réel, CLI `harness` | ✅ **Terminée**, 91 vérifications + essai en session réelle |
-| 2 | Agents réels (Researcher), providers, coûts, coffre système | 🟡 **Code livré**, 121 + 7 + 12 vérifications ; **essai réel en attente d'une clé** |
+| 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 158 vérifications ; coût **exact au microdollar** contre le solde Venice |
 | 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | À faire |
 | 4 | Durcissement sécurité, distribution npm | À faire |
 
@@ -108,7 +108,8 @@ Depuis la racine du dépôt :
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; la clé est saisie sans écho |
 | `npm run harness -- pricing refresh <id>` | Relève les tarifs chez le fournisseur |
 | `npm run dashboard:dev` | Dashboard avec rechargement à chaud (lance `harness start` avant) |
-| `npm test` | Les quatre suites, environ 4 minutes |
+| `npm test` | Les quatre suites gratuites, environ 4 minutes |
+| `npm run test:live` | Essai réel contre un vrai fournisseur — **dépense de l'argent** |
 
 | Suite | Durée | Contenu |
 |---|---|---|
@@ -116,6 +117,7 @@ Depuis la racine du dépôt :
 | `npm run test:lock` | ~30 s | Instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s | Redémarrage, reprise WebSocket, sécurité, expiration, inactivité |
 | `npm run test:wait` | ~3 min | 12 scénarios de bout en bout avec le client MCP officiel |
+| `npm run test:live` | ~3 min | 5 scénarios **contre la vraie API** — opt-in, dépense ~0,003 $, s'abstient sans clé |
 
 Le développement se fait **sans étape de build** : Node exécute le TypeScript
 directement. `npm run build` ne sert qu'à produire ce qui sera distribué, et le

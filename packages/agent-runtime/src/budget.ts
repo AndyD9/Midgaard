@@ -93,6 +93,10 @@ export function budgetIsEnforceable(usage: Usage): boolean {
  */
 export function formatUsd(amount: number): string {
   if (amount === 0) return '0 $'
-  if (amount < 0.01) return `${amount.toFixed(4)} $`
-  return `${amount.toFixed(2)} $`
+  if (amount >= 0.01) return `${amount.toFixed(2)} $`
+  if (amount >= 0.0001) return `${amount.toFixed(4)} $`
+  // En dessous, quatre décimales afficheraient « 0,0000 $ » pour un montant non
+  // nul — un budget de 0,000001 $ se lisait « budget de 0,0000 $ atteint », ce
+  // qui ressemble à un bogue. On montre assez de décimales pour rester vrai.
+  return `${amount.toFixed(8).replace(/0+$/, '')} $`
 }
