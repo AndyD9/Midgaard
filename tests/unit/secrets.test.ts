@@ -40,6 +40,7 @@ import {
   macosKeychain,
   normalizeRef,
   openVault,
+  powershellError,
   resolveApiKey,
   secretsDir,
   windowsDpapi,
@@ -260,6 +261,40 @@ describe('dpapiDir', () => {
     // découvrir en bloquant.
     assert.equal(dpapiDir({}), null)
     assert.equal(dpapiDir({ LOCALAPPDATA: '   ' }), null)
+  })
+})
+
+// --- powershellError : un message, pas du XML ------------------------------
+
+describe('powershellError', () => {
+  // Flux réel de PowerShell : avec ses sorties redirigées, il ne écrit pas du
+  // texte sur la sortie d'erreur, il y **sérialise des objets**. Rendue telle
+  // quelle, une panne de coffre s'affichait « windows-dpapi : #< CLIXML
+  // <Objs Version="1.1.0.1" … » — illisible, et surtout sans rien à faire pour
+  // qui la lit. Ces cas se vérifient depuis un Mac, sur un flux enregistré.
+  const clixml =
+    '#< CLIXML\r\n<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">' +
+    '<S S="Error">Remove-Item : Access to the path is denied._x000D__x000A_</S>' +
+    '<S S="Error">At line:2 char:8_x000D__x000A_</S></Objs>'
+
+  it('rend le message d’erreur, pas la sérialisation', () => {
+    const msg = powershellError({ code: 1, stderr: clixml })
+    assert.match(msg, /Access to the path is denied/)
+    assert.doesNotMatch(msg, /CLIXML|<Objs|<S S=/, 'aucun fragment de XML ne doit survivre')
+    assert.doesNotMatch(msg, /_x000D_/, 'les caractères encodés sont rétablis')
+  })
+
+  it('se rabat sur le code quand le flux ne porte aucune erreur', () => {
+    // Cas courant : PowerShell sérialise aussi sa **barre de progression**, et
+    // elle n'explique rien. Mieux vaut « code 1 » qu'un fragment de XML.
+    const progression =
+      '#< CLIXML\r\n<Objs Version="1.1.0.1"><Obj S="progress" RefId="0"><TN RefId="0"><T>System</T></TN></Obj></Objs>'
+    assert.equal(powershellError({ code: 1, stderr: progression }), 'code 1')
+    assert.equal(powershellError({ code: 3, stderr: '' }), 'code 3')
+  })
+
+  it('laisse intacte une sortie d’erreur ordinaire', () => {
+    assert.equal(powershellError({ code: 1, stderr: '  accès refusé\n' }), 'accès refusé')
   })
 })
 

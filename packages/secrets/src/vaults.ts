@@ -12,7 +12,7 @@
  */
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { POWERSHELL_TIMEOUT_MS, run } from './exec.ts'
+import { POWERSHELL_TIMEOUT_MS, run, type ExecOutcome } from './exec.ts'
 import { normalizeRef, VaultError, type SecretVault } from './types.ts'
 
 /** Nom de service commun aux magasins système. */
@@ -144,7 +144,7 @@ export const windowsDpapi: SecretVault = {
       ref,
     )
     if (out.code === 44) return null
-    if (out.code !== 0) throw new VaultError('windows-dpapi', out.stderr.trim() || `code ${out.code}`)
+    if (out.code !== 0) throw new VaultError('windows-dpapi', powershellError(out))
     return out.stdout
   },
 
@@ -159,17 +159,61 @@ export const windowsDpapi: SecretVault = {
       ref,
       value,
     )
-    if (out.code !== 0) throw new VaultError('windows-dpapi', out.stderr.trim() || `code ${out.code}`)
+    if (out.code !== 0) throw new VaultError('windows-dpapi', powershellError(out))
   },
 
   async delete(ref) {
+    // `-ErrorAction SilentlyContinue` ne suffisait pas : PowerShell sort en 1
+    // dès que sa **dernière** commande a échoué, même silencieusement. Supprimer
+    // un secret absent levait donc, alors que le contrat de `SecretVault` dit le
+    // contraire — exactement l'écart constaté sur libsecret, pour une raison
+    // différente et sur l'autre plateforme.
+    //
+    // On distingue donc les deux cas dans le script lui-même : l'absence est
+    // sautée, une vraie panne reste terminante grâce au `Stop` du préambule, et
+    // le `exit 0` final ne masque qu'un succès.
     const out = await powershell(
       `${PS_PREAMBLE}
-       Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue`,
+       if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force }
+       exit 0`,
       ref,
     )
-    if (out.code !== 0) throw new VaultError('windows-dpapi', out.stderr.trim() || `code ${out.code}`)
+    if (out.code !== 0) throw new VaultError('windows-dpapi', powershellError(out))
   },
+}
+
+/**
+ * Message lisible à partir de la sortie d'erreur de PowerShell.
+ *
+ * Quand ses flux sont redirigés, PowerShell n'écrit pas du texte sur la sortie
+ * d'erreur : il y sérialise des objets, en commençant par `#< CLIXML`. Rendu
+ * tel quel, le message d'une panne de coffre ressemblait à
+ * `windows-dpapi : #< CLIXML <Objs Version="1.1.0.1" xmlns=…` — illisible, et
+ * surtout inexploitable par qui doit décider quoi faire.
+ *
+ * On extrait donc les chaînes marquées comme erreurs, et on rétablit les sauts
+ * de ligne que la sérialisation encode. S'il n'y a rien d'exploitable, on rend
+ * le code de sortie plutôt qu'un fragment de XML.
+ *
+ * @param out sortie de l'utilitaire
+ * @returns le message à montrer, jamais vide
+ */
+export function powershellError(out: Pick<ExecOutcome, 'code' | 'stderr'>): string {
+  const raw = out.stderr.trim()
+  if (!raw.startsWith('#< CLIXML')) return raw || `code ${out.code}`
+  const messages = [...raw.matchAll(/<S S="Error">([\s\S]*?)<\/S>/g)]
+    .map((m) =>
+      m[1]!
+        // La sérialisation encode les caractères de contrôle sous cette forme.
+        .replace(/_x000D__x000A_/g, ' ')
+        .replace(/_x([0-9A-Fa-f]{4})_/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .trim(),
+    )
+    .filter(Boolean)
+  return messages.join(' ').trim() || `code ${out.code}`
 }
 
 /**
