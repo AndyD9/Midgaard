@@ -20,8 +20,13 @@ on:
   push:
     branches: [main]
     # Inutile de mobiliser quatre machines pour une retouche de documentation.
+    # L'exclusion des `.md` n'est pas cosmétique : sans elle, `packages/secrets/**`
+    # attrape le README du paquet, et une relecture de documentation relançait
+    # bel et bien les quatre postes — constaté. Le commentaire ci-dessus
+    # décrivait une intention que le filtre ne tenait pas.
     paths:
       - 'packages/secrets/**'
+      - '!packages/secrets/**.md'
       - 'packages/cli/src/commands.ts'
       - 'tests/unit/secrets.test.ts'
       - '.github/workflows/vault.yml'
