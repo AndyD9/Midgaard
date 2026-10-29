@@ -29,6 +29,18 @@ d'office, sait écrire un identifiant mais pas relire un mot de passe — c'est
 délibéré de la part de Windows. Le module PowerShell `CredentialManager` le
 permettrait, mais il n'est pas installé par défaut.
 
+## Le coffre est par utilisateur, pas par dossier runtime
+
+Le trousseau ne connaît qu'un **service** `midgaard` et un **compte**
+`provider.<id>`. `MIDGAARD_HOME` déplace la base, le journal et le verrou ; il
+ne déplace **pas** les clés. Deux installations qui emploient le même compte
+utilisateur partagent donc leurs secrets — ce qui est voulu pour un humain, et
+dangereux pour une suite de tests : écrire `provider.venice` depuis un test
+écraserait la vraie clé, sous la même référence, sans rien dire.
+
+Les tests forcent donc `MIDGAARD_VAULT=file` (voir `tests/helpers.ts`), ce qui
+les cantonne à leur dossier jetable.
+
 ## Limites connues, et assumées
 
 - **macOS expose le secret dans `ps` le temps de l'écriture.** `security

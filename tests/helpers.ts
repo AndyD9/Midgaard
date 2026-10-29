@@ -39,9 +39,17 @@ export function tempHome(prefix: string): { home: string; config: HarnessConfig;
   return { home, config, cleanup: () => rmSync(home, { recursive: true, force: true }) }
 }
 
-/** Environnement transmis à un processus enfant pour qu'il vise le même dossier. */
+/**
+ * Environnement transmis à un processus enfant pour qu'il vise le même dossier.
+ *
+ * `MIDGAARD_VAULT=file` n'est pas une commodité : **le coffre système est par
+ * utilisateur, pas par `MIDGAARD_HOME`**. Le trousseau macOS ne connaît qu'un
+ * service `midgaard` et un compte `provider.<id>` ; une suite de tests qui
+ * déposerait une clé y écraserait celle de l'utilisateur, sous la même
+ * référence, sans rien dire. Les tests écrivent donc dans leur dossier jetable.
+ */
 export function childEnv(home: string, extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  return { ...process.env, MIDGAARD_HOME: home, MIDGAARD_PORT: '0', ...extra }
+  return { ...process.env, MIDGAARD_HOME: home, MIDGAARD_PORT: '0', MIDGAARD_VAULT: 'file', ...extra }
 }
 
 /** Vrai tant que le processus enfant n'est pas terminé. */
