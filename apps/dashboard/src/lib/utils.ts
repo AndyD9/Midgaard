@@ -43,20 +43,40 @@ export function timeUntil(iso: string, now: number): string | null {
 }
 
 /**
- * Montant en dollars, lisible.
+ * Retire les zéros inutiles d'un montant déjà formaté, **sans** descendre sous
+ * deux décimales : un budget reste « 0,50 $ » et non « 0,5 $ », qui ne se lit
+ * plus comme de l'argent.
+ */
+function trimDecimals(fixed: string): string {
+  const trimmed = fixed.replace(/0+$/, '')
+  const [whole, decimals = ''] = trimmed.split('.')
+  return decimals.length >= 2 ? trimmed : `${whole}.${decimals.padEnd(2, '0')}`
+}
+
+/**
+ * Montant en dollars, lisible — et **comparable**.
  *
- * Quatre décimales en dessous d'un centime : un appel d'agent coûte couramment
- * des fractions de centime, et afficher « 0,00 $ » pour trois centièmes de
- * centime ferait croire que le comptage ne marche pas.
+ * Le nombre de décimales suit l'ordre de grandeur, parce qu'un montant arrondi
+ * trop tôt cesse de dire ce qu'il vaut :
+ *
+ * - au-dessus du dollar, deux décimales : l'écart entre deux montants s'y voit ;
+ * - en dessous, **quatre**, l'échelle d'une tâche d'agent ;
+ * - en dessous du dixième de millième, jusqu'à huit, pour qu'un montant non nul
+ *   ne s'affiche jamais « 0,0000 $ » — ce qui ressemblerait à un bogue.
+ *
+ * Les quatre décimales sous le dollar ne sont pas un confort. La facture et
+ * notre estimation ne valent **que côte à côte** : leur écart est la seule façon
+ * de voir vieillir `pricing.json`. Deux décimales affichaient « 0,01 $ » des
+ * deux côtés pour 0,011632 $ facturés et 0,011763 $ estimés — les deux chiffres
+ * dont tout l'intérêt est de différer devenaient identiques, pile dans la
+ * tranche où vit une vraie tâche. C'est le défaut « budget de 0,0000 $ » à
+ * l'autre bout de l'échelle : un arrondi qui efface ce qu'il doit montrer.
  */
 export function formatCost(usd: number): string {
   if (usd === 0) return '0 $'
-  if (usd >= 0.01) return `${usd.toFixed(2)} $`
-  if (usd >= 0.0001) return `${usd.toFixed(4)} $`
-  // En dessous, quatre décimales afficheraient « 0,0000 $ » pour un montant non
-  // nul, ce qui ressemble à un bogue d'affichage. On montre assez de décimales
-  // pour que le chiffre reste vrai.
-  return `${usd.toFixed(8).replace(/0+$/, '')} $`
+  if (usd >= 1) return `${usd.toFixed(2)} $`
+  if (usd >= 0.0001) return `${trimDecimals(usd.toFixed(4))} $`
+  return `${trimDecimals(usd.toFixed(8))} $`
 }
 
 /** Nombre de jetons, abrégé au-delà du millier : `12 400` devient `12,4 k`. */

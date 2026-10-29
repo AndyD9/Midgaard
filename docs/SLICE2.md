@@ -8,7 +8,7 @@ corresponde à la facture.
 **État : livrable atteint, mesuré, et éprouvé en vraie session.** Un Researcher
 exécute de vraies tâches sur Venice, et **le coût affiché correspond au centime
 près au solde débité** — vérifié **trois** fois, à 0,0 % d'écart, en relevant le
-solde chez le fournisseur avant et après. 128 vérifications unitaires, 10
+solde chez le fournisseur avant et après. 133 vérifications unitaires, 10
 d'instance unique, 7 d'intégration, 12 de bout en bout MCP et 5 d'essai réel,
 0 échec.
 
@@ -16,7 +16,8 @@ L'essai en vraie session Claude Code, que la version précédente de ce document
 annonçait comme restant à faire, **a eu lieu** : il confirme les invariants — une
 attente de 62,6 s sans coupure dans le vrai client, le `context` qui évite la
 redécouverte, le web encadré et sourcé — et **rapporte quatre défauts
-d'ergonomie**, **tous les quatre corrigés depuis**, chacun avec sa vérification.
+d'ergonomie** — cinq avec le mineur —, **tous corrigés depuis**, chacun avec sa
+vérification.
 L'essai a aussi produit une erreur de diagnostic de ma part, rectifiée au § du
 défaut n° 2 : elle est conservée telle quelle, parce qu'elle est la meilleure
 démonstration du défaut en question.
@@ -242,7 +243,7 @@ supplémentaire. Toujours aucun jeton facturé par un test.
 
 | Suite | Contenu | Résultat |
 |---|---|---|
-| `npm run test:unit` | 128 tests : machine à états, persistance, configuration, **normalisation des deux adaptateurs**, **coûts**, **sécurité des outils**, **boucle d'agent** | 128/128, ~1 s |
+| `npm run test:unit` | 133 tests : machine à états, persistance, configuration, **normalisation des deux adaptateurs**, **coûts**, **sécurité des outils**, **boucle d'agent**, **formatage des montants** | 133/133, ~1 s |
 | `npm run test:lock` | 8 daemons lancés ensemble, 10 manches | 10/10, ~30 s |
 | `npm run test:restart` | 7 scénarios sur de vrais processus et de vraies sockets | 7/7, ~45 s |
 | `npm run test:wait` | 12 scénarios de bout en bout, client MCP officiel | 12/12, ~178 s |
@@ -472,9 +473,9 @@ protection-là n'a pas été éprouvée ; seule l'attribution l'a été.
 
 ### Les quatre défauts d'ergonomie
 
-Les quatre sont corrigés, et chaque correctif est vérifié là où le défaut se
-voyait — pas seulement dans un test. Reste le cinquième, mineur, laissé ouvert
-en bas de section.
+Les quatre sont corrigés, le cinquième aussi, et chaque correctif est vérifié là
+où le défaut se voyait — dans le dashboard servi, dans la réponse MCP — pas
+seulement dans un test.
 
 #### 1. `search_files` répond « 0 correspondance » au lieu d'une erreur
 
@@ -658,6 +659,22 @@ n'ont de valeur **que côte à côte** deviennent identiques à l'œil, pile dan
 tranche où vit une vraie tâche. C'est le défaut « budget de 0,0000 $ » déjà
 corrigé plus haut, à l'autre bout de l'échelle.
 
+**Corrigé.** Le nombre de décimales suit l'ordre de grandeur : deux au-dessus du
+dollar, **quatre** en dessous — l'échelle d'une tâche d'agent —, et jusqu'à huit
+plus bas encore. Les zéros inutiles tombent, mais jamais sous deux décimales :
+un budget reste « 0,50 $ », qui se lit comme de l'argent, et non « 0,5 $ ».
+
+La même tâche affiche désormais **0,0116 $** facturés contre **0,0118 $**
+estimés. « Les deux concordent » reste vrai, et devient enfin vérifiable à
+l'œil : le lecteur voit *de combien* ils concordent.
+
+Ce défaut a valu au dashboard son **premier test**. Il ne touche qu'aux
+fonctions pures de `src/lib/utils.ts` — aucun rendu, aucun DOM —, et le projet
+TypeScript des tests a dû être élargi d'un cran pour les atteindre, le dashboard
+ayant sa propre configuration et n'appartenant pas à la solution `tsc -b`. Le
+test Playwright de l'interface reste porté en Slice 3 ; celui-ci ne le remplace
+pas, il couvre la seule logique qui ne demande pas de navigateur.
+
 ### Ce que l'essai apprend sur le comportement de Claude
 
 **Le `context` fonctionne, et son effet se mesure.** Les deux délégations sur le
@@ -709,13 +726,10 @@ c'est précisément la discipline que l'encadrement `<untrusted_data>` impose.
 
 ## Limites connues
 
-- **Un défaut d'affichage mineur reste ouvert** : `formatCost` passe à deux
-  décimales au-dessus de 0,01 $, si bien que la facture et l'estimation d'une
-  tâche peuvent s'afficher toutes deux « 0,01 $ » alors qu'elles diffèrent. La
-  phrase qui les compare reste juste — elle lit les vraies valeurs — mais les
-  deux chiffres cessent d'être lisibles **côte à côte**, pile dans la tranche
-  d'une vraie tâche. Les quatre autres défauts trouvés en vraie session sont
-  corrigés.
+- **Le dashboard n'a qu'un test, et il ne rend rien.** Les fonctions pures de
+  `src/lib/utils.ts` sont couvertes ; l'interface elle-même ne l'est toujours
+  pas. Playwright reste porté en Slice 3. Les cinq défauts d'ergonomie trouvés
+  en vraie session, eux, sont tous corrigés.
 - **L'approbation humaine n'a pas été rejouée en Slice 2.** Aucun outil du
   `researcher` n'en demande — c'est en lecture seule. Ce chemin a été vérifié
   en Slice 1, et le sera de nouveau en Slice 3 avec les outils d'écriture.
@@ -768,7 +782,7 @@ bloquante. S'y ajoutent quatre choses nées de cette slice :
    appels, ou l'Interactions API.
 3. **Vérifier le coffre sur Windows et Linux.** DPAPI et libsecret sont écrits,
    pas constatés.
-4. **Rendre les deux montants lisibles côte à côte** — le cinquième défaut, seul
-   reliquat de l'essai en vraie session : `formatCost` arrondit à deux décimales
-   au-dessus de 0,01 $ et fait disparaître l'écart qu'ils servent à montrer. Les
-   quatre autres défauts sont corrigés.
+4. **Un test Playwright du dashboard.** L'essai en vraie session lui a donné son
+   premier test, mais il ne couvre que des fonctions pures : aucun rendu, aucune
+   régression visuelle. C'est le report qui dure depuis la Slice 1, et l'interface
+   porte désormais des coûts, des appels d'outils et des sources.

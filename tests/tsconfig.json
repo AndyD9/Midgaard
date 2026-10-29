@@ -1,7 +1,14 @@
 {
+  "$comment": [
+    "`rootDir` remonte d'un cran et `include` nomme un fichier du dashboard : c'est le seul",
+    "moyen de type-vérifier un test qui porte sur ses fonctions pures. Le dashboard a sa propre",
+    "configuration (cible navigateur, JSX) et n'est pas dans la solution `tsc -b`, donc on ne peut",
+    "pas le référencer comme un paquet. Seules des fonctions sans dépendance au DOM traversent",
+    "ainsi la frontière ; le rendu, lui, attend Playwright en Slice 3."
+  ],
   "extends": "../tsconfig.base.json",
-  "compilerOptions": { "rootDir": ".", "outDir": "dist", "noEmit": false },
-  "include": ["**/*.ts"],
+  "compilerOptions": { "rootDir": "..", "outDir": "dist", "noEmit": false },
+  "include": ["**/*.ts", "../apps/dashboard/src/lib/utils.ts"],
   "exclude": ["dist"],
   "references": [
     { "path": "../packages/contracts" },
