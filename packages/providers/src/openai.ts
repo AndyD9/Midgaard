@@ -44,7 +44,33 @@ export interface OpenAiAdapterOptions {
   redact: (text: string) => string
   /** Tarif du modèle, ou `undefined` s'il est inconnu — auquel cas rien n'est inventé. */
   price: ModelPrice | undefined
+  /**
+   * Chemin d'un point d'entrée qui **exige réellement la clé**, pour que le
+   * « Test connection » prouve quelque chose. `null` quand `/models` suffit.
+   *
+   * Voir {@link AUTH_PROBE} : ce n'est pas une précaution théorique.
+   */
+  authProbePath?: string | null
 }
+
+/**
+ * Point d'entrée authentifié par préréglage.
+ *
+ * **Mesuré, et c'est tout l'intérêt.** `GET /models` de Venice répond `200`
+ * **sans aucune clé** — vérifié à la main, deux fois, avec et sans en-tête. Un
+ * test de connexion qui s'y fierait annoncerait « joignable » à quelqu'un dont
+ * la clé est fausse, et l'erreur n'apparaîtrait qu'à la première tâche, loin de
+ * sa cause. C'est exactement le défaut n° 1 de la Slice 0 sous une autre forme :
+ * affirmer que quelque chose marche sans l'avoir constaté.
+ *
+ * `/api_keys/rate_limits` rend `401 Authentication failed` sur une clé invalide.
+ * Chez OpenAI, `/models` exige la clé : aucune sonde supplémentaire n'est utile.
+ */
+export const AUTH_PROBE: Readonly<Record<string, string | null>> = Object.freeze({
+  venice: '/api_keys/rate_limits',
+  openai: null,
+  custom: null,
+})
 
 // --- Formes du fil ---------------------------------------------------------
 
@@ -74,6 +100,27 @@ interface WireResponse {
 
 interface WireModelList {
   data?: { id?: string }[]
+}
+
+/** Réponse de la sonde authentifiée. Les soldes sont facultatifs et varient selon le fournisseur. */
+interface WireKeyInfo {
+  data?: { balances?: Record<string, number> }
+  balances?: Record<string, number>
+}
+
+/**
+ * Résume les soldes rendus par la sonde, s'il y en a.
+ *
+ * Utile au-delà du test : une tâche qui échouera en `402 INSUFFICIENT_BALANCE`
+ * vaut mieux d'être annoncée ici que découverte au milieu d'une délégation.
+ */
+function describeBalances(info: WireKeyInfo): string {
+  const balances = info.data?.balances ?? info.balances
+  if (!balances) return ' · clé acceptée'
+  const parts = Object.entries(balances)
+    .filter(([, value]) => typeof value === 'number')
+    .map(([name, value]) => `${name} ${value}`)
+  return parts.length ? ` · clé acceptée, solde ${parts.join(', ')}` : ' · clé acceptée'
 }
 
 /**
@@ -158,12 +205,28 @@ export function createOpenAiAdapter(options: OpenAiAdapterOptions): ProviderAdap
       }
     },
 
+    /**
+     * « Test connection » en deux temps, et aucun jeton facturé.
+     *
+     *  1. `GET /models` : l'endpoint répond, et le modèle configuré y existe ;
+     *  2. une sonde **authentifiée** ({@link AUTH_PROBE}), là où `/models` est
+     *     public. Sans elle, le test réussirait avec une clé fausse.
+     *
+     * Un appel de complétion prouverait tout d'un coup — en facturant des jetons
+     * à chaque test, et en demandant un modèle qui marche pour tester une clé.
+     */
     async testConnection(signal): Promise<ConnectionTest> {
       const started = Date.now()
+      const fail = (detail: string): ConnectionTest => ({
+        ok: false,
+        detail,
+        at: new Date().toISOString(),
+        latency_ms: Date.now() - started,
+        models: [],
+      })
+
+      let models: string[]
       try {
-        // `GET /models` prouve d'un coup trois choses : l'endpoint répond, la clé
-        // est acceptée, et le modèle configuré existe bien chez lui. Un appel de
-        // complétion le prouverait aussi — en facturant des jetons pour un test.
         const list = await getJson<WireModelList>({
           url: `${base}/models`,
           headers,
@@ -171,25 +234,42 @@ export function createOpenAiAdapter(options: OpenAiAdapterOptions): ProviderAdap
           provider: options.id,
           redact: options.redact,
         })
-        const models = (list.data ?? []).map((m) => m.id).filter((id): id is string => typeof id === 'string')
-        const known = models.includes(options.model)
-        return {
-          ok: true,
-          detail: known
-            ? `${models.length} modèle(s) disponibles, dont « ${options.model} »`
-            : `${models.length} modèle(s) disponibles, mais « ${options.model} » n'en fait pas partie`,
-          at: new Date().toISOString(),
-          latency_ms: Date.now() - started,
-          models: models.slice(0, 200),
-        }
+        models = (list.data ?? []).map((m) => m.id).filter((id): id is string => typeof id === 'string')
       } catch (e) {
-        return {
-          ok: false,
-          detail: options.redact((e as Error).message),
-          at: new Date().toISOString(),
-          latency_ms: Date.now() - started,
-          models: [],
+        return fail(options.redact((e as Error).message))
+      }
+
+      const probePath = options.authProbePath ?? AUTH_PROBE[options.preset] ?? null
+      let credit = ''
+      if (probePath) {
+        try {
+          const probe = await getJson<WireKeyInfo>({
+            url: `${base}${probePath}`,
+            headers,
+            signal,
+            provider: options.id,
+            redact: options.redact,
+          })
+          credit = describeBalances(probe)
+        } catch (e) {
+          const status = (e as { status?: number | null }).status
+          if (status === 401 || status === 403) return fail('clé refusée par le fournisseur (401)')
+          // Une sonde indisponible pour une autre raison n'invalide pas le test :
+          // on le dit, plutôt que de prétendre que la clé est bonne ou mauvaise.
+          credit = ' · clé non vérifiée (sonde indisponible)'
         }
+      }
+
+      const known = models.includes(options.model)
+      return {
+        ok: true,
+        detail:
+          (known
+            ? `${models.length} modèle(s) disponibles, dont « ${options.model} »`
+            : `${models.length} modèle(s) disponibles, mais « ${options.model} » n'en fait pas partie`) + credit,
+        at: new Date().toISOString(),
+        latency_ms: Date.now() - started,
+        models: models.slice(0, 200),
       }
     },
   }

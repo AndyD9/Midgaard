@@ -27,6 +27,15 @@ let nextResponse: unknown = {}
 let server: Server
 let base = ''
 
+/**
+ * Réponses des routes `GET`, par chemin : `[code, corps]`.
+ *
+ * Séparées de `nextResponse`, qui sert aux complétions : un test de connexion
+ * interroge deux chemins différents, dont l'un doit pouvoir refuser pendant que
+ * l'autre accepte.
+ */
+const getRoutes = new Map<string, [number, unknown]>()
+
 before(async () => {
   server = createServer((req, res) => {
     const chunks: Buffer[] = []
@@ -37,6 +46,11 @@ before(async () => {
         path: req.url ?? '',
         body: raw ? (JSON.parse(raw) as Record<string, unknown>) : {},
         auth: req.headers.authorization ?? (req.headers['x-goog-api-key'] as string | undefined),
+      }
+      const route = req.method === 'GET' ? getRoutes.get((req.url ?? '').split('?')[0] ?? '') : undefined
+      if (route) {
+        res.writeHead(route[0], { 'content-type': 'application/json' })
+        return res.end(JSON.stringify(route[1]))
       }
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify(nextResponse))
@@ -281,5 +295,48 @@ describe('cumul des consommations', () => {
     assert.equal(addUsage(estime, inconnu).cost_source, 'unknown', 'un seul tarif manquant rend le total inconnu')
     assert.equal(addUsage(emptyUsage(), facture).cost_source, 'provider', 'un cumul vide n\'est pas une ignorance')
     assert.equal(addUsage(facture, estime).cost_usd, 3)
+  })
+})
+
+describe('test de connexion', () => {
+  it('refuse une clé que le fournisseur rejette, même si /models répond', async () => {
+    // Le piège, mesuré sur la vraie API : `GET /models` de Venice répond 200
+    // SANS aucune clé. Un test qui s'y fierait annoncerait « joignable » à
+    // quelqu'un dont la clé est fausse, et l'erreur n'apparaîtrait qu'à la
+    // première tâche — loin de sa cause.
+    getRoutes.set('/models', [200, { data: [{ id: 'modele-tarife' }] }])
+    getRoutes.set('/api_keys/rate_limits', [401, { error: 'Authentication failed' }])
+    const test = await venice().testConnection()
+    assert.equal(test.ok, false)
+    assert.match(test.detail, /clé refusée/)
+  })
+
+  it('confirme une clé acceptée, et rapporte le solde quand il est donné', async () => {
+    getRoutes.set('/models', [200, { data: [{ id: 'modele-tarife' }, { id: 'autre' }] }])
+    getRoutes.set('/api_keys/rate_limits', [200, { data: { balances: { USD: 12.5 } } }])
+    const test = await venice().testConnection()
+    assert.equal(test.ok, true)
+    assert.match(test.detail, /2 modèle\(s\) disponibles, dont « modele-tarife »/)
+    assert.match(test.detail, /solde USD 12\.5/)
+  })
+
+  it('signale un modèle configuré que le fournisseur ne propose pas', async () => {
+    getRoutes.set('/models', [200, { data: [{ id: 'un-autre-modele' }] }])
+    getRoutes.set('/api_keys/rate_limits', [200, {}])
+    const test = await venice().testConnection()
+    assert.equal(test.ok, true, 'l\'endpoint répond et la clé est bonne : ce n\'est pas un échec de connexion')
+    assert.match(test.detail, /n'en fait pas partie/)
+  })
+
+  it('ne sonde pas d\'endpoint supplémentaire pour OpenAI, dont /models exige déjà la clé', async () => {
+    getRoutes.set('/models', [200, { data: [{ id: 'm' }] }])
+    getRoutes.set('/api_keys/rate_limits', [401, { error: 'ne doit pas être appelé' }])
+    const openai = createOpenAiAdapter({
+      id: 'openai', preset: 'openai', model: 'm', baseUrl: base, apiKey: 'sk-x',
+      webSearch: false, redact, price: undefined,
+    })
+    const test = await openai.testConnection()
+    assert.equal(test.ok, true)
+    assert.equal(lastRequest.path.split('?')[0], '/models', 'dernier appel : /models, pas la sonde Venice')
   })
 })
