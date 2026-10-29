@@ -5,12 +5,14 @@
   "type": "module",
   "description": "Suites de vérification : unitaires, instance unique, redémarrage, bout en bout MCP",
   "dependencies": {
+    "@midgaard/agent-runtime": "*",
     "@midgaard/contracts": "*",
     "@midgaard/daemon": "*",
     "@midgaard/mcp-server": "*",
     "@midgaard/persistence": "*",
     "@midgaard/providers": "*",
     "@midgaard/secrets": "*",
+    "@midgaard/tools": "*",
     "@modelcontextprotocol/sdk": "^1.32.2"
   }
 }

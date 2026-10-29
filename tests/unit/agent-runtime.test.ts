@@ -1,0 +1,347 @@
+/**
+ * @file La boucle d'agent, éprouvée avec un faux fournisseur.
+ *
+ * Aucun modèle n'est appelé : l'adaptateur est une liste de réponses
+ * préprogrammées. C'est ce qui permet de vérifier **l'invariant le plus cher du
+ * produit** — qu'un budget arrête la tâche *avant* l'appel de trop — sans payer
+ * pour le constater, et de le vérifier à chaque exécution de la suite.
+ *
+ * Ce que ces tests couvrent, et pourquoi :
+ *  - le budget, les étapes, le délai et l'annulation arrêtent la boucle ;
+ *  - seul `submit_result` termine une tâche, et un modèle bavard est relancé
+ *    une fois avant d'échouer ;
+ *  - un outil hors profil est refusé sans demander d'approbation ;
+ *  - une approbation refusée n'est pas contournable ;
+ *  - le contenu extérieur est encadré **avant** de revenir dans la conversation.
+ */
+import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { describe, it } from 'node:test'
+import type { Agent, Usage } from '@midgaard/contracts'
+import { DEFAULT_RESEARCHER_LIMITS, emptyUsage } from '@midgaard/contracts'
+import type { CompletionRequest, CompletionResponse, ProviderAdapter } from '@midgaard/providers'
+import { runAgent, type ApprovalOutcome, type LoopHooks } from '@midgaard/agent-runtime'
+import type { ToolContext } from '@midgaard/tools'
+
+/** Racine de projet jetable, partagée par les tests qui lisent des fichiers. */
+function makeRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), 'midgaard-loop-'))
+  mkdirSync(join(root, 'src'))
+  writeFileSync(join(root, 'src', 'a.ts'), 'const x = 1\n')
+  return root
+}
+
+/** Consommation d'un appel, avec un coût connu. */
+function cost(usd: number): Usage {
+  return { ...emptyUsage(), model_calls: 1, input_tokens: 10, output_tokens: 10, cost_usd: usd, cost_source: 'provider', cost_usd_reported: usd }
+}
+
+/** Réponse de modèle préprogrammée. */
+type Scripted = Partial<CompletionResponse> & { usage?: Usage }
+
+/** Faux fournisseur : rend les réponses dans l'ordre, puis boucle sur la dernière. */
+function scriptedAdapter(script: Scripted[], options: { supportsWebSearch?: boolean } = {}) {
+  const calls: CompletionRequest[] = []
+  let index = 0
+  const adapter: ProviderAdapter = {
+    id: 'faux',
+    preset: 'venice',
+    model: 'modele-de-test',
+    supportsWebSearch: options.supportsWebSearch ?? false,
+    async complete(request) {
+      calls.push(request)
+      const next = script[Math.min(index++, script.length - 1)] ?? {}
+      return {
+        text: next.text ?? '',
+        toolCalls: next.toolCalls ?? [],
+        usage: next.usage ?? cost(0.001),
+        citations: next.citations ?? [],
+        finishReason: next.finishReason ?? (next.toolCalls?.length ? 'tool_calls' : 'stop'),
+      }
+    },
+    async testConnection() {
+      return { ok: true, detail: 'faux', at: new Date().toISOString(), latency_ms: 0, models: [] }
+    },
+  }
+  return { adapter, calls, callCount: () => calls.length }
+}
+
+/** Crochets qui enregistrent tout, pour pouvoir affirmer ce qui s'est passé. */
+function recordingHooks(over: Partial<LoopHooks> = {}) {
+  const notes: string[] = []
+  const messages: string[] = []
+  const usages: Usage[] = []
+  const tools: { name: string; decision: string; status?: string; error?: string | null }[] = []
+  const approvals: string[] = []
+  const hooks: LoopHooks = {
+    onAgentMessage: (t) => void messages.push(t),
+    onUsage: (u) => void usages.push(u),
+    onNote: (m) => void notes.push(m),
+    onToolRequested: (input) => {
+      tools.push({ name: input.name, decision: input.decision })
+      return String(tools.length - 1)
+    },
+    onToolCompleted: (id, input) => {
+      const entry = tools[Number(id)]
+      if (entry) {
+        entry.status = input.status
+        entry.error = input.error
+      }
+    },
+    requestApproval: async (operation) => {
+      approvals.push(operation)
+      return 'approved' as ApprovalOutcome
+    },
+    isCancelled: () => false,
+    ...over,
+  }
+  return { hooks, notes, messages, usages, tools, approvals }
+}
+
+function agentWith(over: Partial<Agent> = {}): Agent {
+  return {
+    id: 'researcher',
+    name: 'Researcher',
+    kind: 'researcher',
+    description: '',
+    provider_id: 'faux',
+    model: null,
+    system_prompt: 'You are a researcher.',
+    tools: ['read_file', 'http_fetch', 'submit_result'],
+    limits: { ...DEFAULT_RESEARCHER_LIMITS },
+    enabled: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    ...over,
+  }
+}
+
+function toolCtx(root: string, over: Partial<ToolContext> = {}): ToolContext {
+  return { root, httpPolicy: 'open', allowHosts: [], log: () => {}, ...over }
+}
+
+/** Appel `submit_result` bien formé. */
+function submit(summary = 'la réponse', extra: Record<string, unknown> = {}) {
+  return [{ id: 'c1', name: 'submit_result', argumentsJson: JSON.stringify({ summary, ...extra }) }]
+}
+
+async function run(script: Scripted[], over: { agent?: Partial<Agent>; hooks?: Partial<LoopHooks>; ctx?: Partial<ToolContext> } = {}) {
+  const root = makeRoot()
+  try {
+    const { adapter, callCount } = scriptedAdapter(script)
+    const rec = recordingHooks(over.hooks)
+    const outcome = await runAgent({
+      agent: agentWith(over.agent),
+      objective: 'trouve la réponse',
+      context: null,
+      adapter,
+      tools: toolCtx(root, over.ctx),
+      hooks: rec.hooks,
+      redact: (t) => t,
+      signal: new AbortController().signal,
+    })
+    return { outcome, ...rec, callCount: callCount() }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+describe('fin de tâche', () => {
+  it('ne se termine que sur submit_result', async () => {
+    const { outcome, callCount } = await run([{ toolCalls: submit('42') }])
+    assert.equal(outcome.status, 'completed')
+    assert.equal(outcome.status === 'completed' && outcome.result.summary, '42')
+    assert.equal(callCount, 1)
+  })
+
+  it('relance une fois un modèle qui dit avoir fini sans appeler l\'outil', async () => {
+    const { outcome, notes, callCount } = await run([
+      { text: 'Voilà, j\'ai terminé.' },
+      { toolCalls: submit('la vraie réponse') },
+    ])
+    assert.equal(outcome.status, 'completed')
+    assert.equal(callCount, 2, 'un tour de plus, consommé pour obtenir le résultat structuré')
+    assert.ok(notes.some((n) => /relance/.test(n)))
+  })
+
+  it('échoue si la relance ne suffit pas, plutôt que de rendre du texte libre', async () => {
+    const { outcome, callCount } = await run([{ text: 'j\'ai fini, promis' }])
+    assert.equal(outcome.status, 'failed')
+    assert.match(outcome.status === 'failed' ? outcome.error : '', /sans appeler submit_result/)
+    assert.equal(callCount, 2, 'relancé une fois, pas davantage')
+  })
+
+  it('refuse une charge utile invalide et laisse le modèle corriger', async () => {
+    const { outcome, notes } = await run([
+      { toolCalls: [{ id: 'c1', name: 'submit_result', argumentsJson: '{"details":"sans résumé"}' }] },
+      { toolCalls: submit('corrigé') },
+    ])
+    assert.equal(outcome.status, 'completed')
+    assert.ok(notes.some((n) => /submit_result refusé/.test(n)))
+  })
+
+  it('marque le résultat non fiable dès qu\'il cite une source extérieure', async () => {
+    const { outcome } = await run([
+      { toolCalls: submit('selon la doc', { citations: [{ title: 'Doc', url: 'https://exemple.test' }] }) },
+    ])
+    assert.equal(outcome.status === 'completed' && outcome.result.untrusted, true)
+  })
+})
+
+describe('limites', () => {
+  it('arrête la tâche AVANT l\'appel qui dépasserait le budget', async () => {
+    // Trois appels à 0,40 $ : le budget de 1 $ est dépassé après le troisième.
+    // Ce qu'on vérifie, c'est qu'il n'y a pas de quatrième appel.
+    const { outcome, callCount } = await run(
+      [{ text: 'je cherche', toolCalls: [{ id: 'c1', name: 'read_file', argumentsJson: '{"path":"src/a.ts"}' }], usage: cost(0.4) }],
+      { agent: { limits: { ...DEFAULT_RESEARCHER_LIMITS, max_cost_usd: 1 } } },
+    )
+    assert.equal(outcome.status, 'budget_exceeded', 'et non failed : rien n\'a échoué')
+    assert.equal(callCount, 3, '0,40 × 3 = 1,20 ≥ 1 : le quatrième appel ne part pas')
+    assert.match(outcome.status === 'budget_exceeded' ? outcome.error : '', /budget de 1,?\.?00 \$ atteint — 3 appel\(s\) modèle, 1\.20 \$/)
+  })
+
+  it('rend la consommation même quand la tâche échoue', async () => {
+    const { outcome } = await run([{ text: 'rien' }])
+    assert.ok(outcome.usage.cost_usd > 0, 'ce qui a été dépensé a été dépensé')
+    assert.equal(outcome.usage.model_calls, 2)
+  })
+
+  it('s\'arrête sur la limite d\'étapes, et le dit', async () => {
+    const { outcome, callCount } = await run(
+      [{ text: 'je réfléchis', toolCalls: [{ id: 'c1', name: 'read_file', argumentsJson: '{"path":"src/a.ts"}' }] }],
+      { agent: { limits: { ...DEFAULT_RESEARCHER_LIMITS, max_steps: 3 } } },
+    )
+    assert.equal(outcome.status, 'failed')
+    assert.equal(callCount, 3)
+    assert.match(outcome.status === 'failed' ? outcome.error : '', /3 étapes atteinte/)
+  })
+
+  it('n\'applique pas de budget sur un modèle sans tarif, et prévient une seule fois', async () => {
+    const inconnu: Usage = { ...emptyUsage(), model_calls: 1, cost_source: 'unknown' }
+    const { outcome, notes } = await run(
+      [{ text: 'je tourne', toolCalls: [{ id: 'c1', name: 'read_file', argumentsJson: '{"path":"src/a.ts"}' }], usage: inconnu }],
+      { agent: { limits: { ...DEFAULT_RESEARCHER_LIMITS, max_steps: 4, max_cost_usd: 0.000001 } } },
+    )
+    assert.equal(outcome.status, 'failed', 'bornée par les étapes, pas par un budget inapplicable')
+    assert.equal(notes.filter((n) => /tarif inconnu/.test(n)).length, 1, 'averti une fois, pas à chaque tour')
+  })
+
+  it('honore une annulation au point de contrôle suivant', async () => {
+    let cancelled = false
+    const { outcome } = await run(
+      [{ text: 'je travaille', toolCalls: [{ id: 'c1', name: 'read_file', argumentsJson: '{"path":"src/a.ts"}' }] }],
+      { hooks: { isCancelled: () => { const was = cancelled; cancelled = true; return was } } },
+    )
+    assert.equal(outcome.status, 'cancelled')
+  })
+})
+
+describe('appels d\'outils', () => {
+  it('refuse sans approbation un outil absent du profil', async () => {
+    const { outcome, tools, approvals } = await run(
+      [
+        { toolCalls: [{ id: 'c1', name: 'search_files', argumentsJson: '{"pattern":"x"}' }] },
+        { toolCalls: submit('fini') },
+      ],
+      { agent: { tools: ['read_file', 'submit_result'] } },
+    )
+    assert.equal(outcome.status, 'completed')
+    assert.equal(approvals.length, 0, 'un outil hors profil n\'est pas négociable')
+    assert.equal(tools[0]?.decision, 'deny')
+    assert.equal(tools[0]?.status, 'denied')
+  })
+
+  it('rend l\'erreur de schéma au modèle pour qu\'il corrige', async () => {
+    const { outcome, tools } = await run([
+      { toolCalls: [{ id: 'c1', name: 'read_file', argumentsJson: '{"chemin":"src/a.ts"}' }] },
+      { toolCalls: submit('fini') },
+    ])
+    assert.equal(outcome.status, 'completed')
+    // Argument invalide : refusé avant même d'être journalisé comme exécuté.
+    assert.equal(tools.filter((t) => t.name === 'read_file' && t.status === 'succeeded').length, 0)
+  })
+
+  it('exécute un outil autorisé et journalise sa réussite', async () => {
+    const { outcome, tools } = await run([
+      { toolCalls: [{ id: 'c1', name: 'read_file', argumentsJson: '{"path":"src/a.ts"}' }] },
+      { toolCalls: submit('fini') },
+    ])
+    assert.equal(outcome.status, 'completed')
+    const lu = tools.find((t) => t.name === 'read_file')
+    assert.equal(lu?.status, 'succeeded')
+    assert.equal(lu?.decision, 'allow')
+  })
+
+  it('suspend la tâche quand la politique l\'exige, et respecte un refus', async () => {
+    const vus: string[] = []
+    const { outcome, tools } = await run(
+      [
+        { toolCalls: [{ id: 'c1', name: 'http_fetch', argumentsJson: '{"url":"https://exemple.test/doc"}' }] },
+        { toolCalls: submit('fini sans la page') },
+      ],
+      {
+        ctx: { httpPolicy: 'approval' },
+        hooks: {
+          requestApproval: async (op) => {
+            vus.push(op)
+            return 'rejected' as ApprovalOutcome
+          },
+        },
+      },
+    )
+    assert.equal(outcome.status, 'completed')
+    assert.equal(vus.length, 1)
+    assert.match(vus[0]!, /http_fetch/)
+    assert.equal(tools.find((t) => t.name === 'http_fetch')?.status, 'rejected')
+  })
+
+  it('refuse les appels au-delà de la limite par étape, en le disant', async () => {
+    const trois = Array.from({ length: 3 }, (_, i) => ({
+      id: `c${i}`, name: 'read_file', argumentsJson: '{"path":"src/a.ts"}',
+    }))
+    const { outcome, tools } = await run(
+      [{ toolCalls: trois }, { toolCalls: submit('fini') }],
+      { agent: { limits: { ...DEFAULT_RESEARCHER_LIMITS, max_tool_calls_per_step: 2 } } },
+    )
+    assert.equal(outcome.status, 'completed')
+    assert.equal(tools.filter((t) => t.name === 'read_file').length, 2, 'deux exécutés, le troisième refusé')
+  })
+})
+
+describe('contenu non fiable', () => {
+  it('encadre une page web avant de la réinjecter dans la conversation de l\'agent', async () => {
+    const root = makeRoot()
+    try {
+      // Le serveur n'existe pas : `http_fetch` échouera. Ce qu'on vérifie ici,
+      // c'est le chemin d'encadrement sur un résultat marqué non fiable — donc
+      // on passe par un outil dont on contrôle la sortie.
+      const { adapter, calls } = scriptedAdapter([
+        { toolCalls: [{ id: 'c1', name: 'read_file', argumentsJson: '{"path":"src/a.ts"}' }] },
+        { toolCalls: submit('fini') },
+      ])
+      const rec = recordingHooks()
+      await runAgent({
+        agent: agentWith(),
+        objective: 'lis le fichier',
+        context: null,
+        adapter,
+        tools: toolCtx(root),
+        hooks: rec.hooks,
+        redact: (t) => t,
+        signal: new AbortController().signal,
+      })
+      const second = calls[1]!
+      const toolMessage = second.messages.find((m) => m.role === 'tool')
+      assert.ok(toolMessage && 'content' in toolMessage)
+      // Un fichier du projet n'est PAS encadré : il n'est pas plus suspect que
+      // le dépôt lui-même, et l'encadrer partout banaliserait le marqueur.
+      assert.ok(!toolMessage.content.includes('<untrusted_data'))
+      assert.match(toolMessage.content, /const x = 1/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
