@@ -35,6 +35,7 @@ import {
   VAULT_IDS,
   dpapiDir,
   fileVault,
+  minimalEnv,
   libsecret,
   macosKeychain,
   normalizeRef,
@@ -259,6 +260,45 @@ describe('dpapiDir', () => {
     // découvrir en bloquant.
     assert.equal(dpapiDir({}), null)
     assert.equal(dpapiDir({ LOCALAPPDATA: '   ' }), null)
+  })
+})
+
+// --- minimalEnv : ce qu’un utilitaire reçoit, et rien d’autre ---------------
+
+describe('minimalEnv', () => {
+  const complet = {
+    PATH: '/bin',
+    HOME: '/home/u',
+    SystemRoot: 'C:\\Windows',
+    PSModulePath: 'C:\\Modules\\az;C:\\Users\\u\\Documents\\WindowsPowerShell\\Modules',
+    SECRET_DE_LUTILISATEUR: 'ne doit pas passer',
+  }
+
+  it('ne transmet que la liste blanche', () => {
+    const env = minimalEnv('linux', complet)
+    assert.equal(env.PATH, '/bin')
+    assert.equal(env.SECRET_DE_LUTILISATEUR, undefined, 'rien hors de la liste ne passe')
+  })
+
+  it('impose PSModulePath sous Windows, réduite aux modules du système', () => {
+    // Deux raisons, mesurées sur un runner : sans cette variable, PowerShell ne
+    // répond plus du tout dès la première applet ; avec celle de la machine, il
+    // parcourt des centaines de modules et dépasse le délai. Et un module
+    // déposé dans un de ces dossiers pourrait masquer une applet qui manipule
+    // des clés en clair.
+    const env = minimalEnv('win32', complet)
+    assert.equal(env.PSModulePath, join('C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'Modules'))
+    assert.doesNotMatch(env.PSModulePath!, /az|Documents/, 'les modules de la machine ne doivent plus y être')
+  })
+
+  it('n’invente pas de PSModulePath sans SystemRoot', () => {
+    assert.equal(minimalEnv('win32', { PATH: 'C:\\bin' }).PSModulePath, undefined)
+  })
+
+  it('ne pose PSModulePath que sous Windows', () => {
+    for (const p of ['darwin', 'linux'] as const) {
+      assert.equal(minimalEnv(p, complet).PSModulePath, undefined, `pas sous ${p}`)
+    }
   })
 })
 

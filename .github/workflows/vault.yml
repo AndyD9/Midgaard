@@ -50,58 +50,51 @@ jobs:
       - uses: actions/setup-node@v5
         with: { node-version: '24', cache: npm }
       - run: npm ci
-      # DIAGNOSTIC TEMPORAIRE (2e tour) — à retirer une fois la cause établie.
+      # DIAGNOSTIC TEMPORAIRE (3e tour) — à retirer dès que la suite est verte.
       #
-      # Le premier relevé a tranché deux choses : les variables arrivent bien au
-      # fils (« dir=[C:\tmp\mg] p=[C:\tmp\mg\essai.dpapi] », en 159 ms), et
-      # un script sans applet répond aussitôt. Ce qui bloque n'est donc ni
-      # l'environnement ni l'encodage.
+      # Le relevé précédent a nommé la cause, en ne faisant varier que
+      # l'environnement, script identique :
       #
-      # Ce qui reste commun aux six cas qui expirent — `get`, `set`, `delete` —
-      # c'est d'appeler une **applet** : `Test-Path`, `New-Item`, `Remove-Item`.
-      # Les deux scripts qui passent n'en appellent aucune. L'hypothèse est donc
-      # la découverte automatique de modules, qui parcourt `PSModulePath` à la
-      # première applet : cette variable ne figure pas dans la liste blanche de
-      # `run()`, et PowerShell part alors chercher des modules là où il ne faut
-      # pas. On le vérifie en faisant varier **le seul environnement**, script
-      # identique.
-      - name: Quelle variable manque à une applet
+      #   1 liste blanche actuelle   15029 ms  tué
+      #   2 + PSModulePath seul      14832 ms  « True »
+      #   3 + variables système      11266 ms  « True »
+      #   4 environnement complet      177 ms  « True »
+      #
+      # Sans `PSModulePath`, PowerShell ne répond plus dès la première applet.
+      # Avec celle de la machine, il répond mais parcourt des centaines de
+      # modules — au-delà de notre délai de 10 s. D'où la correction : imposer
+      # la variable, réduite aux modules du système.
+      #
+      # Celui-ci mesure donc ce que le produit construit vraiment, en important
+      # `minimalEnv` plutôt qu'en le recopiant.
+      - name: Vérifier l'environnement que le produit construit
         shell: bash
         continue-on-error: true
         run: |
           cat > diag.mjs <<'JS'
           import { execFile } from 'node:child_process'
-          const keep = ['PATH','Path','HOME','USERPROFILE','LOCALAPPDATA','APPDATA','SystemRoot','TEMP','TMP']
-          const minimal = { LC_ALL: 'C' }
-          for (const k of keep) if (process.env[k] !== undefined) minimal[k] = process.env[k]
-          // Une applet, et rien d'autre : c'est la seule chose qu'on fait varier par ailleurs.
+          import { minimalEnv } from '@midgaard/secrets'
+          const produit = minimalEnv()
+          const sansPsModulePath = { ...produit }
+          delete sansPsModulePath.PSModulePath
+          console.log('PSModulePath imposée :', JSON.stringify(produit.PSModulePath ?? null))
           const script = "$ErrorActionPreference = 'Stop'\n[Console]::Out.Write([string](Test-Path -LiteralPath $env:SystemRoot))"
-          const sys = ['PSModulePath','HOMEDRIVE','HOMEPATH','COMSPEC','windir','PATHEXT','SystemDrive','ProgramData','ProgramFiles','ProgramW6432','CommonProgramFiles','ALLUSERSPROFILE','USERNAME','USERDOMAIN']
-          const avecSysteme = { ...minimal }
-          for (const k of sys) if (process.env[k] !== undefined) avecSysteme[k] = process.env[k]
-          const seulementPsModulePath = { ...minimal }
-          if (process.env.PSModulePath !== undefined) seulementPsModulePath.PSModulePath = process.env.PSModulePath
-          console.log('PSModulePath :', JSON.stringify(process.env.PSModulePath ?? null))
-          const cas = {
-            '1 liste blanche actuelle': minimal,
-            '2 + PSModulePath seul': seulementPsModulePath,
-            '3 + variables système': avecSysteme,
-            '4 environnement complet': process.env,
-          }
-          for (const [nom, env] of Object.entries(cas)) {
+          for (const [nom, env] of Object.entries({
+            'ce que fait le produit': produit,
+            'la même, sans PSModulePath': sansPsModulePath,
+            'environnement complet': process.env,
+          })) {
             const t0 = Date.now()
             await new Promise((res) => {
               execFile('powershell.exe',
                 ['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand', Buffer.from(script,'utf16le').toString('base64')],
                 { timeout: 15000, env, windowsHide: true },
-                (e, out, err) => {
-                  console.log(`${nom.padEnd(26)} ${String(Date.now()-t0).padStart(6)} ms  tué=${Boolean(e?.killed)}  stdout=${JSON.stringify(String(out).slice(0,80))}  stderr=${JSON.stringify(String(err).slice(0,160))}`)
-                  res()
-                }).stdin?.end('')
+                (e, out) => { console.log(`${nom.padEnd(28)} ${String(Date.now()-t0).padStart(6)} ms  tué=${Boolean(e?.killed)}  stdout=${JSON.stringify(String(out).slice(0,40))}`); res() },
+              ).stdin?.end('')
             })
           }
           JS
-          node diag.mjs
+          node --conditions=midgaard-dev diag.mjs
       - run: npm run test:vault
         env:
           MIDGAARD_REQUIRE_VAULT: windows-dpapi

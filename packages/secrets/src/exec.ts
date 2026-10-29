@@ -18,6 +18,7 @@
  * `packages/daemon/README.md`). C'est dit, pas caché.
  */
 import { execFile } from 'node:child_process'
+import { join } from 'node:path'
 
 /** Délai au-delà duquel un utilitaire est considéré bloqué. */
 export const EXEC_TIMEOUT_MS = 10_000
@@ -100,14 +101,28 @@ export function run(
  * Ce qui est repris l'est pour une raison nommée, et rien d'autre ne passe :
  * ajouter une variable ici, c'est l'exposer à trois utilitaires système.
  *
+ * Une seule variable est **imposée** plutôt que reprise : `PSModulePath` sous
+ * Windows, pour que PowerShell cesse de parcourir les modules de la machine —
+ * voir le commentaire dans le corps.
+ *
  * `PATH` est repris pour que `security`, `secret-tool` et `powershell` restent
  * trouvables — les remplacer par des chemins absolus en dur casserait les
  * installations non standard, et un `PATH` détourné suppose déjà un attaquant
  * dans la session de l'utilisateur, donc déjà vainqueur. `HOME`, `USERPROFILE`
  * et `LOCALAPPDATA` sont nécessaires pour que chaque mécanisme trouve son
  * propre magasin.
+ *
+ * @param platform plateforme visée ; injectée pour que la branche Windows soit
+ *                 vérifiable depuis un Mac — c'est la leçon de `dpapiDir` :
+ *                 une règle qui ne s'exécute que sur une plateforme doit au
+ *                 moins pouvoir se **lire** sur les autres
+ * @param source   environnement d'origine ; injecté pour la même raison
+ * @returns l'environnement transmis aux utilitaires, à compléter par appel
  */
-function minimalEnv(): NodeJS.ProcessEnv {
+export function minimalEnv(
+  platform: NodeJS.Platform = process.platform,
+  source: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
   const keep = [
     'PATH', 'Path',
     'HOME', 'USERPROFILE', 'LOCALAPPDATA', 'APPDATA', 'SystemRoot', 'TEMP', 'TMP',
@@ -118,6 +133,30 @@ function minimalEnv(): NodeJS.ProcessEnv {
     'DBUS_SESSION_BUS_ADDRESS', 'XDG_RUNTIME_DIR',
   ]
   const env: NodeJS.ProcessEnv = { LC_ALL: 'C' }
-  for (const k of keep) if (process.env[k] !== undefined) env[k] = process.env[k]
+  for (const k of keep) if (source[k] !== undefined) env[k] = source[k]
+
+  // Windows : `PSModulePath` est **imposée**, et réduite aux modules du système.
+  //
+  // Elle ne peut pas être simplement omise. PowerShell parcourt cette liste dès
+  // la **première applet** rencontrée, pour la découverte automatique de
+  // modules ; sans elle, il ne répond plus du tout. Mesuré sur un runner, même
+  // script, seul l'environnement changeant : sans `PSModulePath`, tué au bout
+  // de 15 s ; avec, il répond. C'est ce qui faisait expirer les six cas de
+  // conformité DPAPI — `Test-Path`, `New-Item`, `Remove-Item` sont des applets,
+  // alors que les deux scripts qui passaient n'en employaient aucune.
+  //
+  // Elle n'est pas non plus reprise telle quelle, pour deux raisons :
+  //
+  //  - **vitesse** : sur le même runner, la valeur héritée pointe vers des
+  //    centaines de modules (Azure, SQL Server) et le premier appel coûte 11 à
+  //    15 s — au-delà de {@link EXEC_TIMEOUT_MS}. Réduite aux modules système,
+  //    il n'y a rien à parcourir ;
+  //  - **sécurité** : un module déposé dans un dossier de la liste héritée peut
+  //    **masquer une applet**. Celles d'ici manipulent des clés d'API en clair.
+  //    Pointer vers le seul dossier du système ferme cette porte, et c'est la
+  //    même raison qui fait reconstruire tout cet environnement.
+  if (platform === 'win32' && env.SystemRoot) {
+    env.PSModulePath = join(env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'Modules')
+  }
   return env
 }
