@@ -3,8 +3,9 @@
 Harness local qui laisse Claude Code déléguer des tâches à des agents exécutants,
 les observer et les soumettre à approbation humaine. **Lire d'abord** :
 [README.md](README.md) (état, commandes), [docs/PLAN.md](docs/PLAN.md) (décisions
-et slices), [docs/SLICE1.md](docs/SLICE1.md) (où en est le code et pourquoi),
-[docs/SLICE0.md](docs/SLICE0.md) (d'où viennent les invariants).
+et slices), [docs/SLICE2.md](docs/SLICE2.md) (où en est le code et pourquoi),
+[docs/SLICE1.md](docs/SLICE1.md) et [docs/SLICE0.md](docs/SLICE0.md) (d'où
+viennent les invariants).
 
 Chaque paquet a son `README.md` : le lire avant d'y toucher.
 
@@ -33,15 +34,17 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run typecheck` | Vérification des types, dashboard compris |
 | `npm run build` | Compile les paquets et le dashboard |
 | `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `approve`, `reject` |
-| `npm run test:unit` | ~1 s — machine à états, persistance, configuration, chemins |
+| `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho |
+| `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
+| `npm run test:unit` | ~1 s — machine à états, persistance, adaptateurs, coûts, outils, boucle |
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
 | `npm run test:wait` | ~3 min — 12 scénarios de bout en bout MCP |
 
 ## Invariants à ne pas casser
 
-Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md` et
-`docs/SLICE1.md`.
+Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
+`docs/SLICE1.md` et `docs/SLICE2.md`.
 
 - **Notifications de progression pendant toute attente longue.** Un client MCP
   coupe un appel d'outil à 60 s sans elles — mesuré, deux fois.
@@ -72,10 +75,45 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md` et
 - **Ne rien décrire à Claude ni à l'utilisateur qui n'existe pas encore.** Le
   premier test réel l'a renvoyé vers un dashboard inexistant ; le daemon annonce
   donc `dashboard_available`, et le scénario S8 charge l'URL annoncée pour vérifier
-  qu'elle sert vraiment quelque chose.
+  qu'elle sert vraiment quelque chose. Même règle en Slice 2 : un profil sans
+  fournisseur est montré **désactivé avec son motif**, et un « Test connection »
+  doit prouver la **clé**, pas seulement que l'endpoint répond — `GET /models` de
+  Venice est public, et le test l'annonçait « joignable » avec une clé bidon.
+- **Aucun montant sans sa provenance.** `cost_source` accompagne toujours
+  `cost_usd` : `provider` (la facture), `pricing_table` (une estimation) ou
+  `unknown`. Un modèle sans tarif connu n'affiche **pas** `0 $` : zéro est un
+  coût, pas une ignorance. Quand le fournisseur annonce son propre coût, on garde
+  l'estimation à côté — l'écart est la seule façon de voir dériver `pricing.json`.
+- **Les limites appartiennent au profil, pas à l'appel.** `tightenLimits` ne sait
+  qu'abaisser. Si une délégation pouvait relever le budget, le budget ne
+  protégerait plus personne.
+- **Vérifier les limites AVANT l'appel modèle**, jamais après : une limite
+  constatée après coup a déjà été payée. Et `budget_exceeded` n'est pas `failed` —
+  rien n'a échoué, un plafond a été atteint.
+- **La fin d'une tâche est un acte, pas une interprétation.** Seul `submit_result`
+  termine une tâche d'agent. Un modèle qui écrit « j'ai fini » n'a pas fini.
+- **Les chemins se revérifient à l'ouverture du descripteur**, pas seulement
+  avant : on compare `dev`/`ino` du `fstat` à ceux du `stat` d'avant. Sans cela,
+  la cible peut changer entre la vérification et l'ouverture.
+- **Tout ce qui vient du web est encadré en `<untrusted_data>`** avec un nonce
+  aléatoire, avant d'être réinjecté dans la conversation de l'agent **et** avant
+  de remonter à Claude. Sans nonce, il suffit qu'une page contienne la balise de
+  fin pour sortir du cadre.
+- **Aucune clé d'API en base.** La base ne garde qu'une référence vers le coffre.
+  Et tout ce qui est journalisé ou persisté passe par `createRedactor`.
 
 ## Pièges d'environnement
 
+- **`security find-generic-password -w` rend l'hexadécimal** dès que le secret
+  contient un octet non-ASCII, sans le signaler, et deviner à la relecture est
+  impossible (`abcdef` est les deux à la fois). On ne dépose donc que de l'ASCII
+  imprimable (`mg1:` + base64).
+- **`String.replace` passe le texte entier après les groupes de capture.** Le
+  confondre avec un groupe fait chercher tout le document dans le seul motif
+  trouvé — l'expurgation ne remplaçait alors rien.
+- **Canonicaliser la racine d'un projet avant toute vérification de chemin** :
+  sous un lien symbolique (`/tmp` sur macOS, bien des dossiers personnels), un
+  projet voit sinon ses propres fichiers refusés « hors du projet ».
 - Node exécute le TypeScript directement, **y compris pour les paquets du
   workspace** : il résout le lien symbolique avant d'appliquer la règle
   `node_modules`. Le développement se passe donc de build ; la distribution non.
@@ -98,23 +136,39 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md` et
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
 
-## Prochaine étape : Slice 2
+## Prochaine étape : Slice 3
 
-Providers OpenAI et Gemini derrière une interface commune, `agent-runtime` avec
-budgets et limites, outils de lecture et `http_fetch`, registre d'agents avec
-« Test connection », coffre système pour les clés, comptage des tokens et des
-coûts. Le moteur de tâches simulé (`packages/daemon/src/task-manager.ts`) est
-conçu pour que seul `tick()` soit remplacé.
+`workspace` (création, nettoyage et diff des worktrees Git), outils d'écriture,
+`git` et `exec` contrôlé, ApprovalBroker et UI d'approbation bloquante, onglet
+Files/Diff. Le profil `developer` rejoindra `simulated` et `researcher` dans
+`packages/daemon/src/agents.ts`, et son moteur sera l'`AgentEngine` existant avec
+une autre boîte à outils : la boucle n'a pas à changer.
 
-Un point reste ouvert : **un test Playwright du dashboard**, reporté en Slice 3
-quand l'interface portera des diffs.
+S'y ajoutent trois dettes nées de la Slice 2, détaillées dans
+[docs/SLICE2.md](docs/SLICE2.md) :
 
-Les « Tasks » MCP natives, elles, sont tranchées : `claude-code` 2.1.309 ne
-déclare pas la capacité `tasks`, donc elles sont inutilisables et
-`harness_wait_for_task` reste nécessaire. Le serveur MCP écrit les capacités du
-client dans `~/.midgaard/mcp-trace.jsonl` (`client.initialized`,
-`supports_native_tasks`) à **chaque** connexion : relire cette ligne après une
-montée de version du client, c'est tout ce qu'il faut pour rouvrir la question.
-Le même relevé montre deux capacités à regarder en Slice 3 — `elicitation` et
-l'extension `io.modelcontextprotocol/ui` — détaillées dans
-[docs/SLICE1.md](docs/SLICE1.md).
+1. **Éprouver l'adaptateur Gemini contre l'API réelle.** Il est écrit d'après la
+   documentation REST et vérifié sur réponses enregistrées, jamais exécuté. À
+   trancher en même temps : `generateContent` (que Google qualifie désormais de
+   *legacy* tout en le maintenant) contre l'« Interactions API » recommandée.
+2. **Rouvrir le grounding `google_search`.** Il partage le tableau `tools` avec
+   les `functionDeclarations`, et rien ne dit qu'ils cohabitent. Une clé en main,
+   la question se répond en un appel.
+3. **Vérifier le coffre sur Windows et Linux.** DPAPI et libsecret sont écrits,
+   pas constatés.
+
+Et un point toujours ouvert : **un test Playwright du dashboard**, reporté une
+seconde fois — maintenant que l'interface porte des coûts et des appels
+d'outils, la régression visuelle devient coûteuse à surveiller à la main.
+
+Les « Tasks » MCP natives restent tranchées : `claude-code` 2.1.309 ne déclare
+pas la capacité `tasks`, donc elles sont inutilisables et `harness_wait_for_task`
+reste nécessaire. Le serveur MCP écrit les capacités du client dans
+`~/.midgaard/mcp-trace.jsonl` (`client.initialized`, `supports_native_tasks`) à
+**chaque** connexion : relire cette ligne après une montée de version du client,
+c'est tout ce qu'il faut pour rouvrir la question.
+
+Le même relevé montrait deux capacités à regarder : `elicitation`, toujours à
+l'étude pour les approbations (détail dans [docs/SLICE1.md](docs/SLICE1.md)), et
+**`roots`, désormais employée** — c'est le client qui dit au serveur MCP quel
+dépôt est ouvert, et donc ce qu'un agent a le droit de lire.
