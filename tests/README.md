@@ -6,7 +6,7 @@ simulation de notre côté.
 
 | Suite | Durée | Ce qu'elle protège |
 |---|---|---|
-| `npm run test:unit` | ~1 s | Machine à états (matrice complète), persistance, configuration, traversée de chemins, **coffres** |
+| `npm run test:unit` | ~5 s | Machine à états (matrice complète), persistance, configuration, traversée de chemins, **coffres**, **worktrees** sur de vrais dépôts Git |
 | `npm run test:vault` | ~1 s | Les coffres seuls : conformité du coffre **réel de la machine**, plus le repli |
 | `npm run test:lock` | ~30 s | Un seul daemon vivant, sous concurrence |
 | `npm run test:restart` | ~45 s | Redémarrage, reprise WebSocket, contrôles d'accès, expiration, inactivité |

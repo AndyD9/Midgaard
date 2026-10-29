@@ -39,13 +39,15 @@ const ZERO_USAGE =
   '"web_searches":0,"cost_usd":0,"cost_source":"unknown","cost_usd_estimated":null,"cost_usd_reported":null}'
 
 /**
- * Migrations, dans l'ordre. La version 1 est le schéma de la Slice 1, la
- * version 2 celui de la Slice 2.
+ * Migrations, dans l'ordre. La version 1 est le schéma de la Slice 1, les
+ * versions 2 et 3 celui de la Slice 2, la 4 ouvre la Slice 3.
  *
- * Les tables `projects`, `artifacts` et `workspaces` prévues au plan (§6)
- * arriveront avec la Slice 3, qui les remplit : créer des tables vides d'avance
- * fige un schéma qu'on n'a pas encore éprouvé. `usage` n'aura pas de table —
- * voir la migration 2.
+ * Des tables prévues au plan (§6), deux n'existeront pas. `projects` : un
+ * projet est le dépôt d'où la tâche est déléguée, déjà porté par
+ * `tasks.project_dir` et `workspaces.repo_dir` — une table de plus serait une
+ * copie à tenir cohérente. `artifacts` : le diff d'un worktree se calcule à la
+ * demande, et le figer en ferait une seconde vérité. `usage` n'a pas de table
+ * non plus — voir la migration 2.
  */
 export const MIGRATIONS: readonly Migration[] = [
   {
@@ -191,6 +193,38 @@ export const MIGRATIONS: readonly Migration[] = [
       -- quand le besoin est apparu : une migration publiée ne se modifie plus,
       -- même la veille.
       ALTER TABLE tasks ADD COLUMN project_dir TEXT;
+    `,
+  },
+  {
+    version: 4,
+    label: 'Slice 3 — worktrees des agents écrivants',
+    sql: `
+      -- Un worktree Git par tâche d'agent écrivant (PLAN §6). Sans cette table,
+      -- les worktrees laissés par un crash seraient impossibles à retrouver de
+      -- façon fiable : le dossier seul ne dit ni à quelle tâche il appartient,
+      -- ni de quel commit il est parti.
+      --
+      -- base_commit est la référence de tout diff : jamais la branche d'origine,
+      -- qui a pu avancer depuis. base_dirty compte les chemins non commités du
+      -- dépôt d'origine au moment de la délégation — absents du worktree, et
+      -- donc à annoncer. La ligne n'est jamais supprimée : 'removed' garde la
+      -- trace de la branche, qui survit au worktree.
+      CREATE TABLE workspaces (
+        id            TEXT PRIMARY KEY,
+        task_id       TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
+        repo_dir      TEXT NOT NULL,
+        subdir        TEXT NOT NULL DEFAULT '',
+        worktree_path TEXT NOT NULL UNIQUE,
+        branch        TEXT NOT NULL,
+        base_commit   TEXT NOT NULL,
+        base_ref      TEXT,
+        base_dirty    INTEGER NOT NULL DEFAULT 0,
+        status        TEXT NOT NULL,
+        created_at    TEXT NOT NULL,
+        updated_at    TEXT NOT NULL,
+        removed_at    TEXT
+      );
+      CREATE INDEX workspaces_status_idx ON workspaces(status, created_at);
     `,
   },
 ]

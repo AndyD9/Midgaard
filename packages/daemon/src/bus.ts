@@ -10,7 +10,7 @@
  * La diffusion est **synchrone et après commit** : au moment où un abonné est
  * réveillé, la base contient déjà l'état qu'il va lire.
  */
-import type { AgentLimits, Approval, Task, TaskEvent, TaskStatus } from '@midgaard/contracts'
+import type { AgentLimits, Approval, Task, TaskEvent, TaskStatus, Workspace, WorkspaceStatus } from '@midgaard/contracts'
 import type { EventInput, HarnessStore, Recorded, TaskPatch } from '@midgaard/persistence'
 
 /** Ce qu'un abonné reçoit : l'événement, et l'état de la tâche juste après. */
@@ -71,6 +71,36 @@ export class EventBus {
   record(id: string, to: TaskStatus | null, event: EventInput, patch: TaskPatch = {}): Recorded | null {
     const done = this.store.record(id, to, event, patch)
     return done ? this.emit(done) : null
+  }
+
+  /**
+   * Enregistre le worktree d'une tâche, puis diffuse son `workspace.created`.
+   * @returns `null` si la tâche n'existe pas
+   */
+  createWorkspace(input: Parameters<HarnessStore['createWorkspace']>[0]): (Recorded & { workspace: Workspace }) | null {
+    const done = this.store.createWorkspace(input)
+    return done ? { ...this.emit(done), workspace: done.workspace } : null
+  }
+
+  /**
+   * Fait avancer un worktree (`kept`, `removed`), puis diffuse l'événement.
+   * @returns `null` si la transition était sans objet
+   */
+  setWorkspaceStatus(
+    id: string,
+    to: Exclude<WorkspaceStatus, 'active'>,
+    detail: Record<string, unknown> = {},
+  ): (Recorded & { workspace: Workspace }) | null {
+    const done = this.store.setWorkspaceStatus(id, to, detail)
+    return done ? { ...this.emit(done), workspace: done.workspace } : null
+  }
+
+  /** Conserve les worktrees restés actifs après un redémarrage, et diffuse chaque `workspace.kept`. */
+  keepActiveWorkspaces(): Workspace[] {
+    return this.store.keepActiveWorkspaces().map((done) => {
+      this.emit(done)
+      return done.workspace
+    })
   }
 
   /** Diffuse une approbation créée ou décidée (le dépôt l'a déjà écrite). */

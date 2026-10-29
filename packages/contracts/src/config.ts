@@ -29,6 +29,15 @@ export interface HarnessConfig {
   /** Trace JSONL des attentes du serveur MCP, pour diagnostiquer le vrai client. */
   traceFile: string
   /**
+   * Dossier des worktrees des agents écrivants.
+   *
+   * **Hors de tout dépôt**, décision de la Slice 3 : un worktree rangé dans le
+   * dépôt serait parcouru par son outillage — `tsc`, les tests, les watchers,
+   * la recherche de l'éditeur — qui verraient chaque fichier en double, et il
+   * faudrait l'ignorer dans chaque projet.
+   */
+  worktreesDir: string
+  /**
    * Port d'écoute souhaité. `7777` par défaut pour que l'URL du dashboard soit
    * stable d'une session à l'autre ; si le port est pris, le daemon se rabat sur
    * un port libre choisi par le système — sauf si `MIDGAARD_PORT` a été fixé
@@ -140,6 +149,7 @@ export function loadConfig(env: ConfigEnv = {}, overrides: Partial<HarnessConfig
     lockFile: join(home, 'daemon.lock'),
     logFile: join(home, 'daemon.log'),
     traceFile: join(home, 'mcp-trace.jsonl'),
+    worktreesDir: join(home, 'worktrees'),
     port: portIsExplicit ? Number(rawPort) : DEFAULT_PORT,
     portIsExplicit,
     idleShutdownMs: Number.isFinite(idleS) && idleS >= 0 ? idleS * 1000 : 1_800_000,
@@ -163,6 +173,7 @@ export function loadConfig(env: ConfigEnv = {}, overrides: Partial<HarnessConfig
     merged.lockFile = join(overrides.home, 'daemon.lock')
     merged.logFile = join(overrides.home, 'daemon.log')
     merged.traceFile = join(overrides.home, 'mcp-trace.jsonl')
+    if (!overrides.worktreesDir) merged.worktreesDir = join(overrides.home, 'worktrees')
   }
   return merged
 }

@@ -32,10 +32,18 @@ le code en cours fait échouer l'ouverture, au lieu d'être interprétée de tra
 | `tasks` | État courant de chaque tâche |
 | `task_events` | Journal append-only. `seq` global (`AUTOINCREMENT`, jamais réutilisé) pour la reprise WebSocket ; `task_seq` local pour la timeline d'une tâche |
 | `approvals` | Demandes d'approbation : opération précise, usage unique, expiration |
+| `provider_configs` | Fournisseurs de modèles ; la clé n'y est jamais, seulement sa référence au coffre |
+| `agents` | Profils d'exécution |
+| `tool_calls` | Appels d'outils, arguments et résultats expurgés |
+| `workspaces` | Worktree de chaque tâche d'agent écrivant : branche, commit de départ, cycle `active → kept → removed` |
 
-Les tables `projects`, `agents`, `tool_calls`, `artifacts`, `usage`,
-`provider_configs` et `workspaces` du plan arriveront avec les fonctionnalités
-qui les remplissent (Slices 2 et 3).
+Trois tables du plan n'existeront pas : `usage` (la consommation vit dans
+`tasks.usage_json` et le journal), `projects` et `artifacts` — raisons dans
+`migrations.ts` et dans `docs/SLICE3.md`.
+
+Une ligne `workspaces` s'écrit **avec** l'événement `workspace.*` qui la raconte,
+dans la même transaction que la ligne de journal de sa tâche : c'est
+`recordUnlocked`, le corps de `record()` sans transaction propre, qui le permet.
 
 ## Choix d'exploitation
 

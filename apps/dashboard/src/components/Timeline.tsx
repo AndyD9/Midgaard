@@ -7,8 +7,8 @@
  * rejoués arrivent après des événements plus récents.
  */
 import {
-  CircleCheck, CircleSlash, CircleX, Coins, Flag, Hourglass, MessageSquare, Play, ShieldCheck,
-  ShieldQuestion, TimerOff, Wallet, Wrench,
+  Archive, CircleCheck, CircleSlash, CircleX, Coins, Flag, FolderGit2, FolderX, Hourglass, MessageSquare, Play,
+  ShieldCheck, ShieldQuestion, TimerOff, Wallet, Wrench,
 } from 'lucide-react'
 import type { EventType, TaskEvent } from '@midgaard/contracts'
 import { formatCost, formatDateTime, formatTime } from '@/lib/utils'
@@ -30,6 +30,9 @@ const EVENT_LOOK: Record<EventType, { icon: typeof Flag; label: string; classNam
   'tool.requested': { icon: Wrench, label: 'Outil demandé', className: 'text-running' },
   'tool.completed': { icon: Wrench, label: 'Outil terminé', className: 'text-muted' },
   'usage.updated': { icon: Coins, label: 'Consommation', className: 'text-muted' },
+  'workspace.created': { icon: FolderGit2, label: 'Worktree créé', className: 'text-running' },
+  'workspace.kept': { icon: Archive, label: 'Worktree conservé', className: 'text-muted' },
+  'workspace.removed': { icon: FolderX, label: 'Worktree retiré', className: 'text-muted' },
 }
 
 /**
@@ -49,6 +52,16 @@ function describe(event: TaskEvent): string | null {
     return `${String(p.decision)}${by}${reason}`
   }
   if (event.type === 'task.interrupted') return `statut précédent : ${String(p.previous_status)}`
+  if (event.type === 'workspace.created') {
+    // Le nombre de fichiers non commités est la seule chose surprenante ici :
+    // ils ne sont pas dans le worktree, et l'agent ne les verra pas.
+    const dirty = Number(p.base_dirty ?? 0)
+    const base = `${String(p.branch)} depuis ${String(p.base_commit).slice(0, 8)}`
+    return dirty > 0 ? `${base} — ${dirty} fichier(s) non commité(s) absent(s) du worktree` : base
+  }
+  if (event.type === 'workspace.kept' || event.type === 'workspace.removed') {
+    return p.reason ? `${String(p.branch)} — ${String(p.reason)}` : String(p.branch)
+  }
   if (event.type === 'task.cancelled' && p.reason) return String(p.reason)
   if (event.type === 'tool.requested') {
     const decision = p.decision === 'allow' ? '' : ` (${String(p.decision)})`

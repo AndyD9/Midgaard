@@ -15,6 +15,7 @@
     { "path": "../packages/secrets" },
     { "path": "../packages/providers" },
     { "path": "../packages/tools" },
+    { "path": "../packages/workspace" },
     { "path": "../packages/agent-runtime" },
     { "path": "../packages/persistence" },
     { "path": "../packages/daemon" },

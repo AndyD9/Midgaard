@@ -25,12 +25,13 @@ et les coûts.
 | 0 | Spike : Claude Code → MCP → daemon, attente longue, approbation humaine | ✅ **Terminée**, validée en sessions réelles |
 | 1 | Squelette observable : persistance SQLite, dashboard temps réel, CLI `harness` | ✅ **Terminée**, 91 vérifications + essai en session réelle |
 | 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 167 vérifications + essai en session réelle ; coût **exact au microdollar** contre le solde Venice, trois fois |
-| 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | À faire |
+| 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | 🚧 **En cours** — étape 1/8 : worktrees Git et leur diff, sans agent qui s'en serve encore |
 | 4 | Durcissement sécurité, distribution npm | À faire |
 
 Le détail des slices est dans [docs/PLAN.md](docs/PLAN.md). Ce que chaque slice a
 prouvé et appris : [docs/SLICE0.md](docs/SLICE0.md), [docs/SLICE1.md](docs/SLICE1.md),
-[docs/SLICE2.md](docs/SLICE2.md).
+[docs/SLICE2.md](docs/SLICE2.md) ; la slice en cours, ses décisions et son
+découpage : [docs/SLICE3.md](docs/SLICE3.md).
 
 ## Démarrer depuis un clone
 
@@ -122,7 +123,7 @@ Depuis la racine du dépôt :
 
 | Suite | Durée | Contenu |
 |---|---|---|
-| `npm run test:unit` | ~1 s | 174 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils, boucle d'agent, formatage des montants, coffres |
+| `npm run test:unit` | ~5 s | 198 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils, boucle d'agent, formatage des montants, coffres, worktrees sur de vrais dépôts Git |
 | `npm run test:vault` | ~1 s | Les 41 cas de coffre, sur le coffre **réel de la machine** — la CI les rejoue sur macOS, Windows et Linux (avec et sans trousseau) |
 | `npm run test:lock` | ~30 s | Instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s | Redémarrage, reprise WebSocket, sécurité, expiration, inactivité |
@@ -151,13 +152,16 @@ Midgaard/
 │   ├── MVP_AGENT_HARNESS_PLAN.md spécification d'origine du MVP
 │   ├── PLAN.md                   plan révisé : décisions, architecture, slices
 │   ├── SLICE0.md                 ce que le spike a prouvé et appris
-│   └── SLICE1.md                 résultats de la Slice 1, écarts au plan, découvertes
+│   ├── SLICE1.md                 résultats de la Slice 1, écarts au plan, découvertes
+│   ├── SLICE2.md                 agents réels, coûts, coffre, et les dettes soldées
+│   └── SLICE3.md                 la slice en cours : décisions, découpage, étape atteinte
 ├── packages/
 │   ├── contracts/                schémas Zod, machine à états, protocole — aucune dépendance
 │   ├── persistence/              SQLite (node:sqlite), migrations, dépôt
 │   ├── secrets/                  coffre système multi-plateforme, sans dépendance native
 │   ├── providers/                adaptateurs de modèles : compatible OpenAI (Venice) et Gemini
 │   ├── tools/                    outils des agents : lecture projet, http_fetch contrôlé
+│   ├── workspace/                worktrees Git des agents écrivants : création, commit, diff, retrait
 │   ├── agent-runtime/            la boucle : budgets, limites, approbations, résultat structuré
 │   ├── daemon/                   HTTP, WebSocket, bus d'événements, moteurs de tâches
 │   ├── mcp-server/               adaptateur stdio pour Claude Code

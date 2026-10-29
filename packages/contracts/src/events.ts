@@ -33,7 +33,17 @@ import { taskStatusSchema } from './task.ts'
  *    rien n'a échoué, une limite a été atteinte, et confondre les deux enverrait
  *    l'utilisateur chercher un bug qui n'existe pas.
  *
- * `artifact.created` arrivera en Slice 3, avec les worktrees qui en produisent.
+ * La Slice 3 ajoute les trois `workspace.*`, qui racontent le cycle de vie du
+ * worktree d'un agent écrivant. Ils sont écrits dans la même transaction que la
+ * ligne `workspaces` qu'ils décrivent, comme toute transition de tâche :
+ *
+ *  - `workspace.created` — le worktree existe, sa branche et son commit de départ ;
+ *  - `workspace.kept` — la tâche est finie, le worktree est conservé pour lecture ;
+ *  - `workspace.removed` — un humain l'a nettoyé ; la branche, elle, reste.
+ *
+ * `artifact.created`, prévu au plan, n'est pas créé : le diff d'un worktree se
+ * calcule à la demande contre son commit de départ, et un artefact figé en
+ * serait une seconde copie, vraie au moment de l'écrire seulement.
  */
 export const EVENT_TYPES = [
   'task.created',
@@ -51,6 +61,9 @@ export const EVENT_TYPES = [
   'tool.requested',
   'tool.completed',
   'usage.updated',
+  'workspace.created',
+  'workspace.kept',
+  'workspace.removed',
 ] as const
 export type EventType = (typeof EVENT_TYPES)[number]
 

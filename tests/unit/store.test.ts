@@ -236,3 +236,80 @@ describe('lecture', () => {
     assert.equal(store.eventsSince(0, 3).length, 3)
   })
 })
+
+describe('espaces de travail', () => {
+  /** Un worktree enregistré pour une tâche neuve. */
+  function newWorkspace() {
+    const { task } = newTask()
+    const done = store.createWorkspace({
+      taskId: task.id,
+      repoDir: '/depot',
+      subdir: 'packages/api/',
+      worktreePath: `/home/worktrees/depot-1234/${task.id.slice(0, 8)}`,
+      branch: `midgaard/${task.id.slice(0, 8)}`,
+      baseCommit: 'a'.repeat(40),
+      baseRef: 'main',
+      baseDirty: 2,
+    })
+    assert.ok(done)
+    return done
+  }
+
+  it('écrit la ligne et son workspace.created dans la même transaction', () => {
+    const { workspace, event, task } = newWorkspace()
+    assert.equal(workspace.status, 'active')
+    assert.equal(workspace.base_dirty, 2)
+    assert.equal(event.type, 'workspace.created')
+    assert.equal(event.payload.workspace_id, workspace.id)
+    // Journaliser un worktree ne change pas le statut de la tâche.
+    assert.equal(event.status, task.status)
+    assert.deepEqual(store.workspaceForTask(task.id), workspace)
+  })
+
+  it('refuse un second worktree pour la même tâche, sans écrire d\'événement orphelin', () => {
+    const { task } = newWorkspace()
+    const before = store.taskEvents(task.id).length
+    assert.throws(() =>
+      store.createWorkspace({
+        taskId: task.id, repoDir: '/depot', subdir: '', worktreePath: '/autre', branch: 'midgaard/autre',
+        baseCommit: 'b'.repeat(40), baseRef: null, baseDirty: 0,
+      }),
+    )
+    assert.equal(store.taskEvents(task.id).length, before, 'la transaction annulée n\'a rien laissé')
+  })
+
+  it('rend null pour une tâche inconnue', () => {
+    assert.equal(
+      store.createWorkspace({
+        taskId: '00000000-0000-4000-8000-000000000000', repoDir: '/d', subdir: '', worktreePath: '/w',
+        branch: 'midgaard/x', baseCommit: 'c'.repeat(40), baseRef: null, baseDirty: 0,
+      }),
+      null,
+    )
+  })
+
+  it('n\'admet que active → kept → removed, et ne raconte pas deux fois la même transition', () => {
+    const { workspace } = newWorkspace()
+    const kept = store.setWorkspaceStatus(workspace.id, 'kept', { reason: 'tâche terminée' })
+    assert.equal(kept?.workspace.status, 'kept')
+    assert.equal(kept?.event.type, 'workspace.kept')
+    assert.equal(store.setWorkspaceStatus(workspace.id, 'kept'), null, 'déjà conservé')
+
+    const removed = store.setWorkspaceStatus(workspace.id, 'removed')
+    assert.equal(removed?.workspace.status, 'removed')
+    assert.ok(removed?.workspace.removed_at)
+    assert.equal(store.setWorkspaceStatus(workspace.id, 'removed'), null, 'déjà retiré')
+    assert.equal(store.setWorkspaceStatus(workspace.id, 'kept'), null, 'un worktree retiré ne revient pas')
+  })
+
+  it('conserve au redémarrage les worktrees restés actifs, jamais ne les retire', () => {
+    const a = newWorkspace().workspace
+    const b = newWorkspace().workspace
+    store.setWorkspaceStatus(b.id, 'removed')
+    const kept = store.keepActiveWorkspaces()
+    assert.deepEqual(kept.map((k) => k.workspace.id), [a.id])
+    assert.equal(kept[0]!.event.payload.reason, 'daemon redémarré')
+    assert.deepEqual(store.listWorkspaces({ status: 'kept' }).map((w) => w.id), [a.id])
+    assert.equal(store.listWorkspaces().length, 2)
+  })
+})

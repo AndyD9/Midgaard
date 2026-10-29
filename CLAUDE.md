@@ -3,7 +3,8 @@
 Harness local qui laisse Claude Code déléguer des tâches à des agents exécutants,
 les observer et les soumettre à approbation humaine. **Lire d'abord** :
 [README.md](README.md) (état, commandes), [docs/PLAN.md](docs/PLAN.md) (décisions
-et slices), [docs/SLICE2.md](docs/SLICE2.md) (où en est le code et pourquoi),
+et slices), [docs/SLICE3.md](docs/SLICE3.md) (la slice en cours : décisions,
+découpage, étape atteinte), [docs/SLICE2.md](docs/SLICE2.md),
 [docs/SLICE1.md](docs/SLICE1.md) et [docs/SLICE0.md](docs/SLICE0.md) (d'où
 viennent les invariants).
 
@@ -36,7 +37,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `approve`, `reject` |
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho |
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
-| `npm run test:unit` | ~1 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres |
+| `npm run test:unit` | ~5 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git) |
 | `npm run test:vault` | ~1 s — les coffres seuls, sur le coffre réel de la machine |
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
@@ -46,7 +47,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 ## Invariants à ne pas casser
 
 Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
-`docs/SLICE1.md` et `docs/SLICE2.md`.
+`docs/SLICE1.md`, `docs/SLICE2.md` et `docs/SLICE3.md`.
 
 - **Notifications de progression pendant toute attente longue.** Un client MCP
   coupe un appel d'outil à 60 s sans elles — mesuré, deux fois.
@@ -111,6 +112,20 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - **Aucune clé d'API en base.** La base ne garde qu'une référence vers le coffre.
   Et tout ce qui est journalisé ou persisté passe par `createRedactor`.
 
+- **Aucun programme désigné par l'arbre d'un worktree ne s'exécute.** Cet arbre
+  est écrit par l'agent. Tout `git` du paquet `workspace` passe par `git()`, qui
+  impose `core.hooksPath` vers le périphérique nul ; les diffs portent
+  `--no-ext-diff --no-textconv`. **`--no-verify` ne suffit pas** : constaté,
+  `prepare-commit-msg` et `post-commit` tournent malgré lui.
+- **Le harness ne merge jamais, et ne supprime rien hors de `worktreesDir`.** Le
+  merge est un acte humain (décision de la Slice 3). Le retrait d'un worktree
+  vérifie que le chemin est strictement sous le dossier des worktrees, même
+  forcé : le chemin vient de la base, et une ligne fausse ne doit rien effacer.
+- **Les commits d'agent ne portent ni l'identité ni la signature de
+  l'utilisateur** : `Midgaard <agent> <agent@midgaard.invalid>`, `--no-gpg-sign`.
+- **Le diff se calcule contre `base_commit`, jamais contre une branche**, et
+  inclut les fichiers nouveaux (index temporaire, celui de l'agent intact).
+
 ## Pièges d'environnement
 
 - **`security find-generic-password -w` rend l'hexadécimal** dès que le secret
@@ -151,13 +166,20 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
 
-## Prochaine étape : Slice 3
+## Slice 3 en cours
 
 `workspace` (création, nettoyage et diff des worktrees Git), outils d'écriture,
 `git` et `exec` contrôlé, ApprovalBroker et UI d'approbation bloquante, onglet
 Files/Diff. Le profil `developer` rejoindra `simulated` et `researcher` dans
 `packages/daemon/src/agents.ts`, et son moteur sera l'`AgentEngine` existant avec
 une autre boîte à outils : la boucle n'a pas à changer.
+
+**Étape 1 sur 8 livrée** — le paquet `workspace` et la table `workspaces`
+(migration 4, `PROTOCOL_VERSION` 5). Aucun agent ne s'en sert encore. Les quatre
+décisions prises avec l'auteur (merge manuel, worktrees conservés jusqu'au
+nettoyage, sous `~/.midgaard/worktrees`, `exec` en approbation par défaut) et le
+découpage des sept étapes restantes sont dans [docs/SLICE3.md](docs/SLICE3.md) :
+le lire avant de poursuivre.
 
 Des cinq dettes nées de la Slice 2, **trois sont soldées** le 2026-10-29 ; le
 récit complet est au § « Les dettes, soldées » de [docs/SLICE2.md](docs/SLICE2.md).

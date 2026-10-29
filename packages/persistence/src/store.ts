@@ -42,6 +42,8 @@ import {
   type ToolDecision,
   type Usage,
   type WebSearchMode,
+  type Workspace,
+  type WorkspaceStatus,
 } from '@midgaard/contracts'
 import { migrate } from './migrations.ts'
 
@@ -355,36 +357,43 @@ export class HarnessStore {
    *         course : mieux vaut un échec bruyant qu'un historique corrompu.
    */
   record(id: string, to: TaskStatus | null, event: EventInput, patch: TaskPatch = {}): Recorded | null {
+    return this.tx(() => this.recordUnlocked(id, to, event, patch))
+  }
+
+  /**
+   * Corps de {@link HarnessStore.record}, **sans** transaction : à n'appeler que
+   * depuis une transaction ouverte. C'est ce qui permet à une autre table — les
+   * worktrees — d'écrire sa ligne et l'événement qui la raconte d'un seul bloc.
+   */
+  private recordUnlocked(id: string, to: TaskStatus | null, event: EventInput, patch: TaskPatch = {}): Recorded | null {
     const now = new Date().toISOString()
-    return this.tx(() => {
-      const current = row<TaskRow>(this.db.prepare('SELECT * FROM tasks WHERE id = :id').get({ id }))
-      if (!current) return null
-      const from = current.status as TaskStatus
-      const status = to ?? from
-      if (to !== null && to !== from && !canTransition(from, to)) throw new IllegalTransitionError(id, from, to)
+    const current = row<TaskRow>(this.db.prepare('SELECT * FROM tasks WHERE id = :id').get({ id }))
+    if (!current) return null
+    const from = current.status as TaskStatus
+    const status = to ?? from
+    if (to !== null && to !== from && !canTransition(from, to)) throw new IllegalTransitionError(id, from, to)
 
-      const sets: string[] = ['status = :status', 'updated_at = :now']
-      const params: Record<string, string | number | null> = { id, status, now }
-      const assign = (column: string, value: string | number | null) => {
-        sets.push(`${column} = :${column}`)
-        params[column] = value
-      }
-      if (patch.step !== undefined) assign('step', patch.step)
-      if (patch.usage !== undefined) assign('usage_json', JSON.stringify(patch.usage))
-      if (patch.needs_approval !== undefined) assign('needs_approval', patch.needs_approval ? 1 : 0)
-      if (patch.approval_seq !== undefined) assign('approval_seq', patch.approval_seq)
-      if (patch.started_at !== undefined) assign('started_at', patch.started_at)
-      if (patch.error !== undefined) assign('error', patch.error)
-      if (patch.result !== undefined) assign('result_json', patch.result ? JSON.stringify(patch.result) : null)
-      // `ended_at` est posé d'office à l'entrée dans un statut final : c'est une
-      // propriété du statut, pas quelque chose que chaque appelant doit penser à fournir.
-      if (patch.ended_at !== undefined) assign('ended_at', patch.ended_at)
-      else if (to !== null && isTerminal(to) && current.ended_at === null) assign('ended_at', now)
+    const sets: string[] = ['status = :status', 'updated_at = :now']
+    const params: Record<string, string | number | null> = { id, status, now }
+    const assign = (column: string, value: string | number | null) => {
+      sets.push(`${column} = :${column}`)
+      params[column] = value
+    }
+    if (patch.step !== undefined) assign('step', patch.step)
+    if (patch.usage !== undefined) assign('usage_json', JSON.stringify(patch.usage))
+    if (patch.needs_approval !== undefined) assign('needs_approval', patch.needs_approval ? 1 : 0)
+    if (patch.approval_seq !== undefined) assign('approval_seq', patch.approval_seq)
+    if (patch.started_at !== undefined) assign('started_at', patch.started_at)
+    if (patch.error !== undefined) assign('error', patch.error)
+    if (patch.result !== undefined) assign('result_json', patch.result ? JSON.stringify(patch.result) : null)
+    // `ended_at` est posé d'office à l'entrée dans un statut final : c'est une
+    // propriété du statut, pas quelque chose que chaque appelant doit penser à fournir.
+    if (patch.ended_at !== undefined) assign('ended_at', patch.ended_at)
+    else if (to !== null && isTerminal(to) && current.ended_at === null) assign('ended_at', now)
 
-      this.db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = :id`).run(params)
-      const written = this.insertEvent(id, status, event, now)
-      return { task: this.getTask(id)!, event: written }
-    })
+    this.db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = :id`).run(params)
+    const written = this.insertEvent(id, status, event, now)
+    return { task: this.getTask(id)!, event: written }
   }
 
   /**
@@ -773,6 +782,183 @@ export class HarnessStore {
         .prepare('SELECT * FROM tool_calls WHERE task_id = :id ORDER BY requested_at ASC, rowid ASC')
         .all({ id: taskId }),
     ).map(toToolCall)
+  }
+
+  // --- Espaces de travail --------------------------------------------------
+
+  /**
+   * Enregistre le worktree d'une tâche et écrit `workspace.created` dans son
+   * journal, dans la même transaction.
+   *
+   * Le worktree existe déjà sur le disque quand on l'enregistre : c'est l'ordre
+   * qui laisse une trace exploitable en cas d'échec. Un crash entre les deux
+   * laisse un dossier sous `worktreesDir` que rien ne référence — visible, et
+   * retirable. L'ordre inverse laisserait une ligne qui promet un dossier
+   * absent.
+   *
+   * @returns le worktree, la tâche et l'événement ; `null` si la tâche n'existe pas
+   * @throws si la tâche a déjà un worktree (contrainte d'unicité)
+   */
+  createWorkspace(input: {
+    taskId: string
+    repoDir: string
+    subdir: string
+    worktreePath: string
+    branch: string
+    baseCommit: string
+    baseRef: string | null
+    baseDirty: number
+  }): (Recorded & { workspace: Workspace }) | null {
+    const id = randomUUID()
+    const now = new Date().toISOString()
+    return this.tx(() => {
+      if (!this.getTask(input.taskId)) return null
+      this.db
+        .prepare(
+          `INSERT INTO workspaces (id, task_id, repo_dir, subdir, worktree_path, branch, base_commit,
+                                   base_ref, base_dirty, status, created_at, updated_at)
+           VALUES (:id, :task_id, :repo_dir, :subdir, :worktree_path, :branch, :base_commit,
+                   :base_ref, :base_dirty, 'active', :now, :now)`,
+        )
+        .run({
+          id,
+          task_id: input.taskId,
+          repo_dir: input.repoDir,
+          subdir: input.subdir,
+          worktree_path: input.worktreePath,
+          branch: input.branch,
+          base_commit: input.baseCommit,
+          base_ref: input.baseRef,
+          base_dirty: input.baseDirty,
+          now,
+        })
+      const workspace = this.getWorkspace(id)!
+      const recorded = this.recordUnlocked(input.taskId, null, {
+        type: 'workspace.created',
+        payload: {
+          workspace_id: id,
+          branch: input.branch,
+          base_commit: input.baseCommit,
+          base_ref: input.baseRef,
+          base_dirty: input.baseDirty,
+          worktree_path: input.worktreePath,
+        },
+      })!
+      return { ...recorded, workspace }
+    })
+  }
+
+  /**
+   * Fait avancer un worktree dans son cycle de vie et écrit l'événement
+   * correspondant dans le journal de sa tâche, dans la même transaction.
+   *
+   * Seules deux transitions existent : `active → kept`, et `active|kept →
+   * removed`. Une transition sans objet (déjà conservé, déjà retiré) rend
+   * `null` au lieu d'écrire un second événement qui raconterait deux fois la
+   * même chose.
+   *
+   * @param detail charge utile ajoutée à l'événement (motif, commit final…)
+   * @returns le worktree après coup et l'événement écrit ; `null` si rien n'a changé
+   */
+  setWorkspaceStatus(
+    id: string,
+    to: Exclude<WorkspaceStatus, 'active'>,
+    detail: Record<string, unknown> = {},
+  ): (Recorded & { workspace: Workspace }) | null {
+    const now = new Date().toISOString()
+    const from: WorkspaceStatus[] = to === 'kept' ? ['active'] : ['active', 'kept']
+    return this.tx(() => {
+      const info = this.db
+        .prepare(
+          `UPDATE workspaces
+           SET status = :to, updated_at = :now, removed_at = CASE WHEN :to = 'removed' THEN :now ELSE removed_at END
+           WHERE id = :id AND status IN (${from.map((s) => `'${s}'`).join(', ')})`,
+        )
+        .run({ id, to, now })
+      if (info.changes !== 1) return null
+      const workspace = this.getWorkspace(id)!
+      const recorded = this.recordUnlocked(workspace.task_id, null, {
+        type: to === 'kept' ? 'workspace.kept' : 'workspace.removed',
+        payload: { ...detail, workspace_id: id, branch: workspace.branch },
+      })!
+      return { ...recorded, workspace }
+    })
+  }
+
+  /**
+   * Passe en `kept` tous les worktrees restés `active`, à appeler au démarrage
+   * du daemon après {@link HarnessStore.markInterrupted}.
+   *
+   * Leur tâche vient d'être interrompue ; le worktree, lui, est **conservé pour
+   * inspection** (PLAN §3) — jamais nettoyé d'office : ce qu'il contient est
+   * peut-être la seule trace de ce que l'agent avait fait.
+   */
+  keepActiveWorkspaces(): (Recorded & { workspace: Workspace })[] {
+    const out: (Recorded & { workspace: Workspace })[] = []
+    for (const w of this.listWorkspaces({ status: 'active' })) {
+      const done = this.setWorkspaceStatus(w.id, 'kept', { reason: 'daemon redémarré' })
+      if (done) out.push(done)
+    }
+    return out
+  }
+
+  getWorkspace(id: string): Workspace | null {
+    const found = row<WorkspaceRow>(this.db.prepare('SELECT * FROM workspaces WHERE id = :id').get({ id }))
+    return found ? toWorkspace(found) : null
+  }
+
+  /** Le worktree d'une tâche. @returns `null` si la tâche n'en a pas (profil en lecture seule) */
+  workspaceForTask(taskId: string): Workspace | null {
+    const found = row<WorkspaceRow>(
+      this.db.prepare('SELECT * FROM workspaces WHERE task_id = :id').get({ id: taskId }),
+    )
+    return found ? toWorkspace(found) : null
+  }
+
+  /** Les worktrees, du plus récent au plus ancien. */
+  listWorkspaces(filter: { status?: WorkspaceStatus; limit?: number } = {}): Workspace[] {
+    const limit = filter.limit ?? 500
+    const found = filter.status
+      ? this.db
+          .prepare('SELECT * FROM workspaces WHERE status = :s ORDER BY created_at DESC, rowid DESC LIMIT :l')
+          .all({ s: filter.status, l: limit })
+      : this.db.prepare('SELECT * FROM workspaces ORDER BY created_at DESC, rowid DESC LIMIT :l').all({ l: limit })
+    return rows<WorkspaceRow>(found).map(toWorkspace)
+  }
+}
+
+/** Ligne `workspaces` telle que SQLite la rend. */
+interface WorkspaceRow {
+  id: string
+  task_id: string
+  repo_dir: string
+  subdir: string
+  worktree_path: string
+  branch: string
+  base_commit: string
+  base_ref: string | null
+  base_dirty: number
+  status: string
+  created_at: string
+  updated_at: string
+  removed_at: string | null
+}
+
+function toWorkspace(row: WorkspaceRow): Workspace {
+  return {
+    id: row.id,
+    task_id: row.task_id,
+    repo_dir: row.repo_dir,
+    subdir: row.subdir,
+    worktree_path: row.worktree_path,
+    branch: row.branch,
+    base_commit: row.base_commit,
+    base_ref: row.base_ref,
+    base_dirty: row.base_dirty,
+    status: row.status as WorkspaceStatus,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    removed_at: row.removed_at,
   }
 }
 

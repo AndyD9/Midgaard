@@ -29,9 +29,13 @@ import { toolCallSchema } from './tools.ts'
  *        et `usage` ; le journal gagne `tool.*`, `usage.updated` et
  *        `task.budget_exceeded` ; les routes `/api/agents` et `/api/providers`
  *        apparaissent. Un daemon de protocole 3 ne sait rien de tout cela, et
- *        rendrait des tâches sans coût ni agent : il doit être remplacé.
+ *        rendrait des tâches sans coût ni agent : il doit être remplacé ;
+ *  - 5 : Slice 3, premier pas — le journal gagne `workspace.created`,
+ *        `workspace.kept` et `workspace.removed`. Un daemon de protocole 4
+ *        n'écrirait pas ces événements, et le dashboard servi par un daemon
+ *        récent les attend.
  */
-export const PROTOCOL_VERSION = 4
+export const PROTOCOL_VERSION = 5
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({
