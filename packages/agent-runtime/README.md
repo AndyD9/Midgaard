@@ -28,6 +28,24 @@ un budget.
 tâche. Un modèle qui écrit « voilà, j'ai fini » sans l'appeler n'a pas fini : il
 a cessé de parler. La boucle le relance **une fois**, puis échoue en le disant.
 
+**Et elle dit *pourquoi* il n'a rien appelé.** « Aucun outil appelé » est un
+symptôme, pas une cause. Dans un cas la réponse a été **coupée au plafond de
+sortie** avant que l'appel n'ait pu être émis ; dans l'autre le modèle a
+réellement cessé de conclure. Les deux se corrigent à l'opposé — raccourcir la
+réponse demandée, ou reformuler l'objectif — et la boucle compte les troncatures
+pour les distinguer dans son motif d'échec.
+
+Ce n'est pas une précaution théorique : avec l'ancien message, qui ne disait que
+le symptôme, le lecteur a imputé l'échec au plafond d'étapes qu'il venait de
+poser — et a publié ce diagnostic, faux. Un message incomplet ne laisse pas son
+lecteur sans réponse, il lui en fait inventer une.
+
+**Un conseil doit viser une manette que son lecteur peut atteindre.** La boucle
+conseillait de « relever `max_output_tokens` » : ce plafond appartient au
+profil, et `tightenLimits` ne sait qu'abaisser — relever est impossible depuis
+une délégation. Les conseils renvoient désormais à l'objectif, ou à `max_steps`
+jusqu'au plafond du profil.
+
 **Tout ce qui vient du dehors est encadré, même pour l'agent.** Un résultat
 `untrusted` est enveloppé avant d'être réinjecté dans la conversation de l'agent
 lui-même, pas seulement avant de remonter à Claude. L'agent est la première

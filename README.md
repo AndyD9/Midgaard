@@ -24,7 +24,7 @@ et les coûts.
 |---|---|---|
 | 0 | Spike : Claude Code → MCP → daemon, attente longue, approbation humaine | ✅ **Terminée**, validée en sessions réelles |
 | 1 | Squelette observable : persistance SQLite, dashboard temps réel, CLI `harness` | ✅ **Terminée**, 91 vérifications + essai en session réelle |
-| 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 160 vérifications + essai en session réelle ; coût **exact au microdollar** contre le solde Venice, trois fois |
+| 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 162 vérifications + essai en session réelle ; coût **exact au microdollar** contre le solde Venice, trois fois |
 | 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | À faire |
 | 4 | Durcissement sécurité, distribution npm | À faire |
 
@@ -89,11 +89,13 @@ Node fournissent `node:sqlite` sans drapeau expérimental ? ». Passe-lui en
 résultat. » Le coût, les appels d'outils et les sources s'affichent en direct sur
 le dashboard.
 
-Abaisse le **budget** et le **délai** autant que tu veux : les dépasser arrête
-une tâche proprement, et le coût d'un plafond trop bas est nul. Le nombre
-d'**étapes** se plafonne en revanche à ses risques : une tâche qui l'atteint
-échoue sans résultat, **après** avoir dépensé. L'essai en session réelle a perdu
-0,0063 $ de cette façon ([docs/SLICE2.md](docs/SLICE2.md)).
+Abaisse le **budget** et le **délai** sans crainte : les dépasser arrête une
+tâche proprement. Retiens surtout qu'**une tâche qui échoue a déjà dépensé** —
+l'essai en session réelle a perdu 0,0063 $ sur une tâche sans résultat, trois
+fois le prix d'une qui aboutit. La cause la plus fréquente n'est pas une limite
+trop basse mais un **objectif qui appelle une réponse trop longue** : le plafond
+de sortie coupe la réponse avant que l'agent n'ait pu conclure. Demande une
+réponse courte et bornée ([docs/SLICE2.md](docs/SLICE2.md)).
 
 Le daemon démarre tout seul au premier appel d'outil, et s'arrête après
 30 minutes sans tâche active, sans dashboard connecté et sans requête.
@@ -119,7 +121,7 @@ Depuis la racine du dépôt :
 
 | Suite | Durée | Contenu |
 |---|---|---|
-| `npm run test:unit` | ~1 s | 126 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils, boucle d'agent |
+| `npm run test:unit` | ~1 s | 128 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils, boucle d'agent |
 | `npm run test:lock` | ~30 s | Instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s | Redémarrage, reprise WebSocket, sécurité, expiration, inactivité |
 | `npm run test:wait` | ~3 min | 12 scénarios de bout en bout avec le client MCP officiel |

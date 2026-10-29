@@ -8,7 +8,7 @@ corresponde à la facture.
 **État : livrable atteint, mesuré, et éprouvé en vraie session.** Un Researcher
 exécute de vraies tâches sur Venice, et **le coût affiché correspond au centime
 près au solde débité** — vérifié **trois** fois, à 0,0 % d'écart, en relevant le
-solde chez le fournisseur avant et après. 126 vérifications unitaires, 10
+solde chez le fournisseur avant et après. 128 vérifications unitaires, 10
 d'instance unique, 7 d'intégration, 12 de bout en bout MCP et 5 d'essai réel,
 0 échec.
 
@@ -16,9 +16,10 @@ L'essai en vraie session Claude Code, que la version précédente de ce document
 annonçait comme restant à faire, **a eu lieu** : il confirme les invariants — une
 attente de 62,6 s sans coupure dans le vrai client, le `context` qui évite la
 redécouverte, le web encadré et sourcé — et **rapporte quatre défauts
-d'ergonomie**. Le premier — `search_files` qui rendait « 0 correspondance »
-sur un chemin de fichier — **est corrigé**, avec son test de non-régression. Les
-trois autres sont consignés pour que l'auteur tranche.
+d'ergonomie**, **tous les quatre corrigés depuis**, chacun avec sa vérification.
+L'essai a aussi produit une erreur de diagnostic de ma part, rectifiée au § du
+défaut n° 2 : elle est conservée telle quelle, parce qu'elle est la meilleure
+démonstration du défaut en question.
 
 Ce qui n'a **pas** encore eu lieu est dit tel quel au § « Limites connues » :
 aucune ligne de ce document ne décrit quelque chose qui n'existe pas.
@@ -241,7 +242,7 @@ supplémentaire. Toujours aucun jeton facturé par un test.
 
 | Suite | Contenu | Résultat |
 |---|---|---|
-| `npm run test:unit` | 126 tests : machine à états, persistance, configuration, **normalisation des deux adaptateurs**, **coûts**, **sécurité des outils**, **boucle d'agent** | 126/126, ~1 s |
+| `npm run test:unit` | 128 tests : machine à états, persistance, configuration, **normalisation des deux adaptateurs**, **coûts**, **sécurité des outils**, **boucle d'agent** | 128/128, ~1 s |
 | `npm run test:lock` | 8 daemons lancés ensemble, 10 manches | 10/10, ~30 s |
 | `npm run test:restart` | 7 scénarios sur de vrais processus et de vraies sockets | 7/7, ~45 s |
 | `npm run test:wait` | 12 scénarios de bout en bout, client MCP officiel | 12/12, ~178 s |
@@ -471,8 +472,9 @@ protection-là n'a pas été éprouvée ; seule l'attribution l'a été.
 
 ### Les quatre défauts d'ergonomie
 
-Le premier est corrigé ; les trois autres sont consignés pour que l'auteur
-tranche.
+Les quatre sont corrigés, et chaque correctif est vérifié là où le défaut se
+voyait — pas seulement dans un test. Reste le cinquième, mineur, laissé ouvert
+en bas de section.
 
 #### 1. `search_files` répond « 0 correspondance » au lieu d'une erreur
 
@@ -538,9 +540,21 @@ error   l'agent s'est arrêté sans appeler submit_result, même après relance
 hint    The task ended without a result. Do not retry automatically; tell the user.
 ```
 
-La vraie cause était **le `max_steps: 6` que j'avais posé moi-même**, et le
-message ne le dit nulle part. Le seul conseil actionnable est une note
-d'exécution, visible seulement dans le dashboard ou la base :
+Ce message dit un **symptôme**. En le lisant, j'ai conclu que la cause était
+**le `max_steps: 6` que j'avais posé moi-même**, et je l'ai écrit tel quel dans
+la première version de ce document.
+
+**C'était faux**, et il a fallu ouvrir la boucle pour le voir. La tâche n'a
+jamais atteint la garde d'étapes : celle-ci aurait rendu « limite de 6 étapes
+atteinte sans résultat soumis ». Le vrai enchaînement est ailleurs —
+`loop.ts` échoue quand **deux** réponses d'affilée n'appellent aucun outil, et
+la seconde avait été **coupée au plafond de sortie** avant d'avoir pu émettre
+`submit_result`. Relever `max_steps` n'y aurait rien changé : la même
+troncature serait survenue au même tour. Ce qui a sauvé la reprise, c'est
+d'avoir demandé **une réponse plus courte**.
+
+Le seul indice de la vraie cause vivait dans une note d'exécution, visible
+seulement dans le dashboard ou la base :
 
 > `réponse coupée à 4096 jetons de sortie ; relève max_output_tokens si cela se répète`
 
@@ -548,16 +562,37 @@ Or `max_output_tokens` **n'est pas un paramètre de `harness_delegate_task`** �
 le schéma n'expose que `max_cost_usd`, `max_steps` et `timeout_s`. Et même
 exposé, `tightenLimits` (`packages/contracts/src/agent.ts:105`) ne sait
 qu'**abaisser** : « relever » est impossible par construction depuis une
-délégation. Le conseil s'adresse donc à qui édite
+délégation. Le conseil s'adressait donc à qui édite
 `packages/daemon/src/agents.ts`, pas à qui lit le message.
 
-Pour le lecteur du message, le conseil utile serait : *raccourcis l'objectif, ou
-relève `max_steps`*. J'ai dû le deviner. La reprise a marché du premier coup —
-mais parce que je savais lire la base, ce qu'un utilisateur ne fera pas.
+**C'est le défaut le mieux démontré des quatre**, parce que la démonstration est
+l'erreur elle-même : le lecteur à qui ce message est destiné l'a mal diagnostiqué,
+et a publié le mauvais diagnostic. Un message qui ne nomme que le symptôme ne
+laisse pas son lecteur sans réponse — il lui en fait inventer une.
 
 À noter au crédit du harness : **`hint` dit explicitement de ne pas réessayer
 tout seul et de prévenir l'utilisateur.** C'est exactement la bonne consigne, et
 elle m'a retenu de relancer en boucle une tâche qui coûtait de l'argent.
+
+**Corrigé.** La boucle distingue désormais les deux pannes, qui se corrigent à
+l'opposé l'une de l'autre :
+
+```text
+réponse coupée à 4096 jetons de sortie avant tout appel d'outil (1 fois, relance
+comprise) : submit_result n'a jamais pu être émis. L'objectif demande une réponse
+trop longue — demande-la plus courte. Ce plafond appartient au profil de l'agent :
+une délégation ne peut que l'abaisser, jamais le relever.
+```
+
+Quand il n'y a pas eu de troncature, le message reste le sien et gagne sa
+sortie : *reformule l'objectif pour qu'il appelle une réponse structurée*. La
+note de troncature ne renvoie plus vers `max_output_tokens` mais vers l'objectif,
+et la garde d'étapes nomme maintenant ses deux issues — *relève `max_steps`
+jusqu'au plafond du profil, ou simplifie l'objectif* —, toutes deux atteignables
+depuis une délégation.
+
+Trois tests le verrouillent, dont un qui vérifie que le message **n'invente pas**
+une troncature là où il n'y en a pas eu.
 
 #### 3. `step` affiche un dénominateur qui ne veut rien dire pour un agent réel
 
@@ -572,6 +607,16 @@ CLI (`packages/cli/src/commands.ts:145`) et dashboard (« étape 6 sur 5 »). Il
 est cosmétique, mais il ment au seul endroit où l'on cherche à savoir si une
 tâche a touché son plafond — et « 6/5 » m'a d'abord fait croire à un dépassement
 d'un cran, pas à ma propre limite atteinte.
+
+**Corrigé** à la source : `steps_total` vaut désormais `max_steps` pour un agent
+réel, et ne garde la constante du simulé que pour l'exécutant simulé, dont les
+étapes sont comptées d'avance et font partie de son rythme. Les trois interfaces
+sont réparées d'un coup, puisqu'elles lisent toutes le même champ.
+
+Vérifié de bout en bout sur le vrai système plutôt que supposé : une tâche réelle
+plafonnée à 4 étapes rend `2/4` (elle rendait `2/5`), et une tâche simulée rend
+toujours `5/5`. Les tâches déjà en base gardent leur ancien dénominateur : c'est
+ce qu'elles valaient au moment où elles ont tourné.
 
 #### 4. L'écart de coût accuse la table de tarifs quand la cause est le cache
 
@@ -588,6 +633,19 @@ elle a été relevée chez le fournisseur le jour même. Le message envoie vers
 `apps/dashboard/src/components/UsageCard.tsx:97` ne connaît qu'une cause
 possible à un écart. Il en existe une seconde, documentée, et que le nombre de
 jetons de cache suffirait à distinguer.
+
+**Corrigé.** `gap()` reçoit les jetons de cache et attribue l'écart. La même
+tâche affiche maintenant :
+
+> Notre estimation : 0,0098 $. **Écart de 36 % : 60 % des jetons d'entrée
+> viennent du cache, que nous facturons au tarif plein faute de tarif publié.
+> L'estimation est haute pour cette raison, pas parce que les tarifs auraient
+> vieilli.**
+
+L'attribution n'est pas accordée à la légère : le cache ne peut rendre
+l'estimation que **haute**, jamais basse. Si la facture dépasse l'estimation, la
+table reste la seule explication et le message d'origine revient. Relevé dans le
+dashboard servi par le daemon, pas seulement dans le code.
 
 #### Et un cinquième, mineur, dans le même esprit
 
@@ -608,14 +666,26 @@ portait un **avertissement sur un outil** — « `search_files` n'accepte qu'un
 répertoire » — et l'agent a cessé de s'y casser les dents. Le `context` ne sert
 donc pas qu'à transmettre des faits : il transmet aussi les pièges connus.
 
-**Abaisser une limite n'est pas gratuit.** J'ai abaissé `max_cost_usd` parce
-qu'on me l'avait demandé, mais `max_steps: 6` était mon initiative, sur le
-raisonnement « une lecture de trois fichiers tient en six étapes ». Il en aurait
-fallu six à un agent qui ne se heurtait pas au défaut n° 1 — et la marge a
-disparu au premier outil qui mentait. **La limite d'étapes est celle dont le bon
-réglage dépend d'un aléa qu'on ne contrôle pas**, contrairement au budget et au
-délai, qui ont le bon goût d'être continus. Le plafond coûte alors plus cher
-qu'il ne protège : 0,006264 $ perdus pour économiser 0,002 $.
+**Ce que j'ai cru coûteux ne l'était pas, et je ne l'ai su qu'en ouvrant la
+boucle.** J'ai abaissé `max_cost_usd` parce qu'on me l'avait demandé, et
+`max_steps: 6` de ma propre initiative, sur le raisonnement « une lecture de
+trois fichiers tient en six étapes ». Quand la tâche a échoué, j'ai imputé
+l'échec à ce plafond — c'était le chiffre que j'avais choisi, et le message
+d'erreur ne proposait rien d'autre à regarder.
+
+**La tâche n'a jamais atteint ce plafond.** Elle a échoué sur deux réponses
+tronquées d'affilée, et un `max_steps` plus large aurait donné le même échec au
+même tour. Mon initiative n'a rien coûté ; c'est mon diagnostic qui était faux.
+
+La leçon n'est donc pas « ne touche pas aux limites », mais plus désagréable :
+**un message qui ne nomme qu'un symptôme oriente son lecteur vers le chiffre
+qu'il a sous la main**, et ce chiffre est rarement la cause. J'avais le dashboard,
+la base, et le code — j'ai quand même conclu de travers, et publié la conclusion.
+Un utilisateur qui n'a que le message n'avait aucune chance. C'est pour cela que
+le défaut n° 2 valait d'être corrigé à la source plutôt que signalé.
+
+Ce qui reste vrai de l'épisode : la tâche échouée a coûté **0,006264 $ pour rien**,
+soit plus de trois fois une tâche qui aboutit. Une tâche qui échoue a déjà dépensé.
 
 **Le délai, lui, se choisit sans risque.** 180 s, 180 s, 240 s, 120 s selon ce
 que j'attendais — jamais la valeur par défaut sans y penser, et jamais de
@@ -639,13 +709,13 @@ c'est précisément la discipline que l'encadrement `<untrusted_data>` impose.
 
 ## Limites connues
 
-- **Trois défauts d'ergonomie ouverts**, trouvés en vraie session et **non
-  corrigés** : un échec par plafond d'étapes ne nomme pas sa cause et conseille
-  un réglage hors d'atteinte ; `step` affiche le dénominateur de l'exécutant
-  simulé (« 6/5 ») ; un écart de coût dû au cache est imputé à la table de
-  tarifs. Détail et emplacements au § « Essai en vraie session Claude Code ».
-  Le quatrième — `search_files` qui rendait « 0 correspondance » sur un chemin
-  de fichier — est corrigé.
+- **Un défaut d'affichage mineur reste ouvert** : `formatCost` passe à deux
+  décimales au-dessus de 0,01 $, si bien que la facture et l'estimation d'une
+  tâche peuvent s'afficher toutes deux « 0,01 $ » alors qu'elles diffèrent. La
+  phrase qui les compare reste juste — elle lit les vraies valeurs — mais les
+  deux chiffres cessent d'être lisibles **côte à côte**, pile dans la tranche
+  d'une vraie tâche. Les quatre autres défauts trouvés en vraie session sont
+  corrigés.
 - **L'approbation humaine n'a pas été rejouée en Slice 2.** Aucun outil du
   `researcher` n'en demande — c'est en lecture seule. Ce chemin a été vérifié
   en Slice 1, et le sera de nouveau en Slice 3 avec les outils d'écriture.
@@ -698,9 +768,7 @@ bloquante. S'y ajoutent quatre choses nées de cette slice :
    appels, ou l'Interactions API.
 3. **Vérifier le coffre sur Windows et Linux.** DPAPI et libsecret sont écrits,
    pas constatés.
-4. **Trancher les trois défauts d'ergonomie restants**, listés au § « Les quatre
-   défauts d'ergonomie ». Le quatrième, `search_files`, est corrigé — c'était
-   le seul à faire perdre de l'argent à chaque agent qui s'y fiait. Les trois
-   autres trompent le lecteur sans lui coûter : un message d'échec qui tait sa
-   cause, un dénominateur emprunté à l'exécutant simulé, un écart de coût mal
-   imputé.
+4. **Rendre les deux montants lisibles côte à côte** — le cinquième défaut, seul
+   reliquat de l'essai en vraie session : `formatCost` arrondit à deux décimales
+   au-dessus de 0,01 $ et fait disparaître l'écart qu'ils servent à montrer. Les
+   quatre autres défauts sont corrigés.

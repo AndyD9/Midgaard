@@ -173,6 +173,26 @@ describe('fin de tâche', () => {
     assert.equal(callCount, 2, 'relancé une fois, pas davantage')
   })
 
+  // « Aucun outil appelé » et « réponse tronquée » produisent le même symptôme et
+  // appellent deux corrections opposées. Confondre les deux a réellement coûté une
+  // relance inutile à la lecture de l'ancien message (docs/SLICE2.md, § défaut n° 2).
+  it('nomme la troncature quand c\'est elle qui a empêché submit_result', async () => {
+    const { outcome } = await run([{ text: 'je commence une très longue réponse et', finishReason: 'length' }])
+    assert.equal(outcome.status, 'failed')
+    const error = outcome.status === 'failed' ? outcome.error : ''
+    assert.match(error, /coupée à \d+ jetons de sortie/, 'la cause, pas seulement le symptôme')
+    assert.match(error, /plus courte/, 'et un geste que le lecteur peut faire')
+    assert.doesNotMatch(error, /relève max_output_tokens/, 'ce réglage est hors d\'atteinte depuis une délégation')
+  })
+
+  it('dit quoi faire quand le modèle s\'arrête vraiment sans conclure', async () => {
+    const { outcome } = await run([{ text: 'j\'ai fini, promis' }])
+    const error = outcome.status === 'failed' ? outcome.error : ''
+    assert.match(error, /sans appeler submit_result/)
+    assert.doesNotMatch(error, /coupée à/, 'aucune troncature ici : ne pas l\'inventer')
+    assert.match(error, /Reformule l'objectif/, 'un refus doit dire quoi faire')
+  })
+
   it('refuse une charge utile invalide et laisse le modèle corriger', async () => {
     const { outcome, notes } = await run([
       { toolCalls: [{ id: 'c1', name: 'submit_result', argumentsJson: '{"details":"sans résumé"}' }] },
@@ -216,7 +236,11 @@ describe('limites', () => {
     )
     assert.equal(outcome.status, 'failed')
     assert.equal(callCount, 3)
-    assert.match(outcome.status === 'failed' ? outcome.error : '', /3 étapes atteinte/)
+    const error = outcome.status === 'failed' ? outcome.error : ''
+    assert.match(error, /3 étapes atteinte/)
+    // Les deux sorties proposées sont atteignables depuis une délégation.
+    assert.match(error, /relève max_steps/)
+    assert.match(error, /simplifie l'objectif/)
   })
 
   it('n\'applique pas de budget sur un modèle sans tarif, et prévient une seule fois', async () => {

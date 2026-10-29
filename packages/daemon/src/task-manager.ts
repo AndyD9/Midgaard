@@ -192,7 +192,13 @@ export class TaskManager {
       projectDir: agent.kind === 'simulated' ? null : input.projectDir,
       limits,
       durationS: input.durationS,
-      stepsTotal: STEPS_TOTAL,
+      // `steps_total` est le dénominateur affiché par MCP, la CLI et le
+      // dashboard. L'exécutant simulé a ses propres étapes, comptées d'avance ;
+      // un agent réel, lui, est borné par `max_steps`. Leur donner à tous la
+      // constante du simulé affichait « 6/5 » pour une tâche plafonnée à 6, et
+      // « 2/5 » pour une plafonnée à 12 : le seul chiffre qu'on consulte pour
+      // savoir si une tâche a touché son plafond était faux.
+      stepsTotal: agent.kind === 'simulated' ? STEPS_TOTAL : limits.max_steps,
       needsApproval: input.needsApproval,
     })
     this.log(`tâche ${short(task.id)} créée pour ${agent.id} (budget ${limits.max_cost_usd} $)`)

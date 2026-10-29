@@ -146,6 +146,11 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
   let usage = emptyUsage()
   let step = 0
   let nudged = false
+  // Combien de réponses sans appel d'outil ont été **coupées** au plafond de
+  // sortie. C'est la différence entre « le modèle a refusé de conclure » et
+  // « le modèle n'a pas eu la place de conclure » — deux pannes qui se
+  // corrigent à l'opposé l'une de l'autre.
+  let cutWithoutTools = 0
 
   // La racine est canonicalisée **ici**, une fois, et pas supposée l'être.
   // Sans cela, un projet situé sous un lien symbolique — ce qu'est `/tmp` sur
@@ -252,19 +257,37 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
     messages.push({ role: 'assistant', content: completion.text, toolCalls: completion.toolCalls })
 
     if (completion.finishReason === 'length') {
+      // Le conseil s'adresse à qui lit la note — Claude, ou l'utilisateur. Ni
+      // l'un ni l'autre ne peut relever ce plafond : il appartient au profil, et
+      // `tightenLimits` ne sait qu'abaisser. Dire « relève max_output_tokens »
+      // envoyait donc vers une manette absente de `harness_delegate_task`.
       input.hooks.onNote(
-        `réponse coupée à ${limits.max_output_tokens} jetons de sortie ; relève max_output_tokens si cela se répète`,
+        `réponse coupée à ${limits.max_output_tokens} jetons de sortie ; demande une réponse plus courte ` +
+          `dans l'objectif — ce plafond appartient au profil de l'agent, une délégation ne peut que l'abaisser`,
         step,
       )
     }
 
     if (completion.toolCalls.length === 0) {
+      if (completion.finishReason === 'length') cutWithoutTools++
       if (nudged) {
+        // « Aucun outil appelé » est le symptôme ; la cause la plus fréquente est
+        // une réponse tronquée avant que l'appel n'ait pu être émis. Les
+        // confondre coûte cher : on croit à un plafond d'étapes trop bas et on
+        // le relève, alors qu'il fallait raccourcir la réponse demandée. Cette
+        // confusion a été commise pour de bon à la lecture du message d'origine
+        // (docs/SLICE2.md, § défaut n° 2) — d'où la distinction, ici, à la source.
         return {
           status: 'failed',
           error:
-            'l\'agent s\'est arrêté sans appeler submit_result, même après relance — ' +
-            'aucun résultat structuré à remonter',
+            cutWithoutTools > 0
+              ? `réponse coupée à ${limits.max_output_tokens} jetons de sortie avant tout appel d'outil ` +
+                `(${cutWithoutTools} fois, relance comprise) : submit_result n'a jamais pu être émis. ` +
+                `L'objectif demande une réponse trop longue — demande-la plus courte. Ce plafond appartient ` +
+                `au profil de l'agent : une délégation ne peut que l'abaisser, jamais le relever.`
+              : 'l\'agent s\'est arrêté sans appeler submit_result, même après relance — ' +
+                'aucun résultat structuré à remonter. Reformule l\'objectif pour qu\'il appelle une ' +
+                'réponse structurée, ou vérifie que submit_result lui est bien proposé.',
           usage,
         }
       }

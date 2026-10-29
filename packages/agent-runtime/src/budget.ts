@@ -59,7 +59,11 @@ export function checkLimits(state: BudgetState): StopReason | null {
   if (state.step >= state.limits.max_steps) {
     return {
       kind: 'steps',
-      detail: `limite de ${state.limits.max_steps} étapes atteinte sans résultat soumis`,
+      // Les deux sorties sont atteignables depuis une délégation : `max_steps`
+      // peut remonter jusqu'au plafond du profil, et l'objectif se réécrit.
+      detail:
+        `limite de ${state.limits.max_steps} étapes atteinte sans résultat soumis ; ` +
+        `relève max_steps jusqu'au plafond du profil, ou simplifie l'objectif`,
     }
   }
 

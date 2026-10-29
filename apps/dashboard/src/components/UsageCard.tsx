@@ -61,7 +61,7 @@ export function UsageCard({ task }: { task: Task }) {
         {u.cost_usd_reported !== null && u.cost_usd_estimated !== null && (
           <p className="text-xs text-muted">
             Notre estimation : {formatCost(u.cost_usd_estimated)}.{' '}
-            {gap(u.cost_usd_reported, u.cost_usd_estimated)}
+            {gap(u.cost_usd_reported, u.cost_usd_estimated, u.cached_tokens, u.input_tokens)}
           </p>
         )}
 
@@ -86,16 +86,44 @@ export function UsageCard({ task }: { task: Task }) {
 }
 
 /**
- * Compare facture et estimation.
+ * Compare facture et estimation, et **attribue** l'écart.
  *
- * Un écart au-delà de 20 % signale une table de tarifs à rafraîchir — c'est
- * exactement ce que ces deux chiffres côte à côte servent à révéler.
+ * Deux causes produisent le même écart, et appellent deux gestes opposés :
+ *
+ * 1. une table de tarifs périmée — il faut la rafraîchir ;
+ * 2. des jetons servis depuis le cache du fournisseur, facturés à tarif réduit
+ *    chez lui mais au prix fort chez nous, faute de tarif publié — il n'y a
+ *    rien à faire, et l'estimation est haute pour une raison connue.
+ *
+ * N'en connaître qu'une envoyait l'utilisateur lancer un `pricing refresh`
+ * qui ne changeait rien : constaté sur une tâche affichant « écart de 36 % :
+ * les tarifs locaux ont probablement vieilli » alors que la table avait été
+ * relevée chez le fournisseur **le jour même**, et que 60 % de l'entrée venait
+ * du cache (docs/SLICE2.md, § défaut n° 4).
+ *
+ * @param reported  ce que le fournisseur a facturé
+ * @param estimated ce que notre table calcule
+ * @param cached    jetons d'entrée servis depuis le cache
+ * @param input     jetons d'entrée au total
  */
-function gap(reported: number, estimated: number): string {
+function gap(reported: number, estimated: number, cached: number, input: number): string {
   if (estimated === 0) return ''
   const ratio = Math.abs(reported - estimated) / estimated
   if (ratio < 0.2) return 'Les deux concordent.'
-  return `Écart de ${Math.round(ratio * 100)} % : les tarifs locaux ont probablement vieilli.`
+  const pct = Math.round(ratio * 100)
+
+  // Le cache n'explique qu'une estimation **haute** : il ne peut que nous
+  // faire surfacturer, jamais sous-facturer. Si la facture dépasse l'estimation,
+  // la table reste la seule explication.
+  if (estimated > reported && cached > 0) {
+    const share = input > 0 ? Math.round((cached / input) * 100) : 0
+    return (
+      `Écart de ${pct} % : ${share} % des jetons d'entrée viennent du cache, que nous facturons ` +
+      `au tarif plein faute de tarif publié. L'estimation est haute pour cette raison, pas parce que ` +
+      `les tarifs auraient vieilli.`
+    )
+  }
+  return `Écart de ${pct} % : les tarifs locaux ont probablement vieilli.`
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
