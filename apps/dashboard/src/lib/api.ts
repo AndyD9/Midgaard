@@ -11,7 +11,16 @@
  * Le jeton reste en mémoire : ni `localStorage`, ni cookie, ni URL. Il change à
  * chaque démarrage du daemon, et un rechargement de page le redemande.
  */
-import type { Agent, Approval, Health, ProviderConfig, Task, TaskEvent, ToolCall } from '@midgaard/contracts'
+import type {
+  Agent,
+  Approval,
+  Health,
+  ProviderConfig,
+  Task,
+  TaskEvent,
+  TaskWorkspaceResponse,
+  ToolCall,
+} from '@midgaard/contracts'
 
 /** Jeton d'API, en mémoire uniquement. */
 let token: string | null = null
@@ -128,6 +137,11 @@ export function cancelTask(taskId: string, reason?: string): Promise<{ task: Tas
 /** Appels d'outils d'une tâche, dans l'ordre où ils ont été demandés. */
 export function fetchToolCalls(taskId: string): Promise<{ tool_calls: ToolCall[] }> {
   return api(`/api/tasks/${taskId}/tools`)
+}
+
+/** Worktree d'une tâche et son diff, recalculé par le daemon à chaque appel. */
+export function fetchTaskWorkspace(taskId: string): Promise<TaskWorkspaceResponse> {
+  return api(`/api/tasks/${taskId}/workspace`)
 }
 
 /** Profils d'agents déclarés, avec leur état d'activation. */

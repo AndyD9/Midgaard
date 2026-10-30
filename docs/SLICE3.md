@@ -4,14 +4,14 @@
 changement dans un worktree isolé, une commande sensible suspend la tâche
 jusqu'à décision humaine, le diff est consultable, Claude récupère le résultat.
 
-**État : en cours — étapes 1 à 5 sur 8 livrées.** Les worktrees existent, sont
+**État : en cours — étapes 1 à 6 sur 8 livrées.** Les worktrees existent, sont
 enregistrés, et leur diff se calcule ; les outils d'écriture et `exec` existent
 et refusent tout hors d'un worktree ; une approbation porte sur l'opération
 exacte, préparée avant la demande ; le profil `developer` assemble le tout et
 rend une branche commitée. Il a été éprouvé dans un vrai daemon face à un
 **faux** fournisseur, **jamais face à un vrai modèle** : c'est l'étape 8.
-L'onglet Diff et `harness workspaces` sont à faire, et ce document le dit à
-chaque endroit où la question se pose.
+Le diff se lit dans le dashboard. `harness workspaces` est à faire, et ce
+document le dit à chaque endroit où la question se pose.
 
 ---
 
@@ -47,7 +47,7 @@ liste qu'en connaissance de cause — ce que l'interface devra dire en ajoutant.
 | 3 | `exec` contrôlé : sans shell, binaire résolu d'avance, environnement reconstruit, groupe de processus tué, délai borné par la tâche, sortie bornée | ✅ livrée |
 | 4 | Approbations liées à l'opération exacte (outil, argv, dossier, chemin), affichées telles quelles | ✅ livrée |
 | 5 | Profil `developer` : worktree préparé en `preparing`, lecture et écriture reroutées sur le worktree, commit de fin à `submit_result`, branche et diff dans le résultat | ✅ livrée |
-| 6 | Onglet Files/Diff du dashboard, route de diff | à faire |
+| 6 | Onglet Files/Diff du dashboard, route de diff | ✅ livrée |
 | 7 | `harness workspaces` (liste, nettoyage), `doctor` vérifie Git | à faire |
 | 8 | Bout en bout MCP, puis l'essai d'acceptation du plan : « fais implémenter une route `/health` » | à faire |
 
@@ -404,6 +404,59 @@ ajouté une surface à la vérification de chemin, qui est la frontière.
 absents de son `package.json` comme de ses références de compilation. Rien ne
 le voyait en développement ; la distribution npm de la Slice 4 aurait cassé.
 Déclarés, avec `workspace`.
+
+---
+
+## Étape 6 — le diff, dans le dashboard
+
+### Ce qui existe
+
+- **`GET /api/tasks/:id/workspace`** : le worktree et son diff, **calculé à la
+  demande** contre le commit de départ, jamais mis en cache — on le regarde
+  surtout pendant que l'agent travaille, et un diff figé serait faux sans le
+  dire. Quand il ne peut pas l'être (tâche sans worktree, worktree retiré ou
+  supprimé à la main), `unavailable` dit pourquoi et rappelle la commande Git
+  qui retrouve le travail sur la branche. Le service vit dans
+  `packages/daemon/src/workspaces.ts`, pour que la CLI le reprenne à l'étape 7.
+- **La carte « Fichiers et diff »** de l'inspecteur de tâche : branche, commit
+  de départ, worktree et son état ; l'avertissement quand le travail non
+  commité de l'utilisateur manque ; la liste des fichiers avec leur nature et
+  leurs lignes ; le patch **de chaque fichier, déplié au clic**, coloré ligne à
+  ligne et rendu comme du texte — il vient de fichiers écrits par un agent, rien
+  n'en est interprété ; la mention d'un patch tronqué ; la commande
+  `git merge`, pour l'humain qui décide. La carte se recharge sur les seuls
+  événements d'outil et de worktree, pas à chaque mise à jour de consommation.
+  Le plan parlait d'un « onglet » ; l'inspecteur est une colonne de cartes, et
+  c'en est une de plus.
+- **La note de merge renvoie au dashboard** — lien profond `#/tasks/<id>` —
+  **seulement si le daemon l'annonce servi**. La commande Git reste donnée dans
+  les deux cas.
+
+Pas de changement de protocole : la route est un ajout, que rien d'ancien
+n'appelle.
+
+### Ce qui le prouve
+
+- **D8** (`test:ui`) : une tâche Developer jouée par le faux fournisseur, puis
+  dans un vrai navigateur la carte, la branche, le fichier listé, le patch
+  déplié au clic, la commande de merge. Contre-épreuve faite : un découpage du
+  patch qui ne rattache plus rien à son fichier fait échouer D8.
+- **V7** (`test:developer`) : la route rend le diff, une tâche sans worktree le
+  dit, et le résultat lu **par le vrai client MCP** porte la branche, la note de
+  merge, et le lien du dashboard **exactement quand** celui-ci est servi.
+- **`dashboard-patch.test.ts`** : le découpage du patch, sur un **vrai** patch
+  produit par `diffWorktree`.
+
+### Ce que l'écriture a appris
+
+**15. Git termine par une tabulation l'en-tête d'un chemin qui contient une
+espace.** Les lignes `--- a/dossier avec espace/a b.ts` et `+++ b/…` portent une
+tabulation finale, pour lever l'ambiguïté du chemin. Le découpage du patch la
+gardait dans la clé : le fichier `a b.ts` devenait `a b.ts\t`, et le dashboard
+aurait affiché « patch absent » pour un fichier bel et bien modifié. Rien dans
+la documentation lue ne le laissait prévoir ; c'est le test sur un patch réel
+qui l'a montré au premier passage. D8 prend la même régression dans le
+navigateur.
 
 ---
 

@@ -16,7 +16,6 @@
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -24,75 +23,19 @@ import {
   daemonJson,
   readRuntime,
   type HarnessConfig,
+  type Health,
   type RuntimeInfo,
   type TaskEvent,
   type TaskView,
+  type TaskWorkspaceResponse,
 } from '@midgaard/contracts'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { startFakeProvider, type Turn } from './fake-provider.ts'
 import { childEnv, nodeArgsFor, scenario, summarize, tempHome, type Outcome } from './helpers.ts'
 
 const outcomes: Outcome[] = []
 const daemonArgs = nodeArgsFor('@midgaard/daemon/main')
-
-// --- Faux fournisseur ------------------------------------------------------
-
-/** Un tour du modèle : des appels d'outils, ou du texte seul. */
-type Turn = { tool: string; args: Record<string, unknown> }[] | { text: string }
-
-/** Scénarios, par étiquette présente dans l'objectif de la tâche. */
-const scripts = new Map<string, Turn[]>()
-
-/**
- * Rend le tour suivant du scénario de la tâche. Le numéro du tour est le
- * nombre de messages d'assistant déjà dans la conversation : le serveur n'a
- * aucun état, et une requête rejouée rend la même réponse.
- */
-function fakeCompletion(body: { messages: { role: string; content: string | null }[] }): unknown {
-  const user = body.messages.find((m) => m.role === 'user')?.content ?? ''
-  const tag = [...scripts.keys()].find((t) => user.includes(t))
-  const turn = tag ? scripts.get(tag)![body.messages.filter((m) => m.role === 'assistant').length] : undefined
-  const usage = { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 }
-  if (!turn || 'text' in turn) {
-    return {
-      id: 'faux',
-      choices: [{ index: 0, message: { role: 'assistant', content: turn && 'text' in turn ? turn.text : 'fin du scénario' }, finish_reason: 'stop' }],
-      usage,
-    }
-  }
-  return {
-    id: 'faux',
-    choices: [
-      {
-        index: 0,
-        message: {
-          role: 'assistant',
-          content: null,
-          tool_calls: turn.map((c, i) => ({
-            id: `appel-${i}-${Math.random().toString(36).slice(2, 8)}`,
-            type: 'function',
-            function: { name: c.tool, arguments: JSON.stringify(c.args) },
-          })),
-        },
-        finish_reason: 'tool_calls',
-      },
-    ],
-    usage,
-  }
-}
-
-async function startFakeProvider(): Promise<{ server: Server; url: string }> {
-  const server = createServer((req, res) => {
-    let raw = ''
-    req.on('data', (c) => (raw += c))
-    req.on('end', () => {
-      res.writeHead(200, { 'content-type': 'application/json' })
-      if (req.url?.endsWith('/models')) return res.end(JSON.stringify({ data: [{ id: 'faux-1' }] }))
-      res.end(JSON.stringify(fakeCompletion(JSON.parse(raw || '{}'))))
-    })
-  })
-  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
-  const address = server.address()
-  return { server, url: `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}/v1` }
-}
 
 // --- Dépôts et daemon --------------------------------------------------------
 
@@ -143,7 +86,7 @@ async function until(check: () => boolean | Promise<boolean>, timeoutMs: number)
 
 /** Délègue au Developer une tâche dont l'objectif porte l'étiquette de son scénario. */
 async function delegate(rt: RuntimeInfo, tag: string, projectDir: string, script: Turn[]) {
-  scripts.set(tag, script)
+  provider.scripts.set(tag, script)
   const res = await daemonJson<TaskView & { error?: string }>(rt, '/api/tasks', {
     method: 'POST',
     body: JSON.stringify({
@@ -193,6 +136,9 @@ if (declared.status !== 200 && declared.status !== 201) {
 
 console.log('Developer de bout en bout (faux fournisseur, vrai daemon, vrais dépôts)\n')
 
+let v1TaskId = ''
+let v5TaskId = ''
+
 await scenario(outcomes, 'V1 le travail est commité sur la branche, le dépôt de l\'utilisateur intact', async () => {
   const repo = makeRepo('v1')
   const headBefore = git(repo, 'rev-parse', 'HEAD').trim()
@@ -205,6 +151,7 @@ await scenario(outcomes, 'V1 le travail est commité sur la branche, le dépôt 
     [{ tool: 'git_diff', args: { stat_only: true } }],
     submit('route /health ajoutée'),
   ])
+  v1TaskId = task.id
   const done = await waitFor(rt, task.id, TERMINAL)
   const w = done.task.result?.workspace
   const types = (await events(rt, task.id)).map((e) => e.type)
@@ -298,6 +245,7 @@ await scenario(outcomes, 'V5 un dossier hors dépôt Git échoue en disant pourq
   const plain = join(scratch, 'pas-un-depot')
   mkdirSync(plain)
   const task = await delegate(rt, '[V5]', plain, [submit('jamais atteint')])
+  v5TaskId = task.id
   const done = await waitFor(rt, task.id, TERMINAL)
   const ok = done.task.status === 'failed' && /pas dans un dépôt Git/.test(done.task.error ?? '')
   return { verdict: ok ? 'PASS' : 'FAIL', detail: `${done.task.status} — ${done.task.error}` }
@@ -327,6 +275,52 @@ await scenario(outcomes, 'V6 un redémarrage interrompt la tâche et conserve so
   return {
     verdict: problems.length ? 'FAIL' : 'PASS',
     detail: problems.length ? problems.join(' ; ') : 'interrupted, workspace.kept « daemon redémarré », fichier en vol présent',
+  }
+})
+
+await scenario(outcomes, 'V7 le diff se lit par l\'API, et Claude reçoit la branche et la note de merge', async () => {
+  const problems: string[] = []
+  const withDiff = (await daemonJson<TaskWorkspaceResponse>(rt, `/api/tasks/${v1TaskId}/workspace`)).body
+  if (withDiff.diff?.files.length !== 2) problems.push(`diff : ${withDiff.diff?.files.length} fichier(s) — ${withDiff.unavailable}`)
+  if (!withDiff.diff?.patch.includes('+export const health')) problems.push('patch sans le fichier créé')
+  const without = (await daemonJson<TaskWorkspaceResponse>(rt, `/api/tasks/${v5TaskId}/workspace`)).body
+  if (without.workspace !== null || !/pas de worktree/.test(without.unavailable ?? '')) problems.push('tâche sans worktree mal décrite')
+
+  // Ce que Claude lit réellement : un vrai serveur MCP, un vrai client.
+  const client = new Client({ name: 'developer', version: '0' })
+  await client.connect(
+    new StdioClientTransport({
+      command: process.execPath,
+      args: nodeArgsFor('@midgaard/mcp-server/main'),
+      env: { ...getDefaultEnvironment(), ...childEnv(main.home) } as Record<string, string>,
+      stderr: 'ignore',
+    }),
+  )
+  try {
+    const res = (await client.callTool({ name: 'harness_get_task_result', arguments: { task_id: v1TaskId } })) as {
+      content: { text: string }[]
+    }
+    const body = JSON.parse(res.content[0]!.text) as { result?: { workspace?: { branch: string }; merge_note?: string } }
+    const note = body.result?.merge_note ?? ''
+    const branch = body.result?.workspace?.branch ?? '(absente)'
+    const health = (await daemonJson<Health>(rt, '/api/health')).body
+    if (!note.includes('never merges')) problems.push('la note ne dit pas que le harness ne merge pas')
+    if (!note.includes(`git merge ${branch}`)) problems.push('la note ne donne pas la commande de merge')
+    if (!note.includes('Do not merge unless the user asks')) problems.push('la note n\'interdit pas de merger d\'office')
+    // Le lien du dashboard n'est donné que s'il est réellement servi : la
+    // règle « ne rien décrire qui n'existe pas » vaut dans les deux sens.
+    const linked = note.includes(`#/tasks/${v1TaskId}`)
+    if (health.dashboard_available !== linked) {
+      problems.push(`dashboard ${health.dashboard_available ? 'servi mais non cité' : 'cité sans être servi'}`)
+    }
+    return {
+      verdict: problems.length ? 'FAIL' : 'PASS',
+      detail: problems.length
+        ? problems.join(' ; ')
+        : `diff par l'API (2 fichiers), note de merge sur ${branch}, lien du dashboard ${linked ? 'donné (servi)' : 'absent (non servi)'}`,
+    }
+  } finally {
+    await client.close()
   }
 })
 

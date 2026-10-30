@@ -10,6 +10,7 @@ import { agentSchema, requestedLimitsSchema } from './agent.ts'
 import { connectionTestSchema, PROVIDER_PRESETS, providerConfigSchema, WEB_SEARCH_MODES } from './provider.ts'
 import { pricingTableSchema } from './usage.ts'
 import { toolCallSchema } from './tools.ts'
+import { workspaceDiffSchema, workspaceSchema } from './workspace.ts'
 
 /**
  * Version du protocole, annoncée par `GET /api/health`.
@@ -114,6 +115,23 @@ export const taskViewSchema = z.object({
   approval: approvalSchema.nullable().default(null),
 })
 export type TaskView = z.infer<typeof taskViewSchema>
+
+/**
+ * Réponse de `GET /api/tasks/:id/workspace` : le worktree d'une tâche et ce que
+ * l'agent y a changé.
+ *
+ * Le diff est **calculé à la demande** contre le commit de départ, jamais lu
+ * d'une copie figée : il dit ce qui est sur le disque au moment où on le lit,
+ * travail non commité compris. Quand il ne peut pas l'être — tâche sans
+ * worktree, worktree retiré ou supprimé à la main —, `unavailable` dit
+ * pourquoi, et comment retrouver le travail s'il existe encore.
+ */
+export const taskWorkspaceResponseSchema = z.object({
+  workspace: workspaceSchema.nullable(),
+  diff: workspaceDiffSchema.nullable(),
+  unavailable: z.string().nullable(),
+})
+export type TaskWorkspaceResponse = z.infer<typeof taskWorkspaceResponseSchema>
 
 /** Réponse de `GET /api/agents`. */
 export const agentsResponseSchema = z.object({ agents: z.array(agentSchema) })

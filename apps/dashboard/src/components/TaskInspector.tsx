@@ -3,8 +3,8 @@
  *
  * L'ordre de haut en bas suit ce qu'on cherche quand on ouvre une tâche :
  * est-ce que quelque chose m'attend (approbation), où en est-ce (état et
- * progression), qu'est-ce qui en est sorti (résultat ou erreur), et enfin ce qui
- * s'est passé (timeline).
+ * progression), qu'est-ce qui en est sorti (résultat ou erreur, puis, pour un
+ * Developer, les fichiers et le diff), et enfin ce qui s'est passé (timeline).
  */
 import { useEffect, useState } from 'react'
 import { Ban, ShieldAlert } from 'lucide-react'
@@ -15,6 +15,7 @@ import { ApprovalPanel } from './ApprovalPanel'
 import { Timeline } from './Timeline'
 import { ToolCalls } from './ToolCalls'
 import { UsageCard } from './UsageCard'
+import { WorkspaceCard } from './WorkspaceCard'
 import { Badge, toneForStatus } from './ui/badge'
 import { Button } from './ui/button'
 import { Card, CardBody, CardHeader, CardTitle } from './ui/card'
@@ -166,6 +167,8 @@ export function TaskInspector({
           </CardBody>
         </Card>
       )}
+
+      <WorkspaceCard taskId={task.id} events={events} />
 
       <ToolCalls taskId={task.id} version={events?.length ?? 0} />
 

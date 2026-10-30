@@ -24,6 +24,7 @@
  * | GET  | `/api/tasks/:id/events` | Timeline complète | 200, 404 |
  * | POST | `/api/tasks/:id/cancel` | Annulation | 200, 404, 409 |
  * | GET  | `/api/tasks/:id/tools` | Appels d'outils d'une tâche | 200, 404 |
+ * | GET  | `/api/tasks/:id/workspace` | Worktree et diff, calculé à la demande | 200, 404 |
  * | GET  | `/api/agents` | Profils d'agents | 200 |
  * | GET  | `/api/providers` | Fournisseurs **sans aucune clé** | 200 |
  * | POST | `/api/providers` | Déclare un fournisseur, dépose sa clé au coffre | 200, 400, 500 |
@@ -53,6 +54,7 @@ import {
   type ProviderServiceDeps,
 } from './providers.ts'
 import { checkEnvelope, checkToken, type SecurityContext } from './security.ts'
+import { workspaceView } from './workspaces.ts'
 
 /** Taille maximale d'un corps de requête, contre l'épuisement mémoire. */
 const MAX_BODY_BYTES = 64 * 1024
@@ -205,6 +207,7 @@ async function handleTasks(
   if (method === 'GET' && !action) return send(res, 200, view)
   if (method === 'GET' && action === 'events') return send(res, 200, { events: deps.tasks.events(id) })
   if (method === 'GET' && action === 'tools') return send(res, 200, { tool_calls: deps.tasks.toolCalls(id) })
+  if (method === 'GET' && action === 'workspace') return send(res, 200, await workspaceView(deps.store, id))
 
   if (method === 'GET' && action === 'wait') {
     const asked = Number(url.searchParams.get('timeout_ms') ?? 25_000)

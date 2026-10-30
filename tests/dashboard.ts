@@ -23,7 +23,10 @@
  *    coût, pas une ignorance ;
  *  - D6 un lien profond rouvre la bonne tâche après rechargement ;
  *  - D7 la perte de la WebSocket **se voit** : un dashboard muet qui affiche
- *    des données d'apparence normale est pire qu'un dashboard en panne.
+ *    des données d'apparence normale est pire qu'un dashboard en panne ;
+ *  - D8 le diff d'une tâche Developer **se lit** : branche, fichiers, et le
+ *    patch d'un fichier déplié — le livrable « diff consultable » de la
+ *    Slice 3, avec un faux fournisseur qui joue les appels d'outils.
  *
  * Playwright est employé en **bibliothèque**, pas en lanceur : les suites de ce
  * dépôt ont leur forme (`scenario`, `summarize`, verdicts), et ajouter un second
@@ -38,6 +41,11 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { chromium, type Browser, type ConsoleMessage, type Page } from 'playwright'
 import { daemonJson, pidAlive, readRuntime, type Approval, type RuntimeInfo, type TaskView } from '@midgaard/contracts'
 import { StaticFiles, defaultDashboardDir } from '@midgaard/daemon'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { startFakeProvider } from './fake-provider.ts'
 import { childEnv, nodeArgsFor, running, scenario, summarize, tempHome, type Outcome } from './helpers.ts'
 
 /** Durée d'une tâche simulée : 5 étapes, donc 2 s par étape. Assez lent pour se voir. */
@@ -313,6 +321,68 @@ await scenario(outcomes, 'D6 un lien profond rouvre la bonne tâche après recha
   await page.reload({ waitUntil: 'domcontentloaded' })
   if (!(await sees(id))) return { verdict: 'FAIL', detail: 'le rechargement a perdu la sélection' }
   return { verdict: 'PASS', detail: `#/tasks/${id.slice(0, 8)}… ouvre et survit au rechargement` }
+})
+
+// --- D8 ----------------------------------------------------------------------
+
+await scenario(outcomes, 'D8 le diff d’une tâche Developer se lit dans le dashboard', async () => {
+  const provider = await startFakeProvider()
+  const repos = realpathSync(mkdtempSync(join(tmpdir(), 'midgaard-ui-repo-')))
+  try {
+    await daemonJson(rt, '/api/providers', {
+      method: 'POST',
+      body: JSON.stringify({ id: 'faux', preset: 'custom', base_url: provider.url, default_model: 'faux-1', api_key: 'sk-faux-0000' }),
+    })
+    const repo = join(repos, 'projet')
+    mkdirSync(join(repo, 'src'), { recursive: true })
+    const git = (...a: string[]) =>
+      execFileSync('git', ['-c', 'user.name=u', '-c', 'user.email=u@example.org', '-c', 'commit.gpgsign=false', ...a], {
+        cwd: repo,
+        stdio: 'ignore',
+      })
+    git('init', '-q', '-b', 'main')
+    writeFileSync(join(repo, 'src', 'app.ts'), 'export const routes = ["/"]\n')
+    git('add', '-A')
+    git('commit', '-q', '-m', 'initial')
+
+    provider.scripts.set('[D8]', [
+      [{ tool: 'write_file', args: { path: 'src/health.ts', content: 'export const health = () => "ok"\n' } }],
+      [{ tool: 'submit_result', args: { summary: 'route /health ajoutée', details: 'src/health.ts' } }],
+    ])
+    const { body: created } = await daemonJson<TaskView>(rt, '/api/tasks', {
+      method: 'POST',
+      body: JSON.stringify({ objective: '[D8] ajouter /health', agent_id: 'developer', project_dir: repo }),
+    })
+    const id = created.task.id
+    if (!(await until(async () => (await taskNow(id)).status === 'completed'))) {
+      const t = await taskNow(id)
+      return { verdict: 'FAIL', detail: `tâche non terminée : ${t.status} — ${t.error}` }
+    }
+    const branch = (await taskNow(id)).result?.workspace?.branch ?? '(absente)'
+
+    await page.goto(`${rt.dashboard_url}#/tasks/${id}`, { waitUntil: 'domcontentloaded' })
+    const card = page.getByTestId('workspace-card')
+    try {
+      await card.waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+    } catch {
+      return { verdict: 'FAIL', detail: 'aucune carte « Fichiers et diff » pour une tâche Developer' }
+    }
+    if ((await card.getByTestId('workspace-branch').textContent()) !== branch) {
+      return { verdict: 'FAIL', detail: `branche affichée différente de ${branch}` }
+    }
+    const file = card.getByTestId('workspace-files').getByText('src/health.ts')
+    if (!(await file.isVisible())) return { verdict: 'FAIL', detail: 'le fichier créé n’est pas listé' }
+    await file.click()
+    // La ligne ajoutée, telle quelle, dans le patch déplié : rien n'en est interprété.
+    if (!(await sees('+export const health = () => "ok"'))) {
+      return { verdict: 'FAIL', detail: 'le patch du fichier ne s’affiche pas au clic' }
+    }
+    if (!(await sees(`git merge ${branch}`))) return { verdict: 'FAIL', detail: 'la commande de merge n’est pas montrée' }
+    return { verdict: 'PASS', detail: `${branch} : fichier listé, patch déplié au clic, commande de merge montrée` }
+  } finally {
+    provider.server.close()
+    rmSync(repos, { recursive: true, force: true })
+  }
 })
 
 // --- D7 (en dernier : il tue le daemon) --------------------------------------
