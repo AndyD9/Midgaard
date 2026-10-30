@@ -23,7 +23,10 @@
  *  4. la cible, si elle existe, n'est **pas un lien symbolique** : on n'écrit
  *     jamais à travers un lien, même s'il pointe sous la racine — un lien se
  *     redirige plus facilement qu'il ne se vérifie ;
- *  5. après ouverture (`O_NOFOLLOW`), le descripteur désigne bien un fichier
+ *  5. la cible n'est pas dans un **sous-module** — un dossier vide dans le
+ *     worktree, où ce qui est écrit serait ignoré sans un mot par le commit
+ *     de fin (`git add -A`, constaté) : l'agent croirait avoir livré ;
+ *  6. après ouverture (`O_NOFOLLOW`), le descripteur désigne bien un fichier
  *     ordinaire, et le dossier parent a gardé son identité (`dev`/`ino`) et son
  *     chemin réel. C'est l'invariant du dépôt : **revérifier à l'ouverture**,
  *     pas seulement avant.
@@ -31,6 +34,16 @@
  * Le fichier est ouvert **sans** `O_TRUNC`, et vidé seulement une fois les
  * vérifications passées : un refus après ouverture ne doit pas avoir détruit le
  * contenu de ce qu'il refuse.
+ *
+ * ## Fins de ligne
+ *
+ * `edit_file` tient `\n` et `\r\n` pour équivalents en cherchant `old_string`,
+ * et écrit `new_string` avec les fins de ligne du passage remplacé. Sous
+ * Windows, Git convertit le worktree en CRLF au checkout (`core.autocrlf`) ;
+ * un modèle écrit `\n`, et une recherche octet pour octet ne trouvait rien
+ * (docs/SLICE3.md, leçon n° 20). Rien d'autre n'est relâché : l'unicité est
+ * comptée sur la recherche tolérante, si bien qu'un passage présent une fois en
+ * LF et une fois en CRLF est **ambigu**, pas résolu au hasard.
  */
 import { constants } from 'node:fs'
 import { lstat, mkdir, open, realpath, stat, unlink } from 'node:fs/promises'
@@ -68,13 +81,35 @@ function shown(root: string, path: string): string {
 }
 
 /**
- * Vérifie un chemin d'écriture **sans rien ouvrir** : étapes 1 à 3 de l'en-tête.
+ * Sous-module qui contient `target`, s'il y en a un.
  *
+ * Comparaison insensible à la casse : `Vendor/Lib` désigne le même dossier que
+ * `vendor/lib` sur les systèmes de fichiers par défaut de macOS et de Windows.
+ * Sous Linux, cela peut refuser un chemin qui n'en est pas un — un refus de
+ * trop, jamais une écriture perdue.
+ *
+ * @param workspace le worktree de la tâche et ses sous-modules, relatifs à sa racine
+ * @param target    chemin absolu, canonique
+ */
+function submoduleOf(workspace: ToolContext['workspace'], target: string): string | null {
+  if (!workspace?.submodules?.length) return null
+  const rel = relative(workspace.path, target).split(sep).join('/').toLowerCase()
+  return workspace.submodules.find((s) => rel === s.toLowerCase() || rel.startsWith(`${s.toLowerCase()}/`)) ?? null
+}
+
+/**
+ * Vérifie un chemin d'écriture **sans rien ouvrir** : étapes 1 à 5 de l'en-tête.
+ *
+ * @param workspace le worktree de la tâche, pour refuser ses sous-modules
  * @returns le chemin cible (dont le dossier parent existe ou sera créé sous la
  *          racine) et le dossier existant le plus proche, canonicalisé
- * @throws {ToolError} sur échappée, segment `.git` ou dossier-lien sortant
+ * @throws {ToolError} sur échappée, segment `.git`, dossier-lien sortant ou sous-module
  */
-export async function checkWritePath(root: string, given: string): Promise<{ target: string; anchor: string }> {
+export async function checkWritePath(
+  root: string,
+  given: string,
+  workspace?: ToolContext['workspace'],
+): Promise<{ target: string; anchor: string }> {
   const target = isAbsolute(given) ? resolve(given) : resolve(root, given)
   if (target === root || !isUnder(root, target)) {
     throw new ToolError(`path is outside your workspace: ${given}. Use a path relative to the workspace root.`)
@@ -105,7 +140,18 @@ export async function checkWritePath(root: string, given: string): Promise<{ tar
   // Le dossier existant le plus proche est réel et sous la racine ; ce qui
   // reste à créer sous lui le sera par `mkdir`, qui ne suit aucun lien qu'il
   // crée lui-même. La cible est recomposée sur le chemin réel.
-  return { target: join(realAnchor, relative(anchor, target)), anchor: realAnchor }
+  const real = join(realAnchor, relative(anchor, target))
+  // Vérifié sur le chemin réel : un lien sous la racine qui mènerait dans un
+  // sous-module n'y échappe pas.
+  const submodule = submoduleOf(workspace, real)
+  if (submodule) {
+    throw new ToolError(
+      `${given} is inside the git submodule ${submodule}, which is an empty directory in your workspace: ` +
+        'anything written there would be silently left out of the commit. Say in your result that the change ' +
+        'belongs to the submodule.',
+    )
+  }
+  return { target: real, anchor: realAnchor }
 }
 
 /** Vrai si quelque chose existe à ce chemin, lien cassé compris. */
@@ -119,19 +165,21 @@ async function exists(path: string): Promise<boolean> {
 }
 
 /**
- * Ouvre un fichier en lecture-écriture sous la racine, selon les cinq étapes de
+ * Ouvre un fichier en lecture-écriture sous la racine, selon les six étapes de
  * l'en-tête. L'appelant **doit** fermer le descripteur.
  *
- * @param create créer le fichier (et ses dossiers) s'il n'existe pas ; sinon,
- *               son absence est une erreur
+ * @param create    créer le fichier (et ses dossiers) s'il n'existe pas ; sinon,
+ *                  son absence est une erreur
+ * @param workspace le worktree de la tâche, pour refuser ses sous-modules
  * @throws {ToolError} à chaque refus, avec une phrase que le modèle peut suivre
  */
 export async function openForWrite(
   root: string,
   given: string,
   create: boolean,
+  workspace?: ToolContext['workspace'],
 ): Promise<{ handle: FileHandle; path: string; existed: boolean }> {
-  const { target } = await checkWritePath(root, given)
+  const { target } = await checkWritePath(root, given, workspace)
   const parent = dirname(target)
 
   let existed = false
@@ -210,12 +258,13 @@ export const writeFileTool: Tool<z.infer<typeof writeSchema>> = {
   description:
     'Create a file, or replace its whole content, in your workspace (a git worktree of the project). ' +
     'Parent directories are created. Prefer edit_file to change part of an existing file. ' +
-    'Refused: paths outside the workspace, anything under .git, and writing through symbolic links.',
+    'Refused: paths outside the workspace, anything under .git, inside git submodules, ' +
+    'and writing through symbolic links.',
   schema: writeSchema,
   policy: (_args, ctx) => writePolicy(ctx),
 
   async run(args, ctx): Promise<ToolResult> {
-    const { handle, path, existed } = await openForWrite(ctx.root, args.path, true)
+    const { handle, path, existed } = await openForWrite(ctx.root, args.path, true, ctx.workspace)
     try {
       const bytes = await replaceContent(handle, args.content)
       const rel = shown(ctx.root, path)
@@ -233,9 +282,64 @@ export const writeFileTool: Tool<z.infer<typeof writeSchema>> = {
 
 // --- edit_file ---------------------------------------------------------------
 
+/** Échappe un texte pour qu'une expression régulière le lise littéralement. */
+function escapeRegExp(text: string): string {
+  // `$&` est ici voulu : c'est le caractère trouvé, précédé de son échappement.
+  return text.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&')
+}
+
+/**
+ * Motif qui reconnaît `oldString` quelles que soient ses fins de ligne : chaque
+ * `\n` ou `\r\n` du texte cherché devient `\r?\n`. Le reste est littéral, et
+ * le motif n'a aucun quantificateur imbriqué : sa recherche reste linéaire.
+ */
+export function eolTolerantPattern(oldString: string): RegExp {
+  return new RegExp(oldString.split(/\r?\n/).map(escapeRegExp).join('\\r?\\n'), 'g')
+}
+
+/** Fin de ligne majoritaire d'un texte ; `\n` à égalité, et pour un texte sans saut de ligne. */
+export function dominantEol(text: string): '\r\n' | '\n' {
+  const crlf = text.split('\r\n').length - 1
+  const lf = text.split('\n').length - 1 - crlf
+  return crlf > lf ? '\r\n' : '\n'
+}
+
+/**
+ * Remplace chaque passage trouvé par `newString`, écrit avec la fin de ligne du
+ * passage lui-même — CRLF dès qu'il en contient — ou, s'il n'en a aucune, avec
+ * celle qui domine le fichier. Un fichier aux fins de ligne mêlées garde ainsi
+ * chacune à sa place.
+ *
+ * @returns le texte obtenu, et si des fins de ligne ont dû être adaptées
+ */
+export function replaceMatches(
+  text: string,
+  matches: readonly RegExpExecArray[],
+  oldString: string,
+  newString: string,
+): { text: string; adapted: boolean } {
+  const fileEol = dominantEol(text)
+  let out = ''
+  let last = 0
+  let adapted = false
+  for (const m of matches) {
+    const eol = m[0].includes('\r\n') ? '\r\n' : m[0].includes('\n') ? '\n' : fileEol
+    // Le remplacement est `\n` ou `\r\n`, jamais un texte venu du modèle : le
+    // piège de `$&` dans `String.replace` ne peut pas jouer ici.
+    const replacement = newString.replace(/\r?\n/g, eol)
+    if (m[0] !== oldString || replacement !== newString) adapted = true
+    out += text.slice(last, m.index) + replacement
+    last = m.index + m[0].length
+  }
+  return { text: out + text.slice(last), adapted }
+}
+
 const editSchema = z.object({
   path: z.string().min(1).describe('File path, relative to your workspace root'),
-  old_string: z.string().min(1).describe('Exact text to replace, including whitespace and indentation'),
+  old_string: z
+    .string()
+    .min(1)
+    .describe('Exact text to replace, including whitespace and indentation. \\n and \\r\\n are interchangeable.'),
   new_string: z.string().describe('Replacement text'),
   replace_all: z
     .boolean()
@@ -248,12 +352,13 @@ export const editFileTool: Tool<z.infer<typeof editSchema>> = {
   name: 'edit_file',
   description:
     'Replace an exact passage of an existing file in your workspace. old_string must match the file exactly ' +
-    'and occur once, unless replace_all is true. Read the file first: guessing its content wastes steps.',
+    '(line endings excepted: new_string is written with the file\'s own) and occur once, unless replace_all ' +
+    'is true. Read the file first: guessing its content wastes steps.',
   schema: editSchema,
   policy: (_args, ctx) => writePolicy(ctx),
 
   async run(args, ctx): Promise<ToolResult> {
-    const { handle, path } = await openForWrite(ctx.root, args.path, false)
+    const { handle, path } = await openForWrite(ctx.root, args.path, false, ctx.workspace)
     try {
       const { size } = await handle.stat()
       if (size > MAX_WRITE_BYTES) throw new ToolError(`file too large to edit (${size} bytes): ${args.path}`)
@@ -262,11 +367,12 @@ export const editFileTool: Tool<z.infer<typeof editSchema>> = {
       if (buffer.includes(0)) throw new ToolError(`not a text file: ${args.path}`)
       const before = buffer.toString('utf8')
 
-      // `split` et non `replace` : `String.replace` interprète `$&` et `$1`
-      // dans le texte de remplacement — un piège déjà payé ailleurs dans ce
-      // dépôt (CLAUDE.md, « Pièges d'environnement »). Du code contient des `$`.
-      const parts = before.split(args.old_string)
-      const occurrences = parts.length - 1
+      // Recherche tolérante aux fins de ligne, et remplacement recomposé à la
+      // main : `String.replace` interpréterait `$&` et `$1` dans le texte de
+      // remplacement — un piège déjà payé ailleurs dans ce dépôt (CLAUDE.md,
+      // « Pièges d'environnement »). Du code contient des `$`.
+      const matches = [...before.matchAll(eolTolerantPattern(args.old_string))]
+      const occurrences = matches.length
       if (occurrences === 0) {
         throw new ToolError(`old_string not found in ${args.path}. Read the file and copy the passage exactly.`)
       }
@@ -276,12 +382,16 @@ export const editFileTool: Tool<z.infer<typeof editSchema>> = {
             'or set replace_all.',
         )
       }
-      const bytes = await replaceContent(handle, parts.join(args.new_string))
+      const edited = replaceMatches(before, matches, args.old_string, args.new_string)
+      const bytes = await replaceContent(handle, edited.text)
       const rel = shown(ctx.root, path)
+      // Dit au modèle que le fichier n'est pas en `\n` : sa prochaine lecture
+      // le montrerait, mais autant qu'il ne s'en étonne pas.
+      const eolNote = edited.adapted ? ' Line endings were adapted to match the file.' : ''
       return {
-        content: `Edited ${rel}: ${occurrences} replacement(s), now ${bytes} bytes.`,
+        content: `Edited ${rel}: ${occurrences} replacement(s), now ${bytes} bytes.${eolNote}`,
         bytes,
-        summary: `${rel} modifié · ${occurrences} remplacement(s)`,
+        summary: `${rel} modifié · ${occurrences} remplacement(s)${edited.adapted ? ' · fins de ligne adaptées' : ''}`,
         untrusted: false,
       }
     } finally {
@@ -306,7 +416,7 @@ export const deleteFileTool: Tool<z.infer<typeof deleteSchema>> = {
   policy: (_args, ctx) => writePolicy(ctx),
 
   async run(args, ctx): Promise<ToolResult> {
-    const { target } = await checkWritePath(ctx.root, args.path)
+    const { target } = await checkWritePath(ctx.root, args.path, ctx.workspace)
     let st
     try {
       st = await lstat(target)

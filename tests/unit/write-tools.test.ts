@@ -159,6 +159,124 @@ describe('edit_file', () => {
   })
 })
 
+describe('sous-modules', () => {
+  // Ce qu'un agent écrit dans un sous-module vide est ignoré sans un mot par le
+  // commit de fin (constaté dans workspace.test.ts) : il faut le refuser avant.
+  const sub = () => ctx({ workspace: { path: root, baseCommit: 'a'.repeat(40), submodules: ['vendor/lib'] } })
+
+  it('refuse d\'écrire dans un sous-module, à toute profondeur et quelle que soit la casse', async () => {
+    mkdirSync(join(root, 'vendor', 'lib'), { recursive: true })
+    for (const path of ['vendor/lib/a.ts', 'vendor/lib/deep/b.ts', 'Vendor/LIB/c.ts']) {
+      await assert.rejects(call('write_file', { path, content: 'x' }, sub()), /inside the git submodule vendor\/lib.*silently/)
+    }
+    await assert.rejects(call('delete_file', { path: 'vendor/lib' }, sub()), /git submodule/)
+    assert.equal(existsSync(join(root, 'vendor', 'lib', 'deep')), false, 'aucun dossier créé avant le refus')
+  })
+
+  it('n\'est pas trompé par un lien qui mène dans le sous-module', async () => {
+    mkdirSync(join(root, 'vendor', 'lib'), { recursive: true })
+    symlinkSync(join(root, 'vendor', 'lib'), join(root, 'raccourci'))
+    await assert.rejects(call('write_file', { path: 'raccourci/a.ts', content: 'x' }, sub()), /git submodule/)
+  })
+
+  it('laisse écrire à côté, y compris sous un nom qui commence pareil', async () => {
+    await call('write_file', { path: 'vendor/library.ts', content: 'x' }, sub())
+    await call('write_file', { path: 'vendor/lib2/a.ts', content: 'x' }, sub())
+    assert.equal(readFileSync(join(root, 'vendor', 'lib2', 'a.ts'), 'utf8'), 'x')
+  })
+})
+
+// Sous Windows, Git convertit le worktree en CRLF au checkout ; un modèle écrit
+// `\n` (docs/SLICE3.md, leçon n° 20). Ces cas valent sur toutes les plateformes.
+describe('edit_file et les fins de ligne', () => {
+  const crlf = 'export function a() {\r\n  return 1\r\n}\r\nexport const b = `$1`\r\n'
+
+  it('trouve en CRLF un passage écrit en LF, et le remplace en CRLF', async () => {
+    writeFileSync(join(root, 'src', 'w.ts'), crlf)
+    const { result } = await call('edit_file', {
+      path: 'src/w.ts',
+      old_string: 'export function a() {\n  return 1\n}',
+      new_string: 'export function a() {\n  return `$&`\n}',
+    })
+    assert.match(result!.content, /1 replacement.*Line endings were adapted/)
+    assert.equal(
+      readFileSync(join(root, 'src', 'w.ts'), 'utf8'),
+      'export function a() {\r\n  return `$&`\r\n}\r\nexport const b = `$1`\r\n',
+      'aucune fin de ligne mêlée, et les $ restent littéraux',
+    )
+  })
+
+  it('écrit en CRLF les lignes ajoutées sous un passage d\'une seule ligne', async () => {
+    writeFileSync(join(root, 'src', 'w.ts'), crlf)
+    await call('edit_file', { path: 'src/w.ts', old_string: 'export const b = `$1`', new_string: 'const b = 1\nconst c = 2' })
+    assert.equal(
+      readFileSync(join(root, 'src', 'w.ts'), 'utf8'),
+      'export function a() {\r\n  return 1\r\n}\r\nconst b = 1\r\nconst c = 2\r\n',
+    )
+  })
+
+  it('laisse un fichier LF en LF, même si le modèle écrit CRLF', async () => {
+    const { result } = await call('edit_file', {
+      path: 'src/a.ts',
+      old_string: 'export const a = 1\r\nexport const b = 1',
+      new_string: 'export const a = 2\r\nexport const b = 2',
+    })
+    assert.match(result!.content, /adapted/)
+    assert.equal(readFileSync(join(root, 'src', 'a.ts'), 'utf8'), 'export const a = 2\nexport const b = 2\n')
+  })
+
+  it('ne dit rien quand rien n\'a été adapté', async () => {
+    const { result } = await call('edit_file', { path: 'src/a.ts', old_string: 'const a = 1', new_string: 'const a = 3' })
+    assert.doesNotMatch(result!.content, /adapted/)
+  })
+
+  it('tient pour ambigu un passage présent une fois en LF et une fois en CRLF', async () => {
+    // La tolérance ne doit pas choisir à la place du modèle.
+    writeFileSync(join(root, 'src', 'm.ts'), 'x\ny\r\nx\r\ny\n')
+    await refused('edit_file', { path: 'src/m.ts', old_string: 'x\ny', new_string: 'z' }, /occurs 2 times/)
+    await call('edit_file', { path: 'src/m.ts', old_string: 'x\ny', new_string: 'z\nw', replace_all: true })
+    assert.equal(readFileSync(join(root, 'src', 'm.ts'), 'utf8'), 'z\nw\r\nz\r\nw\n', 'chaque passage garde sa fin de ligne')
+  })
+
+  it('lit littéralement les caractères spéciaux des expressions régulières', async () => {
+    writeFileSync(join(root, 'src', 'r.ts'), 'const r = /a.b+(c)?[d]\\$/\r\nconst s = "aXb"\r\n')
+    // Lu comme motif, `a.b` trouverait aussi `aXb` : deux occurrences, refusées.
+    writeFileSync(join(root, 'src', 's.ts'), 'aXb\r\n')
+    await refused('edit_file', { path: 'src/s.ts', old_string: 'a.b', new_string: 'q' }, /not found/)
+    const { result } = await call('edit_file', { path: 'src/r.ts', old_string: '/a.b+(c)?[d]\\$/\n', new_string: '/x/\n' })
+    assert.match(result!.content, /1 replacement/)
+    assert.equal(readFileSync(join(root, 'src', 'r.ts'), 'utf8'), 'const r = /x/\r\nconst s = "aXb"\r\n')
+  })
+
+  it('dans un vrai dépôt en CRLF, le diff ne montre que les lignes changées', async () => {
+    // `.gitattributes` force le checkout en CRLF, quelle que soit la plateforme :
+    // c'est ce que `core.autocrlf` fait sous Windows.
+    const repo = join(home, 'depot-crlf')
+    mkdirSync(repo)
+    const git = (...a: string[]) =>
+      execFileSync('git', ['-c', 'user.name=u', '-c', 'user.email=u@example.org', '-c', 'commit.gpgsign=false', ...a], {
+        cwd: repo,
+        stdio: 'ignore',
+      })
+    git('init', '-q', '-b', 'main')
+    writeFileSync(join(repo, '.gitattributes'), '*.ts text eol=crlf\n')
+    writeFileSync(join(repo, 'app.ts'), 'const a = 1\nconst b = 2\nconst c = 3\n')
+    git('add', '-A')
+    git('commit', '-q', '-m', 'initial')
+    const wt = await createWorktree({
+      repo: await inspectRepository(repo),
+      worktreesDir: join(home, 'worktrees'),
+      taskId: '22222222-2222-4333-8444-555555555555',
+    })
+    assert.match(readFileSync(join(wt.root, 'app.ts'), 'utf8'), /\r\n/, 'le worktree doit être en CRLF')
+    const c = ctx({ root: wt.root, workspace: { path: wt.path, baseCommit: wt.baseCommit } })
+
+    await call('edit_file', { path: 'app.ts', old_string: 'const b = 2\nconst c', new_string: 'const b = 20\nconst c' }, c)
+    const stat = await call('git_diff', { stat_only: true }, c)
+    assert.match(stat.result!.content, /app\.ts \+1 -1/, 'une ligne changée, pas tout le fichier')
+  })
+})
+
 describe('delete_file', () => {
   it('supprime un fichier, refuse un dossier', async () => {
     await call('delete_file', { path: 'src/a.ts' })

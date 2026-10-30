@@ -56,6 +56,12 @@ export const workspaceSchema = z.object({
    * Le chiffre est conservé pour que cet écart soit annoncé, pas découvert.
    */
   base_dirty: z.number().int().min(0),
+  /**
+   * Sous-modules du commit de départ, relatifs à la racine du worktree : ils y
+   * sont **vides**, et ce qu'un agent y écrirait serait ignoré par le commit.
+   * Comme `base_dirty`, conservé pour que l'écart soit annoncé, pas découvert.
+   */
+  submodules: z.array(z.string()),
   status: z.enum(WORKSPACE_STATUSES),
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),
@@ -79,6 +85,11 @@ export const taskWorkspaceSchema = z.object({
   deletions: z.number().int().min(0),
   /** Chemins non commités du dépôt d'origine, absents du worktree : voir {@link Workspace.base_dirty}. */
   base_dirty: z.number().int().min(0),
+  /**
+   * Sous-modules vides dans le worktree : voir {@link Workspace.submodules}.
+   * `[]` par défaut pour les résultats enregistrés avant la Slice 4.
+   */
+  submodules: z.array(z.string()).default([]),
 })
 export type TaskWorkspace = z.infer<typeof taskWorkspaceSchema>
 

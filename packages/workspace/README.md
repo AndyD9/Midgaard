@@ -14,7 +14,8 @@ dans la table `workspaces`, avec l'événement qui les raconte.
 | Fonction | Rôle |
 |---|---|
 | `inspectRepository(dir)` | Racine canonique, sous-dossier délégué, HEAD, branche, nombre de chemins non commités |
-| `createWorktree({ repo, worktreesDir, taskId })` | `git worktree add -b midgaard/<id> …` hors du dépôt |
+| `createWorktree({ repo, worktreesDir, taskId })` | `git worktree add -b midgaard/<id> …` hors du dépôt ; nomme les sous-modules laissés vides |
+| `listSubmodules(repoDir, commit)` | Sous-modules d'un commit : chemins de `.gitmodules` qui sont bien des liens `160000` dans l'arbre |
 | `commitAll(path, message, identity)` | Commite tout le worktree, fichiers nouveaux compris, au nom de l'agent |
 | `diffWorktree(path, baseCommit)` | Ce que l'agent a changé : commits, modifications **et fichiers nouveaux** |
 | `worktreeState(path)` | Existe-t-il, est-il propre, sur quel commit |
@@ -34,6 +35,19 @@ dans un diff où plus personne ne distingue les deux. En échange, l'écart est
 garde (`base_dirty`), et la timeline dit « 3 fichier(s) non commité(s) absent(s)
 du worktree ». Un agent à qui Claude décrit du code non commité ne le trouvera
 pas, et il faut que quelqu'un le sache.
+
+**Les sous-modules absents sont nommés.** `git worktree add` les laisse vides,
+et c'est voulu : les initialiser irait chercher sur le réseau des dépôts que
+`.gitmodules` désigne — un fichier du projet. Mais ce qu'un agent écrit dans un
+sous-module vide est **ignoré sans un mot** par `git add -A` (code `0`, rien dans
+`git status` : constaté, et verrouillé par un test qui échouera si Git change).
+`createWorktree` rend donc `submodules` ; la table le garde (`submodules_json`,
+migration 7), la consigne de l'agent, la note de merge de Claude et le dashboard
+le disent, et les outils d'écriture refusent d'y écrire. Les chemins sont lus
+dans `.gitmodules` (`git config --blob`, qui ne suit aucun `include`), puis
+confirmés dans l'arbre du commit par un `ls-tree` limité à ces chemins : un
+`.gitmodules` qui ment ou qui date ne fait rien annoncer de faux, et la sortie
+reste bornée sur un gros dépôt.
 
 **Rien n'est supprimé hors de `worktreesDir`.** Le chemin d'un worktree vient de
 la base ; `removeWorktree` vérifie qu'il est *strictement* sous le dossier des
@@ -103,4 +117,6 @@ appartenir à personne.
 - **Il ne nettoie rien de lui-même.** Les worktrees sont conservés jusqu'à un
   nettoyage demandé ; une minuterie ne doit pas faire disparaître un diff que
   personne n'a lu.
-- **Il n'initialise pas les sous-modules** d'un worktree.
+- **Il n'initialise pas les sous-modules** d'un worktree — il les nomme (voir
+  plus haut). Un dépôt imbriqué sans `.gitmodules` n'est pas vu ; `git
+  submodule` ne l'initialiserait pas non plus.

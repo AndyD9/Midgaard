@@ -53,11 +53,16 @@ function describe(event: TaskEvent): string | null {
   }
   if (event.type === 'task.interrupted') return `statut précédent : ${String(p.previous_status)}`
   if (event.type === 'workspace.created') {
-    // Le nombre de fichiers non commités est la seule chose surprenante ici :
-    // ils ne sont pas dans le worktree, et l'agent ne les verra pas.
+    // Deux choses seulement surprennent ici, et l'agent ne les verra pas : les
+    // fichiers non commités, absents du worktree, et les sous-modules, vides.
     const dirty = Number(p.base_dirty ?? 0)
+    const submodules = Array.isArray(p.submodules) ? p.submodules.length : 0
+    const notes = [
+      dirty > 0 ? `${dirty} fichier(s) non commité(s) absent(s) du worktree` : '',
+      submodules > 0 ? `${submodules} sous-module(s) vide(s)` : '',
+    ].filter(Boolean)
     const base = `${String(p.branch)} depuis ${String(p.base_commit).slice(0, 8)}`
-    return dirty > 0 ? `${base} — ${dirty} fichier(s) non commité(s) absent(s) du worktree` : base
+    return notes.length ? `${base} — ${notes.join(', ')}` : base
   }
   if (event.type === 'workspace.kept' || event.type === 'workspace.removed') {
     return p.reason ? `${String(p.branch)} — ${String(p.reason)}` : String(p.branch)

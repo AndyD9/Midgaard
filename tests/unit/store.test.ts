@@ -7,9 +7,10 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 import { DEFAULT_RESEARCHER_LIMITS, IllegalTransitionError, loadConfig } from '@midgaard/contracts'
-import { HarnessStore, SCHEMA_VERSION, migrate } from '@midgaard/persistence'
+import { HarnessStore, MIGRATIONS, SCHEMA_VERSION, migrate } from '@midgaard/persistence'
 
 let home: string
 let store: HarnessStore
@@ -50,6 +51,28 @@ describe('migrations', () => {
     // a pu changer.
     store.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 10}`)
     assert.throws(() => migrate(store.db), /version de schéma/)
+  })
+})
+
+describe('migration 7', () => {
+  it('donne une liste de sous-modules vide aux worktrees créés avant elle', () => {
+    // Une base arrêtée au schéma 6, avec un worktree, comme l'a laissée la Slice 3.
+    const old = new DatabaseSync(join(home, 'v6.db'))
+    for (const m of MIGRATIONS.filter((m) => m.version <= 6)) old.exec(m.sql)
+    old.exec('PRAGMA user_version = 6')
+    old.exec(`INSERT INTO tasks (id, objective, status, steps_total, duration_s, created_at, updated_at)
+              VALUES ('t', 'o', 'completed', 1, 1, '2026-10-29T00:00:00.000Z', '2026-10-29T00:00:00.000Z')`)
+    old.exec(`INSERT INTO workspaces (id, task_id, repo_dir, subdir, worktree_path, branch, base_commit,
+                                      base_ref, base_dirty, status, created_at, updated_at)
+              VALUES ('w', 't', '/depot', '', '/wt', 'midgaard/t', 'abc', 'main', 0, 'kept',
+                      '2026-10-29T00:00:00.000Z', '2026-10-29T00:00:00.000Z')`)
+    old.close()
+    const migrated = HarnessStore.open({ dbPath: join(home, 'v6.db') })
+    try {
+      assert.deepEqual(migrated.workspaceForTask('t')?.submodules, [])
+    } finally {
+      migrated.close()
+    }
   })
 })
 
@@ -251,6 +274,7 @@ describe('espaces de travail', () => {
       baseCommit: 'a'.repeat(40),
       baseRef: 'main',
       baseDirty: 2,
+      submodules: ['vendor/lib'],
     })
     assert.ok(done)
     return done
@@ -260,8 +284,10 @@ describe('espaces de travail', () => {
     const { workspace, event, task } = newWorkspace()
     assert.equal(workspace.status, 'active')
     assert.equal(workspace.base_dirty, 2)
+    assert.deepEqual(workspace.submodules, ['vendor/lib'])
     assert.equal(event.type, 'workspace.created')
     assert.equal(event.payload.workspace_id, workspace.id)
+    assert.deepEqual(event.payload.submodules, ['vendor/lib'], 'le journal dit ce qui manque, comme la ligne')
     // Journaliser un worktree ne change pas le statut de la tâche.
     assert.equal(event.status, task.status)
     assert.deepEqual(store.workspaceForTask(task.id), workspace)
@@ -273,7 +299,7 @@ describe('espaces de travail', () => {
     assert.throws(() =>
       store.createWorkspace({
         taskId: task.id, repoDir: '/depot', subdir: '', worktreePath: '/autre', branch: 'midgaard/autre',
-        baseCommit: 'b'.repeat(40), baseRef: null, baseDirty: 0,
+        baseCommit: 'b'.repeat(40), baseRef: null, baseDirty: 0, submodules: [],
       }),
     )
     assert.equal(store.taskEvents(task.id).length, before, 'la transaction annulée n\'a rien laissé')
@@ -283,7 +309,7 @@ describe('espaces de travail', () => {
     assert.equal(
       store.createWorkspace({
         taskId: '00000000-0000-4000-8000-000000000000', repoDir: '/d', subdir: '', worktreePath: '/w',
-        branch: 'midgaard/x', baseCommit: 'c'.repeat(40), baseRef: null, baseDirty: 0,
+        branch: 'midgaard/x', baseCommit: 'c'.repeat(40), baseRef: null, baseDirty: 0, submodules: [],
       }),
       null,
     )

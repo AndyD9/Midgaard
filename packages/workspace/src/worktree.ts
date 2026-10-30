@@ -112,6 +112,57 @@ export interface CreatedWorktree {
   root: string
   branch: string
   baseCommit: string
+  /**
+   * Sous-modules du commit de départ, chemins relatifs à la racine du worktree,
+   * séparateur `/`. Ils y sont **vides** : voir {@link listSubmodules}.
+   */
+  submodules: string[]
+}
+
+/**
+ * Sous-modules d'un commit : les chemins que `git worktree add` laisse vides.
+ *
+ * Un worktree neuf n'initialise aucun sous-module, et c'est voulu : le faire
+ * irait chercher sur le réseau des dépôts que `.gitmodules` désigne — un fichier
+ * du projet, donc de quiconque a pu y écrire. Mais un agent qui trouve un
+ * dossier vide là où le code attend une bibliothèque tâtonne, et ce qu'il y
+ * écrit est **ignoré sans un mot** par `git add -A` : constaté, code de sortie
+ * `0`, rien dans `git status`. Le harness doit donc le savoir pour le dire.
+ *
+ * On lit les chemins dans `.gitmodules` (`git config --blob`, qui ne suit aucun
+ * `include`), puis on ne garde que ceux qui sont bien des liens de sous-module
+ * (mode `160000`) dans l'arbre du commit — `ls-tree` limité à ces chemins, pour
+ * que la sortie reste bornée sur un gros dépôt. Un dépôt imbriqué sans
+ * `.gitmodules` n'est pas vu ; `git submodule` ne l'initialiserait pas non plus.
+ *
+ * @param repoDir dépôt (ou worktree) où lire le commit
+ * @param commit  commit dont on lit l'arbre
+ * @returns les chemins, relatifs à la racine du dépôt, triés ; vide sans `.gitmodules`
+ */
+export async function listSubmodules(repoDir: string, commit: string): Promise<string[]> {
+  const declared = await git(
+    ['config', '-z', '--blob', `${commit}:.gitmodules`, '--get-regexp', String.raw`^submodule\..*\.path$`],
+    { cwd: repoDir },
+  )
+  // Code 1 : aucune clé ; 128 : pas de `.gitmodules`, ou illisible. Dans les
+  // deux cas, rien que Git lui-même saurait initialiser.
+  if (declared.code !== 0) return []
+  // `-z` : chaque entrée est « clé\nvaleur\0 », ce qui tient un chemin à espaces.
+  const paths = declared.stdout
+    .split('\0')
+    .map((entry) => entry.slice(entry.indexOf('\n') + 1))
+    .filter((p) => p.length > 0)
+  if (!paths.length) return []
+  const tree = await gitOk(
+    ['--literal-pathspecs', 'ls-tree', '-z', commit, '--', ...paths],
+    { cwd: repoDir },
+    'lecture des sous-modules',
+  )
+  return tree
+    .split('\0')
+    .filter((line) => line.startsWith('160000 '))
+    .map((line) => line.slice(line.indexOf('\t') + 1))
+    .sort()
 }
 
 /**
@@ -153,7 +204,8 @@ export async function createWorktree(input: {
     'création du worktree',
   )
   const canonical = await realpath(path)
-  return { path: canonical, root: join(canonical, repo.subdir), branch, baseCommit: repo.head }
+  const submodules = await listSubmodules(canonical, repo.head)
+  return { path: canonical, root: join(canonical, repo.subdir), branch, baseCommit: repo.head, submodules }
 }
 
 /** Vrai si la branche locale existe. */

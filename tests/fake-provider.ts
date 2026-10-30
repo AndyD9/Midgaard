@@ -22,13 +22,23 @@ export interface FakeProvider {
   url: string
   /** Scénarios, par étiquette présente dans l'objectif de la tâche. */
   scripts: Map<string, Turn[]>
+  /**
+   * Consigne système reçue au premier tour, par étiquette : ce que le daemon a
+   * réellement dit à l'agent, pour vérifier ce qu'aucune réponse ne montre.
+   */
+  systems: Map<string, string>
 }
 
 /** Rend le tour suivant du scénario de la tâche, au format de `/chat/completions`. */
-function completion(scripts: Map<string, Turn[]>, body: { messages?: { role: string; content: string | null }[] }): unknown {
+function completion(
+  scripts: Map<string, Turn[]>,
+  systems: Map<string, string>,
+  body: { messages?: { role: string; content: string | null }[] },
+): unknown {
   const messages = body.messages ?? []
   const user = messages.find((m) => m.role === 'user')?.content ?? ''
   const tag = [...scripts.keys()].find((t) => user.includes(t))
+  if (tag && !systems.has(tag)) systems.set(tag, messages.find((m) => m.role === 'system')?.content ?? '')
   const turn = tag ? scripts.get(tag)![messages.filter((m) => m.role === 'assistant').length] : undefined
   const usage = { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 }
   if (!turn || 'text' in turn) {
@@ -59,17 +69,18 @@ function completion(scripts: Map<string, Turn[]>, body: { messages?: { role: str
 /** Démarre le faux fournisseur sur un port libre de la boucle locale. */
 export async function startFakeProvider(): Promise<FakeProvider> {
   const scripts = new Map<string, Turn[]>()
+  const systems = new Map<string, string>()
   const server = createServer((req, res) => {
     let raw = ''
     req.on('data', (c) => (raw += c))
     req.on('end', () => {
       res.writeHead(200, { 'content-type': 'application/json' })
       if (req.url?.endsWith('/models')) return res.end(JSON.stringify({ data: [{ id: 'faux-1' }] }))
-      res.end(JSON.stringify(completion(scripts, JSON.parse(raw || '{}'))))
+      res.end(JSON.stringify(completion(scripts, systems, JSON.parse(raw || '{}'))))
     })
   })
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
   const address = server.address()
   const port = typeof address === 'object' && address ? address.port : 0
-  return { server, url: `http://127.0.0.1:${port}/v1`, scripts }
+  return { server, url: `http://127.0.0.1:${port}/v1`, scripts, systems }
 }

@@ -126,10 +126,12 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   merge est un acte humain (décision de la Slice 3). Le retrait d'un worktree
   vérifie que le chemin est strictement sous le dossier des worktrees, même
   forcé : le chemin vient de la base, et une ligne fausse ne doit rien effacer.
-- **On n'écrit que dans un worktree, et jamais sous `.git`.** Sans
-  `ToolContext.writable`, les outils d'écriture **refusent** — pas
-  d'approbation à la place. Dans un worktree, `.git` est un fichier qui désigne
-  le dépôt : le réécrire redirigerait le commit de fin ailleurs.
+- **On n'écrit que dans un worktree, jamais sous `.git`, jamais dans un
+  sous-module.** Sans `ToolContext.writable`, les outils d'écriture
+  **refusent** — pas d'approbation à la place. Dans un worktree, `.git` est un
+  fichier qui désigne le dépôt : le réécrire redirigerait le commit de fin
+  ailleurs. Un sous-module y est un dossier vide, et `git add -A` ignore **sans
+  un mot** ce qu'on y écrit : l'agent croirait avoir livré.
 - **`exec` : l'approbation est la frontière, et aucun processus ne survit.**
   Approbation par défaut ; le binaire est résolu **avant** la demande
   (`Tool.prepare`, entrées relatives du `PATH` ignorées) et **revérifié avant
@@ -200,7 +202,8 @@ Démarrée le 2026-10-30. Décisions (un seul paquet `midgaard` ; publication pa
 la CI sur tag, avec provenance ; `edit_file` tolérant aux fins de ligne ;
 Windows éprouvé en CI seulement) et découpage en huit étapes :
 [docs/SLICE4.md](docs/SLICE4.md). Règle d'ordre : rien n'est distribué avant
-d'être durci.
+d'être durci. Depuis l'étape 2 : migration 7 (`workspaces.submodules_json`),
+`PROTOCOL_VERSION` 8.
 
 ## Slice 3 terminée
 
@@ -220,9 +223,10 @@ préparée ; le profil `developer` ; la carte « Fichiers et diff » ;
 lui laisse, au § « Ce qui reste ouvert » de `docs/SLICE3.md` :
 
 - ~~`doctor` migre la base qu'il diagnostique~~ — réglé (Slice 4, étape 1) ;
-- `edit_file` dans un dépôt CRLF : l'`old_string` correspond octet pour octet ;
+- ~~`edit_file` dans un dépôt CRLF~~ — réglé (Slice 4, étape 2) ;
 - le daemon de bout en bout, le dashboard et la CLI n'ont tourné que sous macOS ;
-- les sous-modules sont absents des worktrees, sans que rien le dise.
+- ~~les sous-modules sont absents des worktrees, sans que rien le dise~~ — réglé
+  (Slice 4, étape 2) : nommés, et l'écriture y est refusée.
 
 Des cinq dettes nées de la Slice 2, **trois sont soldées** le 2026-10-29 ; le
 récit complet est au § « Les dettes, soldées » de [docs/SLICE2.md](docs/SLICE2.md).

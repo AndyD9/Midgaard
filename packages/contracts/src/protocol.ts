@@ -40,9 +40,13 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *        de protocole 5 rendrait des approbations sans ce champ, que le
  *        dashboard et le serveur MCP valident désormais ;
  *  - 7 : Slice 3, étape 5 — le profil `developer` (nouveau `kind`) et le
- *        résultat de tâche gagne `workspace` (branche, commit, ampleur).
+ *        résultat de tâche gagne `workspace` (branche, commit, ampleur) ;
+ *  - 8 : Slice 4, étape 2 — un worktree porte `submodules`, les sous-modules
+ *        laissés vides, dans sa ligne, son `workspace.created` et le résultat.
+ *        Un daemon de protocole 7 ne les détecterait pas, et le dashboard servi
+ *        par un daemon récent lit le champ sur chaque worktree.
  */
-export const PROTOCOL_VERSION = 7
+export const PROTOCOL_VERSION = 8
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({

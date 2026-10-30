@@ -17,6 +17,7 @@ export {
   worktreeState,
   removeWorktree,
   countPorcelainEntries,
+  listSubmodules,
   CHECKOUT_TIMEOUT_MS,
 } from './worktree.ts'
 export type { RepositoryInfo, CreatedWorktree, CommitIdentity, WorktreeState, RemoveOutcome } from './worktree.ts'

@@ -484,7 +484,7 @@ describe('consigne d\'un agent écrivant', () => {
   it('dit le worktree, sa branche, et que les chemins de Claude se lisent en relatif', () => {
     const [system] = buildMessages({
       ...base,
-      workspace: { branch: 'midgaard/abcd', baseCommit: 'a'.repeat(40), baseDirty: 0, originDir: '/depot' },
+      workspace: { branch: 'midgaard/abcd', baseCommit: 'a'.repeat(40), baseDirty: 0, submodules: [], originDir: '/depot' },
     })
     assert.match(system!.content, /Workspace root \(a git worktree.*\): \/wt\/abcd/)
     assert.match(system!.content, /branch midgaard\/abcd/)
@@ -495,9 +495,22 @@ describe('consigne d\'un agent écrivant', () => {
   it('avertit quand le travail en cours de l\'utilisateur est absent', () => {
     const [system] = buildMessages({
       ...base,
-      workspace: { branch: 'midgaard/abcd', baseCommit: 'a'.repeat(40), baseDirty: 3, originDir: '/depot' },
+      workspace: { branch: 'midgaard/abcd', baseCommit: 'a'.repeat(40), baseDirty: 3, submodules: [], originDir: '/depot' },
     })
     assert.match(system!.content, /3 uncommitted change\(s\).*NOT/)
+  })
+
+  it('avertit des sous-modules vides, et seulement s\'il y en a', () => {
+    const [system] = buildMessages({
+      ...base,
+      workspace: { branch: 'midgaard/abcd', baseCommit: 'a'.repeat(40), baseDirty: 0, submodules: ['vendor/lib'], originDir: '/depot' },
+    })
+    assert.match(system!.content, /submodules are EMPTY directories in your workspace: vendor\/lib.*cannot write inside them/)
+    const [none] = buildMessages({
+      ...base,
+      workspace: { branch: 'midgaard/abcd', baseCommit: 'a'.repeat(40), baseDirty: 0, submodules: [], originDir: '/depot' },
+    })
+    assert.doesNotMatch(none!.content, /submodule/)
   })
 
   it('garde la consigne de lecture seule pour un agent sans worktree', () => {

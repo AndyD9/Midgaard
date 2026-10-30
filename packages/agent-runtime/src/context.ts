@@ -67,6 +67,8 @@ export interface WorkspaceBrief {
   baseCommit: string
   /** Chemins non commités du dépôt d'origine — absents du worktree. */
   baseDirty: number
+  /** Sous-modules vides dans le worktree, relatifs à la racine de l'agent. */
+  submodules: readonly string[]
   /** Dossier d'origine, tel que Claude le cite dans son contexte. */
   originDir: string
 }
@@ -144,6 +146,7 @@ export function buildMessages(input: ContextInput): Message[] {
  *  - Claude cite les chemins **du dépôt d'origine** ; l'agent doit les lire
  *    comme relatifs, sans quoi chaque appel est refusé « hors du workspace » ;
  *  - le travail non commité de l'utilisateur **n'est pas là** ;
+ *  - les sous-modules sont des **dossiers vides**, où rien ne s'écrit ;
  *  - rien de ce que fait l'agent n'atteint le dépôt sans un merge humain — ce
  *    qui l'autorise à travailler franchement, et lui interdit de prétendre
  *    avoir livré.
@@ -163,6 +166,13 @@ function workspaceLines(root: string, w: WorkspaceBrief): string[] {
       `WARNING: the user had ${w.baseDirty} uncommitted change(s) in the original repository. They are NOT ` +
         'in your workspace, which starts from the last commit. If the context describes code you cannot find, ' +
         'this is why: say so in your result rather than guessing.',
+    )
+  }
+  if (w.submodules.length > 0) {
+    lines.push(
+      `WARNING: these git submodules are EMPTY directories in your workspace: ${w.submodules.join(', ')}. ` +
+        'Their code is not available to read, and you cannot write inside them. If the task depends on them, ' +
+        'say so in your result rather than guessing.',
     )
   }
   return lines

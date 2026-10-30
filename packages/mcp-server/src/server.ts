@@ -281,9 +281,14 @@ export function createMcpServer(config: HarnessConfig, log: (...a: unknown[]) =>
         ? ` The user had ${w.base_dirty} uncommitted change(s) that were NOT in the agent's worktree, which started ` +
           `from commit ${w.base_commit.slice(0, 12)}.`
         : ''
+    const submodules =
+      w.submodules.length > 0
+        ? ` The agent's worktree had these git submodules EMPTY (never initialised): ${w.submodules.join(', ')}; ` +
+          'it could neither read nor change them.'
+        : ''
     return (
       `The harness never merges. The change is ${where}, in a separate worktree (${w.worktree_path}); ` +
-      `the user's checkout is untouched.${dirty} Tell the user what changed. They can review it ` +
+      `the user's checkout is untouched.${dirty}${submodules} Tell the user what changed. They can review it ` +
       `${diffUrl ? `in the dashboard (${diffUrl}, "Fichiers et diff") or ` : ''}` +
       `with \`git diff ${w.base_commit.slice(0, 12)} ${w.branch}\` in their repository, and merge with ` +
       `\`git merge ${w.branch}\` if they decide to. Do not merge unless the user asks you to.`

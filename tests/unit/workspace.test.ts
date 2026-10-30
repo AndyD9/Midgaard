@@ -22,6 +22,7 @@ import {
   createWorktree,
   diffWorktree,
   inspectRepository,
+  listSubmodules,
   parseNameStatus,
   parseNumstat,
   removeWorktree,
@@ -173,6 +174,51 @@ function installHook(name: string): string {
   sh(repo, 'commit', '-q', '--no-verify', '-m', 'hooks')
   return marker
 }
+
+describe('sous-modules', () => {
+  /**
+   * Déclare des sous-modules sans réseau ni `protocol.file` : le lien (mode
+   * `160000`) est posé directement dans l'index, comme `git submodule add` le
+   * ferait, vers un commit qui n'a pas besoin d'exister ici.
+   */
+  function addSubmodules(entries: Record<string, string>, extraGitmodules = ''): void {
+    const fake = sh(repo, 'rev-parse', 'HEAD').trim()
+    let gitmodules = ''
+    for (const [name, path] of Object.entries(entries)) {
+      gitmodules += `[submodule "${name}"]\n\tpath = ${path}\n\turl = https://example.invalid/${name}.git\n`
+      sh(repo, 'update-index', '--add', '--cacheinfo', `160000,${fake},${path}`)
+    }
+    writeFileSync(join(repo, '.gitmodules'), gitmodules + extraGitmodules)
+    sh(repo, 'add', '.gitmodules')
+    sh(repo, 'commit', '-q', '-m', 'sous-modules')
+  }
+
+  it('les nomme à la création du worktree, chemins à espaces compris', async () => {
+    addSubmodules({ lib: 'vendor/lib', autre: 'deps/avec espace' })
+    const wt = await createWorktree({ repo: await inspectRepository(repo), worktreesDir, taskId: TASK_ID })
+    assert.deepEqual(wt.submodules, ['deps/avec espace', 'vendor/lib'])
+  })
+
+  it('ignore un chemin de .gitmodules qui n\'est pas un sous-module dans le commit', async () => {
+    // `.gitmodules` est un fichier du projet : il peut mentir, ou dater.
+    addSubmodules({ lib: 'vendor/lib' }, '[submodule "fantome"]\n\tpath = src\n\turl = https://example.invalid/x.git\n')
+    assert.deepEqual(await listSubmodules(repo, 'HEAD'), ['vendor/lib'])
+  })
+
+  it('rend une liste vide sans .gitmodules', async () => {
+    const wt = await createWorktree({ repo: await inspectRepository(repo), worktreesDir, taskId: TASK_ID })
+    assert.deepEqual(wt.submodules, [])
+  })
+
+  it('constat qui motive le refus d\'écrire : git add -A ignore en silence ce qui est écrit dans un sous-module vide', async () => {
+    // Si une version de Git change cela, ce test le dira — et le refus des
+    // outils d'écriture pourra être reconsidéré.
+    addSubmodules({ lib: 'vendor/lib' })
+    const wt = await createWorktree({ repo: await inspectRepository(repo), worktreesDir, taskId: TASK_ID })
+    writeFileSync(join(wt.path, 'vendor', 'lib', 'perdu.ts'), 'export {}\n')
+    assert.equal(await commitAll(wt.path, 'essai', agentIdentity('developer')), null, 'rien à commiter : le fichier est ignoré')
+  })
+})
 
 describe('diffWorktree', () => {
   it('voit les commits, les modifications, les suppressions, les binaires et les fichiers nouveaux', async () => {

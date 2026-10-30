@@ -6,7 +6,7 @@ intégré. En chemin : tests de sécurité ciblés, scénarios de crash et de re
 deux tâches concurrentes sur des worktrees distincts, README et guide de
 dépannage.
 
-**État : en cours.** Décisions prises, découpage arrêté ; étape 1 livrée.
+**État : en cours.** Décisions prises, découpage arrêté ; étapes 1 et 2 livrées.
 
 ---
 
@@ -51,7 +51,7 @@ la règle de `dashboard_available` : ne rien annoncer qu'on n'a pas constaté.
 | # | Étape | État |
 |---|---|---|
 | 1 | `doctor` en lecture seule : il diagnostique la base sans la migrer, et dit « base à migrer » | ✅ livrée |
-| 2 | Ce que le worktree ne montre pas : `edit_file` tolérant aux fins de ligne ; sous-modules absents, signalés à l'agent et au dashboard | à faire |
+| 2 | Ce que le worktree ne montre pas : `edit_file` tolérant aux fins de ligne ; sous-modules absents, signalés à l'agent et au dashboard | ✅ livrée |
 | 3 | La suite de sécurité du PLAN §8.4, point par point : chaque refus prouvé par un test qui l'observe directement, les trous comblés | à faire |
 | 4 | Crash et concurrence : daemon tué en plein Developer (tâche `interrupted`, worktree conservé, branche au commit de départ) ; deux Developer concurrents sur deux worktrees | à faire |
 | 5 | Le daemon de bout en bout, le dashboard et la CLI en CI sur macOS, Linux et Windows | à faire |
@@ -67,10 +67,6 @@ livrable qu'on ne peut pas reprendre.
 
 ### Ce que chaque étape doit trancher ou surveiller
 
-- **Étape 2.** La tolérance ne doit rien relâcher d'autre : toujours une seule
-  occurrence exigée, et l'empreinte d'approbation porte sur ce que le modèle a
-  demandé, pas sur la forme normalisée. Le cas se rejoue de lui-même sous
-  Windows dans `worktrees.yml`, où le checkout est en CRLF.
 - **Étape 3.** Beaucoup existe déjà, éparpillé : traversée et liens
   (`tools`, `write-tools`), `;` dans un argument (`exec`), IMDS et IP privées,
   redirections comprises (`tools`), `Origin` étrangère sur HTTP et WebSocket
@@ -147,10 +143,91 @@ personne ne l'avait lu. La base y est en `644`. Renvoyé à l'étape 3.
 
 ---
 
+## Étape 2 — ce que le worktree ne montre pas
+
+### Ce qui existe
+
+**Les fins de ligne.** `edit_file` cherche `old_string` avec un motif où chaque
+`\n` ou `\r\n` devient `\r?\n`, le reste échappé et lu littéralement ;
+`new_string` est écrit avec la fin de ligne du passage remplacé (CRLF dès qu'il
+en contient, sinon celle qui domine le fichier). Un fichier aux fins de ligne
+mêlées garde chacune à sa place. L'unicité se compte sur la recherche
+tolérante : un passage présent une fois en LF et une fois en CRLF est **ambigu**,
+refusé comme tel. Le résultat dit au modèle quand des fins de ligne ont été
+adaptées.
+
+**Les sous-modules.** `listSubmodules` lit les chemins de `.gitmodules` du
+commit de départ (`git config --blob`), puis ne garde que ceux qui sont des
+liens `160000` dans l'arbre (`ls-tree` borné à ces chemins). La liste suit le
+même trajet que `base_dirty` : colonne `submodules_json` (migration 7),
+`workspace.created`, résultat de la tâche, consigne de l'agent, note de merge
+lue par Claude, carte « Fichiers et diff » et timeline du dashboard.
+`PROTOCOL_VERSION` passe à 8. Et **les outils d'écriture refusent d'écrire dans
+un sous-module**, vérifié sur le chemin réel — un lien qui y mène n'y échappe
+pas.
+
+### Ce qui le prouve
+
+- `write-tools` : 7 cas de fins de ligne, dont un **vrai dépôt** dont
+  `.gitattributes` force le checkout en CRLF — ce que `core.autocrlf` fait sous
+  Windows : `edit_file` y trouve un passage écrit en LF, et `git_diff` ne
+  compte qu'**une** ligne changée, pas tout le fichier. 3 cas de sous-modules :
+  refus à toute profondeur et quelle que soit la casse, refus à travers un lien,
+  écriture permise à côté (`vendor/library.ts`, `vendor/lib2/`).
+- `workspace` : 4 cas sur de vrais dépôts, dont un `.gitmodules` qui ment (un
+  chemin qui n'est pas un sous-module n'est pas annoncé) et le **constat** qui
+  motive le refus : `git add -A` ignore ce qui est écrit dans un sous-module
+  vide. Si une version de Git change cela, ce test le dira.
+- `store` : la migration 7 donne `[]` aux worktrees d'une base au schéma 6 ;
+  le journal porte la liste comme la ligne.
+- `test:developer`, **V11** : un vrai daemon, un dépôt avec un sous-module, un
+  agent qui tente d'y écrire puis écrit ailleurs. La consigne reçue par le
+  fournisseur, `workspace.created`, le résultat et la note de merge lue par un
+  vrai client MCP nomment `vendor/lib` ; l'écriture est refusée ; le reste est
+  commité.
+
+Au total : 281 tests unitaires, puis `test:lock`, `test:restart`,
+`test:developer` (11), `test:wait` (12) et `test:ui` (8), **0 échec**, sous
+macOS. Les suites `workspace` et `write-tools` tournent dans `worktrees.yml` :
+les cas CRLF et sous-modules seront rejoués sous Windows et Linux au prochain
+passage de la CI — pas encore constaté.
+
+### Ce que l'écriture a appris
+
+**4. Annoncer ne suffisait pas : le travail se perdait.** L'étape devait
+« signaler » les sous-modules. L'expérience faite avant d'écrire a montré pire :
+un fichier écrit dans le dossier vide d'un sous-module est ignoré par
+`git add -A`, avec un code de sortie `0` et rien dans `git status`. Un agent qui
+y aurait travaillé aurait rendu un résultat « abouti », sur une branche qui ne
+contient pas son travail — exactement ce que l'invariant « la branche ne bouge
+qu'à `submit_result` » est censé empêcher de faire croire. D'où le refus, qui
+n'était pas dans le découpage.
+
+**5. La tolérance devait laisser l'ambiguïté visible.** La première idée —
+chercher d'abord à l'identique, puis de façon tolérante — aurait édité en
+silence le passage LF d'un fichier qui contient aussi le même passage en CRLF.
+Compter les occurrences sur la seule recherche tolérante garde la règle « une
+seule occurrence » entière.
+
+**6. Le découpage avait une phrase fausse.** Il prévoyait que l'empreinte
+d'approbation porte sur ce que le modèle a demandé. Mais `edit_file`, borné au
+worktree, ne demande **aucune** approbation : il n'y a pas d'empreinte. La
+phrase a été retirée plutôt que rendue vraie.
+
+---
+
 ## Ce qui restera ouvert, déjà su
 
 - **Les sous-processus lancés hors de libuv, sous Windows** (SLICE3, leçon
   n° 21) : leur nettoyage après la sortie du parent n'est pas constaté. La CI de
   l'étape 5 ne le tranchera pas, faute d'un tel programme dans les tests.
+- **`write_file` sur un fichier CRLF** écrit ce qu'on lui donne : un modèle qui
+  réécrit un fichier entier en `\n` change toutes ses lignes dans le worktree.
+  Sous `core.autocrlf`, Git normalise au commit ; sans lui, le diff montrera
+  tout le fichier. Non traité à l'étape 2, dont la décision portait sur
+  `edit_file`.
+- **Un `exec` peut écrire dans un sous-module** : le refus ne vaut que pour les
+  outils d'écriture. Ce qu'une commande y écrirait serait perdu de la même
+  façon ; la consigne de l'agent dit que les sous-modules sont vides.
 - **Les deux dettes Gemini** (SLICE2) restent ouvertes tant qu'aucune clé
   Google n'est disponible.

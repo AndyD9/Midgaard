@@ -97,6 +97,17 @@ export function WorkspaceCard({ taskId, events }: { taskId: string; events: Task
           </p>
         )}
 
+        {workspace.submodules.length > 0 && (
+          <p className="flex gap-2 rounded-md border border-waiting/40 bg-waiting/10 px-3 py-2 text-xs text-waiting">
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+            <span>
+              Sous-module(s) vide(s) dans ce worktree, jamais initialisé(s) :{' '}
+              <span className="font-mono">{workspace.submodules.join(', ')}</span>. L'agent n'a pu ni les lire ni
+              les modifier.
+            </span>
+          </p>
+        )}
+
         {view.unavailable && <p className="text-xs text-muted">{view.unavailable}</p>}
 
         {diff && diff.files.length === 0 && <p className="text-xs text-muted">Aucun changement pour l'instant.</p>}

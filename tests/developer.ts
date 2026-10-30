@@ -481,6 +481,65 @@ await scenario(outcomes, 'V10 la CLI liste, retire, et n\'ajoute rien à la list
   }
 })
 
+/** La note de merge que Claude lit réellement : un vrai serveur MCP, un vrai client. */
+async function mergeNoteFor(taskId: string): Promise<string> {
+  const client = new Client({ name: 'developer', version: '0' })
+  await client.connect(
+    new StdioClientTransport({
+      command: process.execPath,
+      args: nodeArgsFor('@midgaard/mcp-server/main'),
+      env: { ...getDefaultEnvironment(), ...childEnv(main.home) } as Record<string, string>,
+      stderr: 'ignore',
+    }),
+  )
+  try {
+    const res = (await client.callTool({ name: 'harness_get_task_result', arguments: { task_id: taskId } })) as {
+      content: { text: string }[]
+    }
+    return (JSON.parse(res.content[0]!.text) as { result?: { merge_note?: string } }).result?.merge_note ?? ''
+  } finally {
+    await client.close()
+  }
+}
+
+await scenario(outcomes, 'V11 un sous-module vide est annoncé, et rien ne s\'y écrit en silence', async () => {
+  // Le lien de sous-module est posé dans l'index, sans réseau : `git worktree
+  // add` laissera le dossier vide, comme pour un vrai sous-module.
+  const repo = makeRepo('v11')
+  const head = git(repo, 'rev-parse', 'HEAD').trim()
+  writeFileSync(join(repo, '.gitmodules'), '[submodule "lib"]\n\tpath = vendor/lib\n\turl = https://example.invalid/lib.git\n')
+  git(repo, 'update-index', '--add', '--cacheinfo', `160000,${head},vendor/lib`)
+  git(repo, 'add', '.gitmodules')
+  git(repo, 'commit', '-q', '-m', 'sous-module')
+  const task = await delegate(rt, '[V11]', repo, [
+    [{ tool: 'write_file', args: { path: 'vendor/lib/health.ts', content: 'export {}\n' } }],
+    [{ tool: 'write_file', args: { path: 'src/health.ts', content: 'export const health = 1\n' } }],
+    submit('route ajoutée hors du sous-module'),
+  ])
+  const done = await waitFor(rt, task.id, TERMINAL)
+  const w = done.task.result?.workspace
+  const refusal = (await events(rt, task.id)).find(
+    (e) => e.type === 'tool.completed' && /git submodule vendor\/lib/.test(String(e.payload.error ?? '')),
+  )
+  const created = (await events(rt, task.id)).find((e) => e.type === 'workspace.created')
+  const system = provider.systems.get('[V11]') ?? ''
+  const problems: string[] = []
+  if (done.task.status !== 'completed') problems.push(`statut ${done.task.status} — ${done.task.error}`)
+  if (JSON.stringify(w?.submodules) !== '["vendor/lib"]') problems.push(`résultat : submodules ${JSON.stringify(w?.submodules)}`)
+  if (JSON.stringify(created?.payload.submodules) !== '["vendor/lib"]') problems.push('workspace.created sans les sous-modules')
+  if (!/submodules are EMPTY directories in your workspace: vendor\/lib/.test(system)) problems.push('consigne de l\'agent muette')
+  if (!refusal) problems.push('écriture dans le sous-module non refusée')
+  if (w && existsSync(join(w.worktree_path, 'vendor', 'lib', 'health.ts'))) problems.push('fichier écrit dans le sous-module')
+  if (w && w.files_changed !== 1) problems.push(`${w.files_changed} fichier(s) au lieu de 1`)
+  if (!/submodules EMPTY.*vendor\/lib/.test(await mergeNoteFor(task.id))) problems.push('note de merge muette pour Claude')
+  return {
+    verdict: problems.length ? 'FAIL' : 'PASS',
+    detail: problems.length
+      ? problems.join(' ; ')
+      : 'annoncé à l\'agent, à Claude, dans le journal et le résultat ; écriture refusée, le reste commité',
+  }
+})
+
 // --- Démontage ---------------------------------------------------------------
 
 await daemonJson(rt, '/api/shutdown', { method: 'POST' }).catch(() => {})

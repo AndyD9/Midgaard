@@ -46,7 +46,19 @@ export interface ToolContext {
    * en être un sous-dossier (monorepo ouvert sur `packages/api`) ; `path` est
    * la racine du worktree lui-même.
    */
-  workspace?: { path: string; baseCommit: string } | null | undefined
+  workspace?:
+    | {
+        path: string
+        baseCommit: string
+        /**
+         * Sous-modules du commit de départ, relatifs à `path`, séparateur `/` :
+         * des dossiers vides où les outils d'écriture refusent d'écrire, parce
+         * que `git add -A` ignorerait ce qui s'y trouve sans un mot.
+         */
+        submodules?: readonly string[] | undefined
+      }
+    | null
+    | undefined
   /**
    * Commandes que `exec` lance **sans** approbation : des argv exacts. Vide ou
    * absent, chaque commande attend un humain — c'est le défaut voulu (Slice 3).

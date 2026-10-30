@@ -847,6 +847,7 @@ export class HarnessStore {
     baseCommit: string
     baseRef: string | null
     baseDirty: number
+    submodules: readonly string[]
   }): (Recorded & { workspace: Workspace }) | null {
     const id = randomUUID()
     const now = new Date().toISOString()
@@ -855,9 +856,9 @@ export class HarnessStore {
       this.db
         .prepare(
           `INSERT INTO workspaces (id, task_id, repo_dir, subdir, worktree_path, branch, base_commit,
-                                   base_ref, base_dirty, status, created_at, updated_at)
+                                   base_ref, base_dirty, submodules_json, status, created_at, updated_at)
            VALUES (:id, :task_id, :repo_dir, :subdir, :worktree_path, :branch, :base_commit,
-                   :base_ref, :base_dirty, 'active', :now, :now)`,
+                   :base_ref, :base_dirty, :submodules, 'active', :now, :now)`,
         )
         .run({
           id,
@@ -869,6 +870,7 @@ export class HarnessStore {
           base_commit: input.baseCommit,
           base_ref: input.baseRef,
           base_dirty: input.baseDirty,
+          submodules: JSON.stringify(input.submodules),
           now,
         })
       const workspace = this.getWorkspace(id)!
@@ -880,6 +882,7 @@ export class HarnessStore {
           base_commit: input.baseCommit,
           base_ref: input.baseRef,
           base_dirty: input.baseDirty,
+          submodules: [...input.submodules],
           worktree_path: input.worktreePath,
         },
       })!
@@ -1063,6 +1066,7 @@ interface WorkspaceRow {
   base_commit: string
   base_ref: string | null
   base_dirty: number
+  submodules_json: string
   status: string
   created_at: string
   updated_at: string
@@ -1080,6 +1084,7 @@ function toWorkspace(row: WorkspaceRow): Workspace {
     base_commit: row.base_commit,
     base_ref: row.base_ref,
     base_dirty: row.base_dirty,
+    submodules: JSON.parse(row.submodules_json) as string[],
     status: row.status as WorkspaceStatus,
     created_at: row.created_at,
     updated_at: row.updated_at,

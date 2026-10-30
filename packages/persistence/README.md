@@ -35,7 +35,7 @@ le code en cours fait échouer l'ouverture, au lieu d'être interprétée de tra
 | `provider_configs` | Fournisseurs de modèles ; la clé n'y est jamais, seulement sa référence au coffre |
 | `agents` | Profils d'exécution |
 | `tool_calls` | Appels d'outils, arguments et résultats expurgés |
-| `workspaces` | Worktree de chaque tâche d'agent écrivant : branche, commit de départ, cycle `active → kept → removed` |
+| `workspaces` | Worktree de chaque tâche d'agent écrivant : branche, commit de départ, ce qui y manque (travail non commité, sous-modules), cycle `active → kept → removed` |
 
 Trois tables du plan n'existeront pas : `usage` (la consommation vit dans
 `tasks.usage_json` et le journal), `projects` et `artifacts` — raisons dans

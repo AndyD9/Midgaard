@@ -154,7 +154,11 @@ export class AgentEngine implements TaskEngine {
           // plus atteignable.
           root: made.root,
           writable: true,
-          workspace: { path: workspace.worktree_path, baseCommit: workspace.base_commit },
+          workspace: {
+            path: workspace.worktree_path,
+            baseCommit: workspace.base_commit,
+            submodules: workspace.submodules,
+          },
           // La liste blanche du dépôt s'ajoute à la globale. Lue ici, au départ
           // de la tâche : un ajout fait pendant qu'elle tourne vaut pour la
           // suivante, pas pour celle-ci — une autorisation ne s'élargit pas
@@ -188,6 +192,7 @@ export class AgentEngine implements TaskEngine {
               branch: workspace.branch,
               baseCommit: workspace.base_commit,
               baseDirty: workspace.base_dirty,
+              submodules: submodulesUnder(workspace.submodules, workspace.subdir),
               originDir: task.project_dir ?? workspace.repo_dir,
             }
           : undefined,
@@ -236,6 +241,7 @@ export class AgentEngine implements TaskEngine {
         baseCommit: made.baseCommit,
         baseRef: repo.ref,
         baseDirty: repo.dirty,
+        submodules: made.submodules,
       })
       if (!recorded) return { error: 'tâche disparue pendant la création du worktree' }
       ctx.log(`tâche ${task.id.slice(0, 8)} : worktree ${made.branch} créé (${made.path})`)
@@ -276,6 +282,7 @@ export class AgentEngine implements TaskEngine {
         additions: diff.additions,
         deletions: diff.deletions,
         base_dirty: workspace.base_dirty,
+        submodules: workspace.submodules,
       }
       return { ...outcome, result: { ...outcome.result, workspace: described } }
     } catch (e) {
@@ -521,4 +528,13 @@ function emptyish(): Usage {
     cost_usd_estimated: null,
     cost_usd_reported: null,
   }
+}
+
+/**
+ * Sous-modules vus depuis la racine de l'agent, qui peut être un sous-dossier
+ * du dépôt (`subdir`, avec `/` final ou vide) : ceux qui sont hors de ce
+ * sous-dossier ne le concernent pas, les autres perdent son préfixe.
+ */
+export function submodulesUnder(submodules: readonly string[], subdir: string): string[] {
+  return submodules.filter((p) => p.startsWith(subdir)).map((p) => p.slice(subdir.length))
 }

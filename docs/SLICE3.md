@@ -764,12 +764,11 @@ annoncée, avec cette nuance.
   postes au vert (§ « La CI multi-plateforme »). Restent hors CI, sous Windows
   et Linux : le daemon de bout en bout (`test:developer`), le dashboard, et la
   CLI.
-- **`edit_file` dans un dépôt CRLF** (leçon n° 20) : l'`old_string` doit
-  correspondre octet pour octet, et un modèle écrit `\n`. À trancher en Slice 4 :
-  tolérer les fins de ligne à la recherche, ou le dire dans la consigne.
+- ~~**`edit_file` dans un dépôt CRLF** (leçon n° 20).~~ **Réglé** en Slice 4,
+  étape 2 : la recherche tolère les fins de ligne ([SLICE4.md](SLICE4.md)).
 - **Des sous-processus lancés hors de libuv, sous Windows** (leçon n° 21) : leur
   nettoyage après la sortie du parent n'est pas constaté.
-- **Les sous-modules** ne sont pas initialisés dans un worktree. Un dépôt qui en
-  dépend donnera à l'agent des dossiers vides, et ni la consigne ni le
-  dashboard ne le disent encore.
+- ~~**Les sous-modules** ne sont pas initialisés dans un worktree, sans que rien
+  le dise.~~ **Réglé** en Slice 4, étape 2 : nommés partout, et l'écriture y
+  est refusée — ce qui s'y écrivait était perdu en silence.
 - **Les deux dettes Gemini** de la Slice 2 restent ouvertes, faute de clé.

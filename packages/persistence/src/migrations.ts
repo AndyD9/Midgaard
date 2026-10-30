@@ -259,6 +259,17 @@ export const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 7,
+    label: 'Slice 4 — sous-modules absents des worktrees',
+    sql: `
+      -- Chemins des sous-modules du commit de départ, en JSON. git worktree add
+      -- les laisse vides, et ce qu'un agent y écrit est ignoré sans un mot par
+      -- git add -A : la liste est gardée pour être dite à l'agent, à Claude et
+      -- dans le dashboard. '[]' pour les worktrees créés avant.
+      ALTER TABLE workspaces ADD COLUMN submodules_json TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
 ]
 
 // Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',

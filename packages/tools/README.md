@@ -75,7 +75,7 @@ jusqu'au merge, qui est humain.
 ### Ce que `openForWrite` vérifie
 
 La cible d'une écriture n'existe souvent pas encore : `realpath` ne peut pas la
-canonicaliser. Cinq vérifications, dans l'ordre :
+canonicaliser. Six vérifications, dans l'ordre :
 
 1. le chemin lexical reste sous la racine ;
 2. **aucun segment `.git`**, casse ignorée. Dans un worktree, `.git` est un
@@ -84,7 +84,11 @@ canonicaliser. Cinq vérifications, dans l'ordre :
 3. le plus proche dossier existant a un chemin réel sous la racine (un
    dossier-lien qui mène dehors est arrêté là) ;
 4. la cible n'est **pas un lien symbolique**, même vers un fichier de la racine ;
-5. après ouverture avec `O_NOFOLLOW`, le descripteur désigne un fichier
+5. la cible, sur son chemin réel, n'est **pas dans un sous-module**
+   (`ToolContext.workspace.submodules`) : le worktree les laisse vides, et ce
+   qu'on y écrit est ignoré **sans un mot** par le `git add -A` du commit de fin
+   — constaté. L'agent croirait avoir livré un fichier que la branche n'a pas ;
+6. après ouverture avec `O_NOFOLLOW`, le descripteur désigne un fichier
    ordinaire et le dossier parent a gardé son identité et son chemin réel.
 
 Le fichier est ouvert **sans** `O_TRUNC` et vidé une fois tout vérifié : un refus
@@ -95,9 +99,19 @@ tardif ne doit pas avoir détruit ce qu'il refuse. `delete_file` supprime un lie
 avec une fenêtre étroite entre lui et l'ouverture. Contre-épreuve faite : chacune
 des deux serrures, seule, suffit à faire passer les tests de liens.
 
-`edit_file` découpe sur le passage (`split`) au lieu d'appeler `replace` :
+`edit_file` recompose le texte à la main au lieu d'appeler `replace` :
 `String.replace` interprète `$&` et `$1` dans le texte de remplacement, et du
 code contient des `$`. Un test le verrouille.
+
+**Fins de ligne.** `edit_file` tient `\n` et `\r\n` pour équivalents en
+cherchant `old_string`, et écrit `new_string` avec la fin de ligne du passage
+remplacé (CRLF dès qu'il en contient ; à défaut, celle qui domine le fichier).
+Sous Windows, Git convertit le worktree en CRLF au checkout, et un modèle écrit
+`\n` : la recherche octet pour octet ne trouvait rien (docs/SLICE3.md, leçon
+n° 20). Rien d'autre n'est relâché — l'unicité se compte sur la recherche
+tolérante, si bien qu'un passage présent une fois en LF et une fois en CRLF est
+ambigu, pas tranché au hasard. Le résultat dit au modèle quand des fins de ligne
+ont été adaptées. `write_file`, lui, écrit ce qu'on lui donne.
 
 ## `git_diff` : le seul accès à Git, en lecture
 
@@ -166,10 +180,8 @@ le vérifie en interrogeant le pid du petit-enfant au système.
   vraisemblablement parce que libuv place ses enfants dans un *Job Object* qui
   les tue avec leur parent. Non constaté pour un programme qui ne passe pas par
   libuv ;
-- dans un dépôt en CRLF (`core.autocrlf`), `edit_file` compare octet pour
-  octet : un `old_string` écrit avec `\n` n'y correspond pas, et le refus le dit.
-
-Le reste — chemins, liens, `.git`, `exec`, résolution par `PATHEXT` — tourne en
+Le reste — chemins, liens, `.git`, `exec`, résolution par `PATHEXT`, fins de
+ligne d'`edit_file` dans un vrai dépôt en CRLF — tourne en
 CI sur macOS, Linux et Windows (`.github/workflows/worktrees.yml`).
 
 Un processus qui quitte volontairement son groupe (`setsid`) échappe aussi au
