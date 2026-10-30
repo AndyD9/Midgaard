@@ -6,5 +6,5 @@
  */
 export { HarnessStore } from './store.ts'
 export type { EventInput, Recorded, TaskPatch } from './store.ts'
-export { MIGRATIONS, SCHEMA_VERSION, migrate } from './migrations.ts'
+export { MIGRATIONS, SCHEMA_VERSION, migrate, schemaVersionOf } from './migrations.ts'
 export type { Migration } from './migrations.ts'

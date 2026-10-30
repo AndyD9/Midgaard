@@ -757,10 +757,9 @@ annoncée, avec cette nuance.
 
 ## Ce qui reste ouvert
 
-- **`doctor` migre la base qu'il diagnostique** (leçon n° 17). Il devrait
-  l'ouvrir en lecture seule et dire « base à migrer » plutôt que de le faire.
-  Hors de la Slice 3, qui ne l'a pas introduit ; à régler avant la
-  distribution (Slice 4).
+- ~~**`doctor` migre la base qu'il diagnostique** (leçon n° 17).~~ **Réglé**
+  en Slice 4, étape 1 : `doctor` et `status` ouvrent la base en lecture seule
+  ([SLICE4.md](SLICE4.md)).
 - ~~**Windows et Linux** : jamais tourné.~~ **Réglé** : `worktrees.yml`, trois
   postes au vert (§ « La CI multi-plateforme »). Restent hors CI, sous Windows
   et Linux : le daemon de bout en bout (`test:developer`), le dashboard, et la

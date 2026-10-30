@@ -219,7 +219,7 @@ préparée ; le profil `developer` ; la carte « Fichiers et diff » ;
 **Slice 4** (PLAN §7) : durcissement et distribution npm. Ce que la Slice 3
 lui laisse, au § « Ce qui reste ouvert » de `docs/SLICE3.md` :
 
-- `doctor` migre la base qu'il diagnostique ; il doit l'ouvrir en lecture seule ;
+- ~~`doctor` migre la base qu'il diagnostique~~ — réglé (Slice 4, étape 1) ;
 - `edit_file` dans un dépôt CRLF : l'`old_string` correspond octet pour octet ;
 - le daemon de bout en bout, le dashboard et la CLI n'ont tourné que sous macOS ;
 - les sous-modules sont absents des worktrees, sans que rien le dise.

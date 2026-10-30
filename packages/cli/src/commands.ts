@@ -122,9 +122,16 @@ export async function status(config: HarnessConfig, limit: number): Promise<numb
     return 0
   }
 
-  // Lecture directe : en WAL, elle ne gêne pas le daemon s'il écrit au même moment.
-  const store = HarnessStore.open(config)
+  // Lecture directe, et seule : en WAL, elle ne gêne pas le daemon s'il écrit
+  // au même moment, et `status` constate sans rien changer — pas même le schéma.
+  const store = HarnessStore.openReadOnly(config)
   try {
+    if (store.schemaVersion !== SCHEMA_VERSION) {
+      const c = schemaCheck(store.schemaVersion, null)
+      console.log(`\n${mark[c.level]()} base illisible par ce code : ${c.detail}`)
+      if (c.fix) console.log(`  ${dim('→ ' + c.fix)}`)
+      return 1
+    }
     const tasks = store.listTasks({ limit })
     const pending = store.pendingApprovals()
     if (pending.length) {
@@ -245,18 +252,20 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
     checks.push({ level: 'ok', label: 'Dossier runtime', detail: `${config.home} (sera créé au démarrage)` })
   }
 
+  // La base s'ouvre en lecture seule : un diagnostic qui la migrerait
+  // changerait ce qu'il rapporte (docs/SLICE3.md, leçon n° 17). Elle ne sert aux
+  // contrôles suivants que si son schéma est celui de ce code ; sinon leurs
+  // requêtes viseraient des tables ou des colonnes absentes.
+  let store: HarnessStore | null = null
   if (existsSync(config.dbPath)) {
     try {
-      const store = HarnessStore.open(config)
-      const counts = store.countTasks()
-      store.close()
-      checks.push({
-        level: 'ok',
-        label: 'Base',
-        detail: `schéma v${SCHEMA_VERSION}, ${counts.total} tâche(s), ${counts.active} active(s)`,
-      })
+      const opened = HarnessStore.openReadOnly(config)
+      const version = opened.schemaVersion
+      if (version === SCHEMA_VERSION) store = opened
+      else opened.close()
+      checks.push(schemaCheck(version, store ? store.countTasks() : null))
     } catch (e) {
-      checks.push({ level: 'fail', label: 'Base', detail: (e as Error).message, fix: 'Mets Midgaard à jour.' })
+      checks.push({ level: 'fail', label: 'Base', detail: (e as Error).message })
     }
   } else {
     checks.push({ level: 'ok', label: 'Base', detail: 'pas encore créée' })
@@ -342,12 +351,10 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
   })
 
   // Fournisseurs : lus en base, sans démarrer le daemon.
-  if (existsSync(config.dbPath)) {
+  if (store) {
     try {
-      const store = HarnessStore.open(config)
       const declared = store.listProviders()
       const tested = declared.filter((p) => p.last_test?.ok).length
-      store.close()
       checks.push({
         level: declared.length === 0 ? 'warn' : tested === declared.length ? 'ok' : 'warn',
         label: 'Fournisseurs',
@@ -372,16 +379,14 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
   checks.push(gitCheck(await gitVersionOutput()))
 
   // Worktrees et liste blanche : lus en base, sans démarrer le daemon.
-  if (existsSync(config.dbPath)) {
+  if (store) {
     try {
-      const store = HarnessStore.open(config)
       const all = store.listWorkspaces()
       let projectRepo: string | null = null
       try {
         projectRepo = (await inspectRepository(projectDir)).toplevel
       } catch {}
       const projectAllow = projectRepo ? store.listExecAllow(projectRepo) : []
-      store.close()
 
       const kept = all.filter((w) => w.status === 'kept').length
       const active = all.filter((w) => w.status === 'active').length
@@ -400,6 +405,8 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
     }
   }
 
+  store?.close()
+
   for (const c of checks) {
     console.log(`${mark[c.level]()} ${bold(c.label.padEnd(18))} ${c.detail}`)
     if (c.fix) console.log(`  ${dim('→ ' + c.fix)}`)
@@ -408,6 +415,41 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
   console.log()
   console.log(failed ? red(`${failed} contrôle(s) en échec.`) : green('Installation saine.'))
   return failed ? 1 : 0
+}
+
+/**
+ * Verdict de `doctor` sur la base, d'après sa version de schéma.
+ *
+ * Une base **plus ancienne** que ce code n'est pas une panne : le daemon de
+ * cette version la migrera à son démarrage. `doctor` le dit, sans le faire.
+ * Une base **plus récente** en est une : ce code refuserait de l'ouvrir.
+ *
+ * @param version version de schéma lue en lecture seule
+ * @param counts  tâches de la base, lues seulement quand le schéma est le bon
+ * @returns le contrôle « Base »
+ */
+export function schemaCheck(version: number, counts: { total: number; active: number } | null): Check {
+  if (version === SCHEMA_VERSION) {
+    return {
+      level: 'ok',
+      label: 'Base',
+      detail: `schéma v${version}${counts ? `, ${counts.total} tâche(s), ${counts.active} active(s)` : ''}`,
+    }
+  }
+  if (version < SCHEMA_VERSION) {
+    return {
+      level: 'warn',
+      label: 'Base',
+      detail: `schéma v${version}, ce code attend v${SCHEMA_VERSION} : à migrer (rien n'a été écrit)`,
+      fix: 'npm run harness -- start   # le daemon de cette version migre la base à son démarrage',
+    }
+  }
+  return {
+    level: 'fail',
+    label: 'Base',
+    detail: `schéma v${version}, plus récent que ce code (v${SCHEMA_VERSION})`,
+    fix: 'Mets Midgaard à jour, ou désigne une autre base avec MIDGAARD_HOME.',
+  }
 }
 
 /** Version minimale de Git : `git worktree remove` date de la 2.17. */

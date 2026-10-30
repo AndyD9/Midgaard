@@ -46,7 +46,7 @@ import {
   type Workspace,
   type WorkspaceStatus,
 } from '@midgaard/contracts'
-import { migrate } from './migrations.ts'
+import { migrate, schemaVersionOf } from './migrations.ts'
 
 /** Ligne `tasks` telle que SQLite la rend. */
 interface TaskRow {
@@ -198,6 +198,39 @@ export class HarnessStore {
     db.exec('PRAGMA busy_timeout = 5000')
     migrate(db, log)
     return new HarnessStore(db)
+  }
+
+  /**
+   * Ouvre une base existante **en lecture seule**, sans la migrer.
+   *
+   * Pour qui constate sans agir : `harness doctor` et `harness status`. Un
+   * diagnostic qui migre la base qu'il examine change ce qu'il rapporte — et
+   * l'a fait, sous un daemon plus ancien encore en marche (docs/SLICE3.md,
+   * leçon n° 17). Ici, c'est SQLite qui refuse toute écriture : une méthode
+   * d'écriture appelée par erreur lève au lieu d'écrire.
+   *
+   * Aucun `PRAGMA journal_mode` : en changer est une écriture. Une base du
+   * harness est déjà en WAL, mode que SQLite lit dans l'en-tête du fichier.
+   * Lire une base WAL fait toutefois créer par SQLite ses fichiers `-wal` et
+   * `-shm` s'ils manquent ; le fichier de la base, lui, reste octet pour octet
+   * identique.
+   *
+   * L'appelant doit comparer {@link HarnessStore.schemaVersion} à
+   * `SCHEMA_VERSION` avant de lire : sur un autre schéma, les requêtes de ce
+   * code peuvent viser des tables ou des colonnes qui n'y sont pas.
+   *
+   * @param config configuration injectée ; seul `dbPath` est utilisé
+   * @throws si la base n'existe pas — la lecture seule ne la crée jamais
+   */
+  static openReadOnly(config: Pick<HarnessConfig, 'dbPath'>): HarnessStore {
+    const db = new DatabaseSync(config.dbPath, { readOnly: true })
+    db.exec('PRAGMA busy_timeout = 5000')
+    return new HarnessStore(db)
+  }
+
+  /** Version de schéma de la base ouverte (`0` pour une base vierge). */
+  get schemaVersion(): number {
+    return schemaVersionOf(this.db)
   }
 
   close(): void {

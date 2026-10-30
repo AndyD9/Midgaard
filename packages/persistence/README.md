@@ -53,5 +53,10 @@ dans la même transaction que la ligne de journal de sa tâche : c'est
   peut échouer, et ferait perdre un événement déjà calculé.
 - **`AUTOINCREMENT` sur `task_events.seq`** : SQLite réutilise les `rowid`
   libérés, ce qui casserait la reprise WebSocket.
+- **`openReadOnly()`** pour qui constate sans agir (`doctor`, `status`) : ni
+  migration ni `PRAGMA` qui écrive, et SQLite refuse toute écriture. Le fichier
+  de la base reste identique octet pour octet ; SQLite crée toutefois ses
+  fichiers `-wal` et `-shm` s'ils manquent, comme pour toute lecture en WAL.
+  L'appelant compare `schemaVersion` à `SCHEMA_VERSION` avant de lire.
 - **`markInterrupted()`** au démarrage : toute tâche restée active devient
   `interrupted`. Jamais reprise, jamais considérée réussie.

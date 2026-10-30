@@ -62,6 +62,20 @@ Il lit la base directement. C'est possible parce qu'elle est en WAL : la lecture
 ne gêne pas le daemon s'il écrit au même moment. Une tâche d'hier reste donc
 consultable sans rien relancer.
 
+## `status` et `doctor` n'écrivent jamais dans la base
+
+Ils l'ouvrent **en lecture seule** (`HarnessStore.openReadOnly`), et c'est SQLite
+qui refuse toute écriture. Jusqu'à la Slice 4, `doctor` l'ouvrait comme le
+daemon, migrations comprises : il a fait passer la base réelle du schéma 3 au
+schéma 6 sous un daemon plus ancien encore en marche (docs/SLICE3.md, leçon
+n° 17). Un diagnostic qui change ce qu'il examine ne diagnostique plus.
+
+Sur une base **plus ancienne** que le code, `doctor` avertit « à migrer » et
+omet les contrôles qui lisent la base (fournisseurs, worktrees, liste blanche) :
+leurs requêtes viseraient des tables qui n'existent pas encore. `status` refuse
+d'afficher l'historique et rend `1`. Dans les deux cas, c'est le daemon de cette
+version qui migre, à son démarrage. Une base absente n'est jamais créée.
+
 ## Ce que `doctor` vérifie
 
 Les six choses qui ont réellement cassé pendant la Slice 0 :
@@ -70,7 +84,7 @@ Les six choses qui ont réellement cassé pendant la Slice 0 :
 |---|---|
 | Version de Node | `node:sqlite` exige Node 24 sans drapeau expérimental |
 | Dossier runtime | Mode `0700` : il contient le jeton du daemon |
-| Base | Schéma lisible, et base pas plus récente que ce code |
+| Base | Lue sans être écrite : à jour, à migrer (avertissement), ou plus récente que ce code (échec) |
 | Daemon | En marche, injoignable, ou version de protocole différente |
 | Déclaration MCP | Présente **et pointant encore là où il faut** — un dépôt déplacé ou recloné laisse des chemins absolus morts, et Claude Code échoue alors sans rien dire d'utile |
 | Dashboard | Compilé ou non — pour ne jamais renvoyer vers une page vide |

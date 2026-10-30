@@ -6,7 +6,7 @@ intégré. En chemin : tests de sécurité ciblés, scénarios de crash et de re
 deux tâches concurrentes sur des worktrees distincts, README et guide de
 dépannage.
 
-**État : en cours.** Décisions prises, découpage arrêté ; aucune étape livrée.
+**État : en cours.** Décisions prises, découpage arrêté ; étape 1 livrée.
 
 ---
 
@@ -50,7 +50,7 @@ la règle de `dashboard_available` : ne rien annoncer qu'on n'a pas constaté.
 
 | # | Étape | État |
 |---|---|---|
-| 1 | `doctor` en lecture seule : il diagnostique la base sans la migrer, et dit « base à migrer » | à faire |
+| 1 | `doctor` en lecture seule : il diagnostique la base sans la migrer, et dit « base à migrer » | ✅ livrée |
 | 2 | Ce que le worktree ne montre pas : `edit_file` tolérant aux fins de ligne ; sous-modules absents, signalés à l'agent et au dashboard | à faire |
 | 3 | La suite de sécurité du PLAN §8.4, point par point : chaque refus prouvé par un test qui l'observe directement, les trous comblés | à faire |
 | 4 | Crash et concurrence : daemon tué en plein Developer (tâche `interrupted`, worktree conservé, branche au commit de départ) ; deux Developer concurrents sur deux worktrees | à faire |
@@ -67,9 +67,6 @@ livrable qu'on ne peut pas reprendre.
 
 ### Ce que chaque étape doit trancher ou surveiller
 
-- **Étape 1.** `node:sqlite` ouvre en lecture seule (`readOnly`) ; reste à
-  savoir dire la version de schéma sans rien écrire, et quoi répondre quand la
-  base n'existe pas encore (ce n'est pas une panne).
 - **Étape 2.** La tolérance ne doit rien relâcher d'autre : toujours une seule
   occurrence exigée, et l'empreinte d'approbation porte sur ce que le modèle a
   demandé, pas sur la forme normalisée. Le cas se rejoue de lui-même sous
@@ -81,7 +78,9 @@ livrable qu'on ne peut pas reprendre.
   « promesse du §5 → test qui la prouve » — puis de combler ce qui manque.
   Un trou déjà visible : « un secret dans une sortie d'outil est expurgé en
   base » n'est prouvé que sur un faux expurgeur, jamais en lisant la base
-  d'un vrai daemon.
+  d'un vrai daemon. Un autre, vu sur l'installation réelle à l'étape 1 :
+  `~/.midgaard` en `755` et `harness.db` en `644`, donc lisibles par les autres
+  comptes du poste (le jeton, lui, est bien en `600`).
 - **Étape 5.** Les suites de bout en bout envoient des signaux et tuent des
   processus : c'est là que Windows a le plus de chances de différer. La leçon
   du coffre (cinq passages pour quatre postes verts) vaut d'être retenue :
@@ -96,6 +95,55 @@ livrable qu'on ne peut pas reprendre.
 - **Étape 8.** Un `HOME` vierge, pas seulement un `MIDGAARD_HOME` : c'est la
   seule façon de voir ce que voit un tiers (aucun fournisseur, aucun coffre
   rempli, aucun `.mcp.json`).
+
+---
+
+## Étape 1 — `doctor` en lecture seule
+
+### Ce qui existe
+
+- **`HarnessStore.openReadOnly`** : ouvre une base existante avec
+  `readOnly: true`, sans migration ni `PRAGMA` qui écrive ; `schemaVersion` dit
+  où elle en est. C'est SQLite qui refuse l'écriture, pas une convention : une
+  méthode d'écriture appelée par erreur lève. Une base absente n'est jamais créée.
+- **`doctor`** ouvre la base une fois, en lecture seule. Selon son schéma :
+  à jour, il la lit comme avant ; **plus ancien**, il avertit « à migrer (rien
+  n'a été écrit) », renvoie vers `harness start` — le daemon migre à son
+  démarrage — et omet les contrôles qui la lisent ; **plus récent**, il échoue.
+  Le verdict est `schemaCheck`, une fonction pure.
+- **`status`** aussi, qui avait le même défaut sans que personne l'ait noté :
+  sur une base d'un autre schéma, il le dit et rend `1` au lieu de migrer.
+
+### Ce qui le prouve
+
+`tests/unit/read-only.test.ts`, 7 tests. Les trois derniers lancent la **vraie
+CLI** sur un dossier jetable et comparent la base **octet pour octet** avant et
+après, plutôt que de se fier à ce que la commande affiche : `doctor` sur une
+base au schéma 3 (avertissement, code `0`, schéma toujours 3) ; `doctor` sur une
+base absente (non créée) puis à jour ; `status` sur une base au schéma 3 (code
+`1`, base intacte).
+
+Le test a été éprouvé contre le défaut : `HarnessStore.open` remis dans
+`doctor`, il échoue. Puis `doctor` et `status` ont tourné sur l'installation
+réelle, daemon en marche : schéma 6, dix tâches, aucune écriture.
+
+### Ce que l'écriture a appris
+
+**1. Lire une base WAL en lecture seule crée des fichiers.** Mesuré avant
+d'écrire : sur une base fermée, l'ouverture `readOnly` fait créer à SQLite
+`harness.db-wal` et `harness.db-shm`, qui restent après la fermeture. Le
+fichier de la base, lui, est identique octet pour octet. C'est ce que la
+documentation dit désormais, et c'est sur ce fichier que portent les tests —
+« n'écrit rien sur le disque » aurait été faux.
+
+**2. Un défaut noté en cache souvent un second.** La leçon n° 17 nommait
+`doctor` ; chercher tous les appels à `HarnessStore.open` hors du daemon a
+trouvé `status`, qui migrait de la même façon depuis la Slice 1.
+
+**3. Un diagnostic fiable trouve autre chose que ce qu'on cherchait.** Lancé
+sur l'installation réelle pour vérifier qu'il n'écrivait rien, `doctor` a
+signalé `~/.midgaard` en `755` — l'avertissement existait depuis la Slice 1, et
+personne ne l'avait lu. La base y est en `644`. Renvoyé à l'étape 3.
 
 ---
 

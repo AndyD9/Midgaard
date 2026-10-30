@@ -271,6 +271,16 @@ export const MIGRATIONS: readonly Migration[] = [
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version
 
 /**
+ * Version de schéma d'une base ouverte, lue sans rien écrire.
+ *
+ * @param db base ouverte, en lecture seule ou non
+ * @returns `0` pour une base vierge, sinon la dernière migration appliquée
+ */
+export function schemaVersionOf(db: DatabaseSync): number {
+  return (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
+}
+
+/**
  * Applique les migrations manquantes, chacune dans sa propre transaction.
  *
  * @param db     base ouverte
@@ -281,7 +291,7 @@ export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version
  *         risquerait de corrompre des données qu'on ne comprend pas
  */
 export function migrate(db: DatabaseSync, log: (msg: string) => void = () => {}): number[] {
-  const current = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
+  const current = schemaVersionOf(db)
   if (current > SCHEMA_VERSION) {
     throw new Error(
       `base en version de schéma ${current}, ce code en connaît ${SCHEMA_VERSION} : ` +
