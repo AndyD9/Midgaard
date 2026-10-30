@@ -96,6 +96,14 @@ export interface HarnessConfig {
   httpPolicy: 'open' | 'approval' | 'allowlist'
   /** Hôtes toujours autorisés. Motifs `exemple.org` ou `*.exemple.org`. */
   allowHosts: string[]
+  /**
+   * Commandes que l'outil `exec` lance **sans approbation** : des argv exacts,
+   * lus dans `MIDGAARD_EXEC_ALLOW` (`npm test;npx tsc --noEmit`). **Vide par
+   * défaut**, décision de la Slice 3 : un agent qui écrit `package.json` fait
+   * de `npm test` en liste blanche l'exécution sans regard de ce qu'il a écrit.
+   * Le daemon rappelle cette conséquence dans son journal au démarrage.
+   */
+  execAllow: string[][]
 }
 
 /** Valeurs lisibles depuis l'environnement. Tout le reste est dérivé. */
@@ -107,6 +115,7 @@ export interface ConfigEnv {
   MIDGAARD_DASHBOARD_DIR?: string | undefined
   MIDGAARD_HTTP_POLICY?: string | undefined
   MIDGAARD_HTTP_ALLOW?: string | undefined
+  MIDGAARD_EXEC_ALLOW?: string | undefined
 }
 
 /** Port par défaut, repris du plan (`http://127.0.0.1:7777`). */
@@ -120,6 +129,20 @@ export const DEFAULT_PORT = 7777
 function parsePolicy(raw: string | undefined): 'open' | 'approval' | 'allowlist' {
   const value = raw?.trim()
   return value === 'approval' || value === 'allowlist' ? value : 'open'
+}
+
+/**
+ * Lit `MIDGAARD_EXEC_ALLOW` : des commandes exactes séparées par `;`, chacune
+ * découpée sur les espaces. Pas de guillemets, délibérément : un analyseur de
+ * guillemets est un endroit de plus où une commande approuvée d'office pourrait
+ * ne pas être celle qu'on croit. Un argument contenant une espace ne peut donc
+ * pas être mis en liste blanche.
+ */
+export function parseExecAllow(raw: string | undefined): string[][] {
+  return (raw ?? '')
+    .split(';')
+    .map((entry) => entry.trim().split(/\s+/).filter(Boolean))
+    .filter((argv) => argv.length > 0)
 }
 
 /**
@@ -163,6 +186,7 @@ export function loadConfig(env: ConfigEnv = {}, overrides: Partial<HarnessConfig
       .split(',')
       .map((h) => h.trim())
       .filter(Boolean),
+    execAllow: parseExecAllow(env.MIDGAARD_EXEC_ALLOW),
   }
   // Les surcharges s'appliquent en dernier, mais les chemins dérivés de `home`
   // ont déjà été calculés : une surcharge de `home` seule doit donc les recalculer.

@@ -13,6 +13,7 @@ import { listDirectoryTool, readFileTool, searchFilesTool } from './fs.ts'
 import { submitResultTool } from './result.ts'
 import { deleteFileTool, editFileTool, writeFileTool } from './write.ts'
 import { gitDiffTool } from './git.ts'
+import { execTool } from './exec.ts'
 
 export type { Tool, ToolContext, HttpPolicy } from './types.ts'
 export { ToolError, HTTP_POLICIES, MAX_TOOL_RESULT_BYTES, truncate } from './types.ts'
@@ -21,6 +22,11 @@ export { assertPublicHost, hostAllowed, isPrivateAddress, IMDS_ADDRESS } from '.
 export { follow, htmlToText } from './http.ts'
 export type { HostGuard } from './http.ts'
 export { checkWritePath, openForWrite, MAX_WRITE_BYTES } from './write.ts'
+export {
+  execAllowed, execEnv, formatArgv, parseExecAllow, resolveCommand, runCommand,
+  EXEC_DEFAULT_TIMEOUT_S, EXEC_MAX_TIMEOUT_S, EXEC_KILL_GRACE_MS,
+} from './exec.ts'
+export type { ExecOutcome } from './exec.ts'
 export { submitResultSchema } from './result.ts'
 export type { SubmitResultArgs } from './result.ts'
 
@@ -43,6 +49,7 @@ export const TOOLBOX: Readonly<Record<string, Tool<never>>> = Object.freeze({
   edit_file: editFileTool as Tool<never>,
   delete_file: deleteFileTool as Tool<never>,
   git_diff: gitDiffTool as Tool<never>,
+  exec: execTool as Tool<never>,
   submit_result: submitResultTool as Tool<never>,
 })
 

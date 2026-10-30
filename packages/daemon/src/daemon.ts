@@ -131,6 +131,16 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
   } else {
     log(`coffre : ${vault.label}`)
   }
+  if (config.execAllow.length) {
+    // Rappelé à chaque démarrage, parce que la conséquence ne se voit pas dans
+    // la variable : une commande qui exécute le code du projet exécute ce que
+    // l'agent a écrit dans son worktree.
+    log(
+      `exec : ${config.execAllow.length} commande(s) sans approbation (${config.execAllow
+        .map((a) => a.join(' '))
+        .join(' ; ')}) — si l'une exécute le code du projet, elle exécute ce que l'agent a écrit`,
+    )
+  }
   let pricing: PricingTable = loadPricing(config, (m) => log(m))
   log(`tarifs : ${Object.keys(pricing.entries).length} modèle(s), relevés le ${pricing.updated_at.slice(0, 10)}`)
 

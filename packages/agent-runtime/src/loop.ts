@@ -160,7 +160,16 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
   // d'échappée hors du projet pour un fichier qui en fait partie.
   let tools: ToolContext
   try {
-    tools = { ...input.tools, root: await canonicalRoot(input.tools.root) }
+    tools = {
+      ...input.tools,
+      root: await canonicalRoot(input.tools.root),
+      // L'annulation et l'échéance de la tâche descendent jusqu'aux outils :
+      // une commande lancée par `exec` doit mourir avec la tâche, et ne pas
+      // durer au-delà de son délai — la boucle ne vérifie ses limites qu'entre
+      // deux appels de modèle.
+      signal: input.tools.signal ?? input.signal,
+      deadline: input.tools.deadline ?? deadline,
+    }
   } catch (e) {
     return { status: 'failed', error: input.redact((e as Error).message), usage: emptyUsage() }
   }

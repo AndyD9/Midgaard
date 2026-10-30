@@ -47,6 +47,17 @@ export interface ToolContext {
    * la racine du worktree lui-même.
    */
   workspace?: { path: string; baseCommit: string } | null | undefined
+  /**
+   * Commandes que `exec` lance **sans** approbation : des argv exacts. Vide ou
+   * absent, chaque commande attend un humain — c'est le défaut voulu (Slice 3).
+   */
+  execAllow?: readonly (readonly string[])[] | undefined
+  /**
+   * Échéance de la tâche, en millisecondes depuis l'époque. Un outil qui dure —
+   * `exec` — ne doit pas la dépasser : la boucle ne vérifie ses limites qu'entre
+   * deux appels de modèle, et une commande de dix minutes passerait entre.
+   */
+  deadline?: number | undefined
   /** Annulation de la tâche : coupe les lectures et les requêtes en cours. */
   signal?: AbortSignal | undefined
   log: (...a: unknown[]) => void

@@ -1,8 +1,8 @@
 # `@midgaard/tools`
 
 Les outils des agents. Ceux de la Slice 2 **lisent** ; ceux de la Slice 3
-**écrivent, mais seulement dans le worktree** de la tâche, et refusent partout
-ailleurs. `exec` n'existe pas encore (Slice 3, étape 3).
+**écrivent ou exécutent, mais seulement dans le worktree** de la tâche, et
+refusent partout ailleurs.
 
 | Outil | Rôle |
 |---|---|
@@ -14,6 +14,7 @@ ailleurs. `exec` n'existe pas encore (Slice 3, étape 3).
 | `edit_file` | Remplace un passage exact d'un fichier du worktree |
 | `delete_file` | Supprime un fichier du worktree (jamais un dossier) |
 | `git_diff` | Ce que l'agent a changé depuis le début de la tâche, fichiers nouveaux compris |
+| `exec` | Une commande dans le worktree, **sous approbation humaine** par défaut |
 | `submit_result` | **Le seul outil qui termine une tâche** |
 
 ## Ce que ce paquet garantit, et ce qu'il ne garantit pas
@@ -106,6 +107,60 @@ ce diff ne dise. Et un outil `git` à arguments libres exposerait `-c`,
 `--upload-pack`, `--output` et les alias de la configuration ; un outil qui ne
 prend aucun argument n'a rien à filtrer. Le diff vient de `@midgaard/workspace`,
 qui ne lance ni hook ni pilote désigné par l'arbre de travail.
+
+## `exec` : l'approbation est la frontière
+
+`exec` n'est **pas une sandbox**. La commande tourne sous le compte de
+l'utilisateur, avec son dossier personnel : elle lit ce qu'il lit et joint le
+réseau. La frontière est humaine — chaque commande attend une approbation, et
+l'humain lit **exactement** ce qui va tourner :
+
+```text
+exec — exécuter npm test -- --grep 'a b' (dans packages/api)
+```
+
+Les guillemets ne servent qu'à l'affichage : `["a;b"]` et `["a", ";", "b"]` ne
+doivent pas s'afficher pareil, sinon l'on approuve l'un en lisant l'autre.
+
+**Pourquoi pas une liste blanche d'office** : l'agent écrit dans son worktree,
+donc dans `package.json`. Autoriser `npm test` sans regard, c'est autoriser ce
+qu'il a mis dans `scripts.test`. `MIDGAARD_EXEC_ALLOW` existe — des argv
+**exacts**, séparés par `;` (`npm test;npx tsc --noEmit`) — vide par défaut, et
+le daemon rappelle la conséquence dans son journal à chaque démarrage. Pas de
+guillemets dans cette variable : un argument contenant une espace ne peut pas
+être mis en liste blanche, et c'est voulu.
+
+| Garantie | Comment |
+|---|---|
+| Aucun shell | `spawn` sans `shell` : `;`, `\|`, `$()` restent des caractères |
+| Ce qu'on approuve est ce qui tourne | le binaire est **résolu par le harness** avant la demande ; les entrées **relatives** du `PATH` sont ignorées |
+| Uniquement dans un worktree | sans `ToolContext.writable`, refus sans demande |
+| Pas de secrets du daemon | environnement reconstruit (`execEnv`) ; `CI=1`, `NO_COLOR=1` imposés |
+| **Aucun processus ne survit** | groupe de processus propre, tué à la sortie, au délai (`SIGTERM`, puis `SIGKILL` après 2 s) et à l'annulation |
+| Pas au-delà de la tâche | délai plafonné par l'échéance de la tâche (`ToolContext.deadline`) |
+| Sortie bornée | 8 Ko + 32 Ko de fin pour stdout, 4 Ko + 12 Ko pour stderr ; le retrait du milieu est écrit |
+| Sortie encadrée | `untrusted: true` : une sortie de commande peut contenir n'importe quoi |
+
+Un code de sortie non nul **n'est pas une erreur** : un test qui échoue est une
+réponse, que l'agent doit lire pour corriger son code.
+
+Pourquoi tuer le groupe **même quand la commande sort normalement** : sans
+cela, un `npm run dev` ou un `sleep 999 &` survivrait à la tâche, et le harness
+attendrait indéfiniment que ces survivants ferment les tubes de sortie. Le test
+le vérifie en interrogeant le pid du petit-enfant au système.
+
+**Sous Windows**, trois limites, annoncées plutôt que contournées :
+
+- `npm`, `npx` et tout script `.cmd`/`.bat` sont **refusés** : Node ne les lance
+  plus sans shell (CVE-2024-27980), et `cmd.exe` a des règles d'échappement qui
+  ne se maîtrisent pas. Lancer `node` avec le chemin du script fonctionne ;
+- l'arbre de processus est tué par `taskkill /T`, qui ne retrouve plus les
+  enfants d'un parent déjà sorti ;
+- rien de cela n'a tourné sous Windows.
+
+Un processus qui quitte volontairement son groupe (`setsid`) échappe aussi au
+nettoyage, sur toutes les plateformes : c'est la limite d'un contrôle sans
+sandbox.
 
 ## `http_fetch`
 

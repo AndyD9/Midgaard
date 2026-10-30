@@ -39,7 +39,8 @@ ${bold('Options')}
   -v, --version         Version du harness
 
 ${dim('Environnement : MIDGAARD_HOME, MIDGAARD_PORT, MIDGAARD_IDLE_SHUTDOWN_S, MIDGAARD_DASHBOARD_DIR,')}
-${dim('               MIDGAARD_VAULT, MIDGAARD_HTTP_POLICY, MIDGAARD_HTTP_ALLOW')}`
+${dim('               MIDGAARD_VAULT, MIDGAARD_HTTP_POLICY, MIDGAARD_HTTP_ALLOW,')}
+${dim('               MIDGAARD_EXEC_ALLOW')}`
 
 /** Version du paquet, pour `--version`. */
 const VERSION = '0.1.0'

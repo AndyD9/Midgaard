@@ -25,8 +25,8 @@ import { z } from 'zod'
 
 /**
  * Outils existants. Ceux de la Slice 2 sont en lecture seule ; la Slice 3 ajoute
- * l'écriture **dans le worktree de la tâche seulement** et `git_diff`, en
- * lecture. `exec` n'existe pas encore (étape 3 de la Slice 3).
+ * l'écriture **dans le worktree de la tâche seulement**, `git_diff` en lecture,
+ * et `exec`, sous approbation humaine par défaut.
  */
 export const TOOL_NAMES = [
   'read_file',
@@ -38,6 +38,7 @@ export const TOOL_NAMES = [
   'edit_file',
   'delete_file',
   'git_diff',
+  'exec',
   'submit_result',
 ] as const
 export type ToolName = (typeof TOOL_NAMES)[number]

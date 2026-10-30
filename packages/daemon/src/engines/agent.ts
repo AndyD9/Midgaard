@@ -215,6 +215,7 @@ export class AgentEngine implements TaskEngine {
         // `developer` posera ces deux champs sur son worktree (Slice 3, étape 5).
         writable: false,
         workspace: null,
+        execAllow: ctx.config.execAllow,
         signal: undefined,
         log: ctx.log,
       },

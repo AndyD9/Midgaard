@@ -15,7 +15,7 @@
  *  - le contenu extérieur est encadré **avant** de revenir dans la conversation.
  */
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
@@ -388,5 +388,34 @@ describe('écriture hors worktree', () => {
     assert.equal(write?.status, 'denied')
     assert.match(write?.error ?? '', /no workspace/)
     assert.deepEqual(approvals, [])
+  })
+})
+
+describe('exec sous approbation', () => {
+  it('montre la commande exacte à l\'humain, et ne lance rien s\'il refuse', async () => {
+    const elsewhere = mkdtempSync(join(tmpdir(), 'midgaard-exec-refus-'))
+    const marker = join(elsewhere, 'a-tourne')
+    try {
+      const args = ['-e', `require('fs').writeFileSync(${JSON.stringify(marker)}, 'x')`]
+      const approvals: string[] = []
+      const { outcome, tools } = await run(
+        [
+          { toolCalls: [{ id: 'e1', name: 'exec', argumentsJson: JSON.stringify({ command: 'node', args }) }] },
+          { toolCalls: submit('refusé, donc rien lancé') },
+        ],
+        {
+          agent: { tools: ['exec', 'submit_result'] },
+          ctx: { writable: true },
+          hooks: { requestApproval: async (operation) => (approvals.push(operation), 'rejected') },
+        },
+      )
+      assert.equal(outcome.status, 'completed')
+      assert.equal(approvals.length, 1)
+      assert.match(approvals[0]!, /^exec — exécuter node -e 'require\(/)
+      assert.equal(tools.find((t) => t.name === 'exec')?.status, 'rejected')
+      assert.equal(existsSync(marker), false, 'la commande refusée ne doit pas avoir tourné')
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true })
+    }
   })
 })

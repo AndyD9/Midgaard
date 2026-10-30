@@ -25,7 +25,7 @@ et les coûts.
 | 0 | Spike : Claude Code → MCP → daemon, attente longue, approbation humaine | ✅ **Terminée**, validée en sessions réelles |
 | 1 | Squelette observable : persistance SQLite, dashboard temps réel, CLI `harness` | ✅ **Terminée**, 91 vérifications + essai en session réelle |
 | 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 167 vérifications + essai en session réelle ; coût **exact au microdollar** contre le solde Venice, trois fois |
-| 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | 🚧 **En cours** — étapes 1-2/8 : worktrees Git, diff, outils d'écriture bornés au worktree ; aucun agent ne s'en sert encore |
+| 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | 🚧 **En cours** — étapes 1-3/8 : worktrees Git, diff, écriture et `exec` bornés au worktree ; aucun agent ne s'en sert encore |
 | 4 | Durcissement sécurité, distribution npm | À faire |
 
 Le détail des slices est dans [docs/PLAN.md](docs/PLAN.md). Ce que chaque slice a
@@ -123,7 +123,7 @@ Depuis la racine du dépôt :
 
 | Suite | Durée | Contenu |
 |---|---|---|
-| `npm run test:unit` | ~5 s | 218 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils (écriture comprise), boucle d'agent, formatage des montants, coffres, worktrees sur de vrais dépôts Git |
+| `npm run test:unit` | ~5 s | 234 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils (écriture et `exec` compris), boucle d'agent, formatage des montants, coffres, worktrees sur de vrais dépôts Git |
 | `npm run test:vault` | ~1 s | Les 41 cas de coffre, sur le coffre **réel de la machine** — la CI les rejoue sur macOS, Windows et Linux (avec et sans trousseau) |
 | `npm run test:lock` | ~30 s | Instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s | Redémarrage, reprise WebSocket, sécurité, expiration, inactivité |
@@ -160,7 +160,7 @@ Midgaard/
 │   ├── persistence/              SQLite (node:sqlite), migrations, dépôt
 │   ├── secrets/                  coffre système multi-plateforme, sans dépendance native
 │   ├── providers/                adaptateurs de modèles : compatible OpenAI (Venice) et Gemini
-│   ├── tools/                    outils des agents : lecture, écriture dans le worktree, git_diff, http_fetch contrôlé
+│   ├── tools/                    outils des agents : lecture, écriture et exec dans le worktree, git_diff, http_fetch
 │   ├── workspace/                worktrees Git des agents écrivants : création, commit, diff, retrait
 │   ├── agent-runtime/            la boucle : budgets, limites, approbations, résultat structuré
 │   ├── daemon/                   HTTP, WebSocket, bus d'événements, moteurs de tâches

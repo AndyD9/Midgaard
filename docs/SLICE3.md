@@ -4,11 +4,11 @@
 changement dans un worktree isolé, une commande sensible suspend la tâche
 jusqu'à décision humaine, le diff est consultable, Claude récupère le résultat.
 
-**État : en cours — étapes 1 et 2 sur 8 livrées.** Les worktrees existent, sont
-enregistrés, et leur diff se calcule ; les outils d'écriture existent et
-refusent tout hors d'un worktree. **Aucun agent ne s'en sert encore** : aucun
-profil n'a de worktree. Le profil `developer`, `exec` et l'onglet Diff sont à
-faire, et ce document le dit à chaque endroit où la question se pose.
+**État : en cours — étapes 1 à 3 sur 8 livrées.** Les worktrees existent, sont
+enregistrés, et leur diff se calcule ; les outils d'écriture et `exec` existent
+et refusent tout hors d'un worktree. **Aucun agent ne s'en sert encore** : aucun
+profil n'a de worktree. Le profil `developer` et l'onglet Diff sont à faire, et
+ce document le dit à chaque endroit où la question se pose.
 
 ---
 
@@ -41,7 +41,7 @@ liste qu'en connaissance de cause — ce que l'interface devra dire en ajoutant.
 |---|---|---|
 | 1 | Paquet `workspace` (worktrees, commit, diff, retrait) et table `workspaces` | ✅ livrée |
 | 2 | Outils d'écriture bornés au worktree, refus d'écrire sous `.git`, `git_diff` en lecture | ✅ livrée |
-| 3 | `exec` contrôlé : `execFile`, environnement reconstruit, délai et arrêt du groupe de processus, sortie bornée | à faire |
+| 3 | `exec` contrôlé : sans shell, binaire résolu d'avance, environnement reconstruit, groupe de processus tué, délai borné par la tâche, sortie bornée | ✅ livrée |
 | 4 | Approbations liées à l'opération exacte (outil, argv, dossier, chemin), affichées telles quelles | à faire |
 | 5 | Profil `developer` : worktree préparé en `preparing`, lecture et écriture reroutées sur le worktree, commit de fin à `submit_result`, branche et diff dans le résultat | à faire |
 | 6 | Onglet Files/Diff du dashboard, route de diff | à faire |
@@ -188,6 +188,64 @@ Le fichier est ouvert sans troncature et vidé une fois tout vérifié.
 
 ---
 
+## Étape 3 — `exec`, sous approbation
+
+### Ce qui existe
+
+- **L'outil `exec`** (`packages/tools/src/exec.ts`) : un programme, ses
+  arguments, un dossier du worktree, un délai. Politique : refus hors worktree,
+  **approbation** par défaut, autorisation d'office pour un argv exactement en
+  liste blanche. Détail : [packages/tools/README.md](../packages/tools/README.md).
+- **`MIDGAARD_EXEC_ALLOW`** → `HarnessConfig.execAllow`, vide par défaut. Le
+  daemon rappelle la conséquence au démarrage quand elle n'est pas vide. La
+  liste est **globale**, pas par projet comme le voulait le plan (§5) : une liste
+  par projet demande un endroit où la ranger et une interface pour l'éditer
+  avec l'avertissement — c'est l'étape 7.
+- **La boucle transmet l'annulation et l'échéance aux outils**
+  (`ToolContext.signal`, `ToolContext.deadline`). Jusqu'ici, annuler une tâche
+  ne coupait pas un `http_fetch` en cours ; une commande de dix minutes, elle,
+  aurait fait durer la tâche au-delà de son délai.
+
+L'approbation montre la commande exacte **dans le texte de l'opération** ; son
+empreinte, elle, ne lie pas encore la décision à cet argv : c'est l'étape 4.
+
+### Ce qui le prouve
+
+`tests/unit/exec.test.ts` — 15 tests, plus un de boucle : une commande refusée
+par l'humain ne tourne pas (un marqueur hors du worktree reste absent), et
+l'opération soumise montre l'argv exact. 234 tests unitaires en tout.
+
+L'invariant central est vérifié **directement** : la commande lance un
+petit-enfant qui dort une minute, imprime son pid, et le test demande au
+système si ce pid vit encore — après une sortie normale, après le délai, après
+l'annulation.
+
+**Contre-épreuve faite**, garantie par garantie : sans nettoyage à la sortie,
+sans groupe propre, avec un shell, avec l'environnement hérité, sans plafond par
+l'échéance, avec une politique toujours ouverte — chacune fait échouer un à
+huit tests. Une mutation n'a **rien** fait échouer au premier essai, et c'est
+instructif : « accepter les entrées relatives du `PATH` » résolvait `.` par
+rapport au dossier du **daemon**, où l'agent n'écrit pas — ce n'était pas la
+régression dangereuse. La dangereuse, c'est de laisser le **système** résoudre
+la commande : il prend alors `.` dans le dossier du fils, le worktree. Rejouée
+ainsi, la mutation est prise par le test du piège.
+
+### Ce que l'écriture a appris
+
+**8. Ce qu'on approuve doit être ce qui tourne.** Approuver `npm test` ne dit
+pas quel `npm` : celui du système, ou un `npm` exécutable que l'agent a écrit
+dans le worktree et qu'un `.` du `PATH` ferait trouver d'abord. Le harness
+résout donc le binaire **avant** de demander, ignore les entrées relatives du
+`PATH`, et lance le chemin absolu qu'il a montré.
+
+**9. Une commande finie n'est pas une commande sans suite.** `node` qui lance un
+fils détaché, puis sort, rend la main — et laisse un processus vivant, qui tient
+les tubes de sortie ouverts. Sans le nettoyage du groupe à la sortie, la tâche
+aurait attendu une minute de plus ; avec un serveur de développement, pour
+toujours.
+
+---
+
 ## Écarts au plan
 
 1. **Pas de table `projects`, pas de table `artifacts`** (PLAN §6). Un projet est
@@ -197,7 +255,8 @@ Le fichier est ouvert sans troncature et vidé une fois tout vérifié.
    au moment de l'écrire. L'événement `artifact.created` n'est donc pas créé.
 2. **`exec` en approbation par défaut**, et non en liste blanche — voir les
    décisions plus haut.
-3. **Pas d'outil `git` généraliste** (PLAN §4 : « `git` dans le worktree »),
+3. **Liste blanche `exec` globale**, pas encore par projet — voir l'étape 3.
+4. **Pas d'outil `git` généraliste** (PLAN §4 : « `git` dans le worktree »),
    seulement `git_diff` — voir l'étape 2.
 
 ---
