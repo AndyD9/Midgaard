@@ -25,6 +25,11 @@
  * | POST | `/api/tasks/:id/cancel` | Annulation | 200, 404, 409 |
  * | GET  | `/api/tasks/:id/tools` | Appels d'outils d'une tâche | 200, 404 |
  * | GET  | `/api/tasks/:id/workspace` | Worktree et diff, calculé à la demande | 200, 404 |
+ * | GET  | `/api/workspaces` | Tous les worktrees, état sur le disque, orphelins | 200 |
+ * | POST | `/api/workspaces/:id/remove` | Retire un worktree (la branche reste) | 200, 404, 409 |
+ * | GET  | `/api/exec-allow?project_dir=` | Liste blanche `exec` du dépôt, et la globale | 200, 400 |
+ * | POST | `/api/exec-allow` | Ajoute un argv exact à la liste du dépôt | 200, 400 |
+ * | POST | `/api/exec-allow/remove` | Retire un argv de la liste du dépôt | 200, 400, 404 |
  * | GET  | `/api/agents` | Profils d'agents | 200 |
  * | GET  | `/api/providers` | Fournisseurs **sans aucune clé** | 200 |
  * | POST | `/api/providers` | Déclare un fournisseur, dépose sa clé au coffre | 200, 400, 500 |
@@ -42,7 +47,15 @@
  * corps invalide ou trop gros, 405 sur méthode inconnue.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { createTaskRequestSchema, upsertProviderRequestSchema, type Health } from '@midgaard/contracts'
+import {
+  createTaskRequestSchema,
+  execAllowRequestSchema,
+  removeWorkspaceRequestSchema,
+  upsertProviderRequestSchema,
+  type HarnessConfig,
+  type Health,
+} from '@midgaard/contracts'
+import type { EventBus } from './bus.ts'
 import type { HarnessStore } from '@midgaard/persistence'
 import type { TaskManager } from './task-manager.ts'
 import type { StaticFiles } from './static-files.ts'
@@ -54,7 +67,7 @@ import {
   type ProviderServiceDeps,
 } from './providers.ts'
 import { checkEnvelope, checkToken, type SecurityContext } from './security.ts'
-import { workspaceView } from './workspaces.ts'
+import { execAllowFor, listWorkspaces, removeWorkspace, workspaceView } from './workspaces.ts'
 
 /** Taille maximale d'un corps de requête, contre l'épuisement mémoire. */
 const MAX_BODY_BYTES = 64 * 1024
@@ -77,6 +90,9 @@ export interface HttpDeps {
   shutdown: (reason: string) => void
   /** Service des fournisseurs : coffre, tests de connexion, tarifs. */
   providers: ProviderServiceDeps
+  /** Bus d'écriture : le retrait d'un worktree s'écrit avec son événement. */
+  bus: EventBus
+  config: HarnessConfig
 }
 
 /** Envoie une réponse JSON, sauf si la connexion est déjà close — cas normal
@@ -146,6 +162,8 @@ export function createRequestHandler(deps: HttpDeps) {
       if (section === 'tasks') return handleTasks(deps, res, method, url, id, action, req)
       if (section === 'agents') return handleAgents(deps, res, method, id)
       if (section === 'providers') return handleProviders(deps, res, method, id, action, req)
+      if (section === 'workspaces') return handleWorkspaces(deps, res, method, id, action, req)
+      if (section === 'exec-allow') return handleExecAllow(deps, res, method, url, id, req)
       if (section === 'pricing' && method === 'GET') {
         return send(res, 200, { pricing: deps.providers.pricing() })
       }
@@ -156,6 +174,67 @@ export function createRequestHandler(deps: HttpDeps) {
       return send(res, 400, { error: 'bad_request', detail: (e as Error).message })
     }
   }
+}
+
+/** Routes `/api/workspaces…`. */
+async function handleWorkspaces(
+  deps: HttpDeps,
+  res: ServerResponse,
+  method: string,
+  id: string | undefined,
+  action: string | undefined,
+  req: IncomingMessage,
+): Promise<void> {
+  if (!id && method === 'GET') return send(res, 200, await listWorkspaces(deps.store, deps.config))
+  if (id && action === 'remove' && method === 'POST') {
+    const parsed = removeWorkspaceRequestSchema.safeParse(await readJson(req))
+    if (!parsed.success) return send(res, 400, { error: 'invalid_request', issues: parsed.error.issues })
+    const done = await removeWorkspace(deps, id, parsed.data)
+    if ('error' in done) return send(res, done.status, { error: done.error, reason: done.reason })
+    deps.log(`worktree ${done.workspace.branch} retiré par ${parsed.data.by}${parsed.data.force ? ' (forcé)' : ''}`)
+    return send(res, 200, done)
+  }
+  return send(res, 405, { error: 'method_not_allowed' })
+}
+
+/**
+ * Routes `/api/exec-allow…`. Un dossier qui n'est pas dans un dépôt Git est un
+ * 400 : la liste blanche est rangée par dépôt, et il n'y en a pas.
+ */
+async function handleExecAllow(
+  deps: HttpDeps,
+  res: ServerResponse,
+  method: string,
+  url: URL,
+  sub: string | undefined,
+  req: IncomingMessage,
+): Promise<void> {
+  const refuse = (e: unknown) => send(res, 400, { error: 'not_a_repository', reason: (e as Error).message })
+  if (!sub && method === 'GET') {
+    const dir = url.searchParams.get('project_dir')
+    if (!dir) return send(res, 400, { error: 'project_dir_required' })
+    return execAllowFor(deps.store, deps.config, dir).then((body) => send(res, 200, body), refuse)
+  }
+  if (method !== 'POST' || (sub && sub !== 'remove')) return send(res, 405, { error: 'method_not_allowed' })
+  const parsed = execAllowRequestSchema.safeParse(await readJson(req))
+  if (!parsed.success) return send(res, 400, { error: 'invalid_request', issues: parsed.error.issues })
+  let repoDir: string
+  try {
+    repoDir = (await execAllowFor(deps.store, deps.config, parsed.data.project_dir)).repo_dir
+  } catch (e) {
+    return refuse(e)
+  }
+  const { argv, by } = parsed.data
+  if (sub === 'remove') {
+    if (!deps.store.removeExecAllow(repoDir, argv)) return send(res, 404, { error: 'not_in_allowlist' })
+    deps.log(`exec : « ${argv.join(' ')} » retirée de la liste blanche de ${repoDir} par ${by}`)
+  } else {
+    const added = deps.store.addExecAllow(repoDir, argv, by)
+    // Journalisé à chaque ajout : c'est une autorisation durable, donnée une
+    // fois et appliquée à toutes les tâches à venir sur ce dépôt.
+    if (added) deps.log(`exec : « ${argv.join(' ')} » ajoutée sans approbation pour ${repoDir} par ${by}`)
+  }
+  return send(res, 200, await execAllowFor(deps.store, deps.config, repoDir))
 }
 
 /** Routes `/api/tasks…`. */

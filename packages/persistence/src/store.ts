@@ -41,6 +41,7 @@ import {
   type ToolCallStatus,
   type ToolDecision,
   type Usage,
+  type ExecAllowEntry,
   type WebSearchMode,
   type Workspace,
   type WorkspaceStatus,
@@ -918,6 +919,47 @@ export class HarnessStore {
       this.db.prepare('SELECT * FROM workspaces WHERE task_id = :id').get({ id: taskId }),
     )
     return found ? toWorkspace(found) : null
+  }
+
+  // --- Liste blanche exec, par dépôt ----------------------------------------
+
+  /**
+   * Ajoute une commande à la liste blanche d'un dépôt.
+   *
+   * @param repoDir racine **canonique** du dépôt — celle que `inspectRepository`
+   *        rend, et que le moteur consultera. Un chemin non canonique ne serait
+   *        jamais retrouvé, et l'entrée ne servirait à rien sans le dire.
+   * @returns `false` si l'argv y figurait déjà
+   */
+  addExecAllow(repoDir: string, argv: readonly string[], by: string): boolean {
+    const info = this.db
+      .prepare(
+        `INSERT OR IGNORE INTO exec_allow (repo_dir, argv_json, added_at, added_by)
+         VALUES (:repo, :argv, :at, :by)`,
+      )
+      .run({ repo: repoDir, argv: JSON.stringify(argv), at: new Date().toISOString(), by })
+    return info.changes === 1
+  }
+
+  /** Retire une commande. @returns `false` si elle n'y figurait pas */
+  removeExecAllow(repoDir: string, argv: readonly string[]): boolean {
+    const info = this.db
+      .prepare('DELETE FROM exec_allow WHERE repo_dir = :repo AND argv_json = :argv')
+      .run({ repo: repoDir, argv: JSON.stringify(argv) })
+    return info.changes === 1
+  }
+
+  /** Liste blanche d'un dépôt, ou de tous si `repoDir` est omis. */
+  listExecAllow(repoDir?: string): ExecAllowEntry[] {
+    const found = repoDir
+      ? this.db.prepare('SELECT * FROM exec_allow WHERE repo_dir = :repo ORDER BY added_at, rowid').all({ repo: repoDir })
+      : this.db.prepare('SELECT * FROM exec_allow ORDER BY repo_dir, added_at, rowid').all()
+    return rows<{ repo_dir: string; argv_json: string; added_at: string; added_by: string }>(found).map((r) => ({
+      repo_dir: r.repo_dir,
+      argv: JSON.parse(r.argv_json) as string[],
+      added_at: r.added_at,
+      added_by: r.added_by,
+    }))
   }
 
   /** Les worktrees, du plus récent au plus ancien. */

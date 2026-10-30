@@ -239,6 +239,26 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE approvals ADD COLUMN operation_json TEXT;
     `,
   },
+  {
+    version: 6,
+    label: 'Slice 3 — liste blanche exec par projet',
+    sql: `
+      -- Commandes qu'exec lance sans approbation, pour UN dépôt (sa racine
+      -- canonique). Le plan (§5) voulait une liste par projet ; la variable
+      -- MIDGAARD_EXEC_ALLOW, globale, reste et s'y ajoute.
+      --
+      -- argv_json est l'argv EXACT, en JSON : 'npm test' n'autorise pas
+      -- 'npm test -- --watch'. added_by dit qui l'a ajoutée — un humain, par la
+      -- CLI ; une entrée sans auteur ne se relirait pas.
+      CREATE TABLE exec_allow (
+        repo_dir   TEXT NOT NULL,
+        argv_json  TEXT NOT NULL,
+        added_at   TEXT NOT NULL,
+        added_by   TEXT NOT NULL,
+        PRIMARY KEY (repo_dir, argv_json)
+      );
+    `,
+  },
 ]
 
 // Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',

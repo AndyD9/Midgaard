@@ -5,12 +5,12 @@
 import { z } from 'zod'
 import { taskEventSchema } from './events.ts'
 import { approvalSchema } from './approvals.ts'
-import { NEXT_ACTIONS, taskSchema } from './task.ts'
+import { NEXT_ACTIONS, taskSchema, taskStatusSchema } from './task.ts'
 import { agentSchema, requestedLimitsSchema } from './agent.ts'
 import { connectionTestSchema, PROVIDER_PRESETS, providerConfigSchema, WEB_SEARCH_MODES } from './provider.ts'
 import { pricingTableSchema } from './usage.ts'
 import { toolCallSchema } from './tools.ts'
-import { workspaceDiffSchema, workspaceSchema } from './workspace.ts'
+import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './workspace.ts'
 
 /**
  * Version du protocole, annoncée par `GET /api/health`.
@@ -132,6 +132,52 @@ export const taskWorkspaceResponseSchema = z.object({
   unavailable: z.string().nullable(),
 })
 export type TaskWorkspaceResponse = z.infer<typeof taskWorkspaceResponseSchema>
+
+/** Un worktree tel que `harness workspaces` le montre : la ligne en base, et ce qu'il y a sur le disque. */
+export const workspaceListingSchema = z.object({
+  workspace: workspaceSchema,
+  task_status: taskStatusSchema.nullable(),
+  exists: z.boolean(),
+  /** Chemins modifiés ou nouveaux non commités ; `null` si le worktree est absent ou illisible. */
+  dirty: z.number().int().min(0).nullable(),
+})
+export type WorkspaceListing = z.infer<typeof workspaceListingSchema>
+
+/** Réponse de `GET /api/workspaces`. */
+export const workspacesResponseSchema = z.object({
+  workspaces: z.array(workspaceListingSchema),
+  /**
+   * Dossiers sous `worktreesDir` qu'aucune ligne ne référence : reste d'un
+   * crash entre la création du worktree et son enregistrement. **Montrés,
+   * jamais supprimés d'office** — rien ne dit à qui ils sont.
+   */
+  orphans: z.array(z.string()),
+  worktrees_dir: z.string(),
+})
+export type WorkspacesResponse = z.infer<typeof workspacesResponseSchema>
+
+/** Corps de `POST /api/workspaces/:id/remove`. */
+export const removeWorkspaceRequestSchema = z.object({
+  /** Retirer même avec du travail non commité, que la branche ne contient pas. */
+  force: z.boolean().default(false),
+  by: z.string().min(1).max(64).default('cli'),
+})
+
+/** Réponse de `GET /api/exec-allow?project_dir=`. */
+export const execAllowResponseSchema = z.object({
+  repo_dir: z.string(),
+  entries: z.array(execAllowEntrySchema),
+  /** Liste blanche globale (`MIDGAARD_EXEC_ALLOW`), qui s'ajoute à celle du dépôt. */
+  global: z.array(z.array(z.string())),
+})
+export type ExecAllowResponse = z.infer<typeof execAllowResponseSchema>
+
+/** Corps de `POST /api/exec-allow` et `POST /api/exec-allow/remove`. */
+export const execAllowRequestSchema = z.object({
+  project_dir: z.string().min(1).max(4096),
+  argv: z.array(z.string().min(1).max(4096)).min(1).max(64),
+  by: z.string().min(1).max(64).default('cli'),
+})
 
 /** Réponse de `GET /api/agents`. */
 export const agentsResponseSchema = z.object({ agents: z.array(agentSchema) })

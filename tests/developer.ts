@@ -27,7 +27,9 @@ import {
   type RuntimeInfo,
   type TaskEvent,
   type TaskView,
+  type ExecAllowResponse,
   type TaskWorkspaceResponse,
+  type WorkspacesResponse,
 } from '@midgaard/contracts'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js'
@@ -137,6 +139,7 @@ if (declared.status !== 200 && declared.status !== 201) {
 console.log('Developer de bout en bout (faux fournisseur, vrai daemon, vrais dépôts)\n')
 
 let v1TaskId = ''
+let v3TaskId = ''
 let v5TaskId = ''
 
 await scenario(outcomes, 'V1 le travail est commité sur la branche, le dépôt de l\'utilisateur intact', async () => {
@@ -211,6 +214,7 @@ await scenario(outcomes, 'V3 une tâche qui échoue ne laisse pas une branche qu
     { text: 'je crois avoir fini' },
     { text: 'vraiment fini' },
   ])
+  v3TaskId = task.id
   const done = await waitFor(rt, task.id, TERMINAL)
   const ws = (await events(rt, task.id)).find((e) => e.type === 'workspace.created')?.payload as
     | { branch: string; base_commit: string; worktree_path: string }
@@ -321,6 +325,159 @@ await scenario(outcomes, 'V7 le diff se lit par l\'API, et Claude reçoit la bra
     }
   } finally {
     await client.close()
+  }
+})
+
+/** Le worktree d'une tâche, tel que `GET /api/workspaces` le liste. */
+async function listing(taskId: string) {
+  const body = (await daemonJson<WorkspacesResponse>(rt, '/api/workspaces')).body
+  return { body, entry: body.workspaces.find((l) => l.workspace.task_id === taskId) }
+}
+
+async function removeWs(id: string, force = false) {
+  return daemonJson<{ error?: string; reason?: string; outcome?: string }>(rt, `/api/workspaces/${id}/remove`, {
+    method: 'POST',
+    body: JSON.stringify({ force, by: 'test' }),
+  })
+}
+
+await scenario(outcomes, 'V8 un retrait ne perd jamais rien sans qu\'on le demande', async () => {
+  const problems: string[] = []
+  // Un dossier que rien ne référence : il doit être montré, jamais retiré.
+  const orphan = join(main.config.worktreesDir, 'depot-orphelin', 'abcd1234')
+  mkdirSync(orphan, { recursive: true })
+
+  const v1 = await listing(v1TaskId)
+  const v3 = await listing(v3TaskId)
+  if (!v1.entry || v1.entry.dirty !== 0 || v1.entry.task_status !== 'completed') problems.push(`V1 mal listé : ${JSON.stringify(v1.entry && { dirty: v1.entry.dirty, s: v1.entry.task_status })}`)
+  if (!v3.entry || !(v3.entry.dirty! > 0)) problems.push('V3 devrait être listé avec du travail non commité')
+  if (!v1.body.orphans.includes(realpathSync(orphan))) problems.push(`orphelin non signalé : ${v1.body.orphans.join(', ')}`)
+
+  // Tâche en cours : jamais retirée sous l'agent.
+  const repo = makeRepo('v8')
+  const active = await delegate(rt, '[V8]', repo, [[{ tool: 'exec', args: { command: 'node', args: ['-v'] } }], submit('x')])
+  await waitFor(rt, active.id, new Set(['waiting_approval', ...TERMINAL]))
+  const activeWs = (await listing(active.id)).entry!
+  const refusedActive = await removeWs(activeWs.workspace.id, true)
+  if (refusedActive.status !== 409 || refusedActive.body.error !== 'task_active') problems.push(`tâche active retirée : ${refusedActive.status}`)
+  await daemonJson(rt, `/api/tasks/${active.id}/cancel`, { method: 'POST', body: JSON.stringify({ reason: 'test' }) })
+
+  // Travail non commité : refusé sans force, retiré avec, la branche reste.
+  const w3 = v3.entry!.workspace
+  const refusedDirty = await removeWs(w3.id)
+  if (refusedDirty.status !== 409 || refusedDirty.body.error !== 'worktree_dirty') problems.push(`worktree sale retiré sans force : ${refusedDirty.status}`)
+  if (!existsSync(w3.worktree_path)) problems.push('worktree sale supprimé malgré le refus')
+  const forced = await removeWs(w3.id, true)
+  if (forced.status !== 200) problems.push(`retrait forcé refusé : ${forced.body.reason}`)
+  if (existsSync(w3.worktree_path)) problems.push('worktree forcé toujours présent')
+  if (!git(w3.repo_dir, 'branch', '--list', w3.branch).includes(w3.branch)) problems.push('branche supprimée avec le worktree')
+  if (!(await events(rt, v3TaskId)).some((e) => e.type === 'workspace.removed')) problems.push('aucun workspace.removed au journal')
+
+  // Propre : retiré sans force.
+  const clean = await removeWs(v1.entry!.workspace.id)
+  if (clean.status !== 200) problems.push(`worktree propre refusé : ${clean.body.reason}`)
+  if (!existsSync(orphan)) problems.push('orphelin supprimé')
+  return {
+    verdict: problems.length ? 'FAIL' : 'PASS',
+    detail: problems.length
+      ? problems.join(' ; ')
+      : 'actif refusé, sale refusé puis forcé (branche gardée), propre retiré, orphelin montré et laissé',
+  }
+})
+
+await scenario(outcomes, 'V9 la liste blanche d\'un dépôt dispense de l\'approbation l\'argv exact, et lui seul', async () => {
+  const repo = makeRepo('v9')
+  const script = "require('fs').writeFileSync('autorise.txt', 'sans approbation')"
+  const problems: string[] = []
+  const added = await daemonJson<ExecAllowResponse>(rt, '/api/exec-allow', {
+    method: 'POST',
+    // Un sous-dossier du dépôt : la liste est rangée sous la racine canonique.
+    body: JSON.stringify({ project_dir: join(repo, 'src'), argv: ['node', '-e', script], by: 'test' }),
+  })
+  if (added.status !== 200 || added.body.repo_dir !== repo) problems.push(`ajout : ${added.status} ${added.body.repo_dir}`)
+  const notRepo = await daemonJson(rt, '/api/exec-allow', {
+    method: 'POST',
+    body: JSON.stringify({ project_dir: join(scratch, 'pas-un-depot'), argv: ['make'] }),
+  })
+  if (notRepo.status !== 400) problems.push(`hors dépôt accepté : ${notRepo.status}`)
+
+  const task = await delegate(rt, '[V9]', repo, [
+    [{ tool: 'exec', args: { command: 'node', args: ['-e', script] } }],
+    // Le même programme, un argument de plus : la liste ne le couvre plus.
+    [{ tool: 'exec', args: { command: 'node', args: ['-e', script, 'en-plus'] } }],
+    submit('fait'),
+  ])
+  const paused = await waitFor(rt, task.id, new Set(['waiting_approval', ...TERMINAL]))
+  const requested = (await events(rt, task.id)).filter((e) => e.type === 'approval.requested')
+  if (paused.task.status !== 'waiting_approval') problems.push(`l'argv élargi n'a pas demandé d'approbation : ${paused.task.status}`)
+  if (requested.length !== 1) problems.push(`${requested.length} demande(s) au lieu d'une`)
+  if (!String((paused.approval?.operation_detail as { args?: string[] })?.args?.at(-1)).includes('en-plus')) problems.push('la demande ne porte pas sur l\'argv élargi')
+  await daemonJson(rt, `/api/approvals/${paused.approval!.id}/approve`, { method: 'POST', body: JSON.stringify({ by: 'test' }) })
+  const done = await waitFor(rt, task.id, TERMINAL)
+  const w = done.task.result?.workspace
+  if (!w || !git(repo, 'show', `${w.branch}:autorise.txt`).includes('sans approbation')) problems.push('la commande autorisée n\'a pas tourné')
+  return {
+    verdict: problems.length ? 'FAIL' : 'PASS',
+    detail: problems.length ? problems.join(' ; ') : 'argv en liste lancé sans demande, argv élargi soumis à l\'humain, hors dépôt refusé',
+  }
+})
+
+await scenario(outcomes, 'V10 la CLI liste, retire, et n\'ajoute rien à la liste blanche sans confirmation', async () => {
+  const repo = makeRepo('v10')
+  const cli = (...args: string[]) =>
+    new Promise<{ code: number | null; out: string }>((resolve) => {
+      // Entrée standard fermée : c'est le cas d'un script, ou d'un agent qui
+      // lancerait la CLI. Aucun terminal ne peut confirmer.
+      const child = spawn(process.execPath, [...nodeArgsFor('@midgaard/cli/main'), ...args], {
+        env: childEnv(main.home),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let out = ''
+      child.stdout!.on('data', (c) => (out += c))
+      child.stderr!.on('data', (c) => (out += c))
+      child.on('close', (code) => resolve({ code, out }))
+    })
+  const problems: string[] = []
+  const list = await cli('workspaces')
+  const v2 = (await daemonJson<WorkspacesResponse>(rt, '/api/workspaces')).body.workspaces.find((l) => l.workspace.status !== 'removed')
+  if (list.code !== 0 || !v2 || !list.out.includes(v2.workspace.branch)) problems.push(`liste : ${list.code}`)
+  if (!list.out.includes('depot-orphelin')) problems.push('orphelin absent de la liste')
+
+  const unconfirmed = await cli('exec', 'allow', '--dir', repo, '--', 'node', '-v')
+  if (unconfirmed.code === 0) problems.push('ajout accepté sans terminal ni --yes')
+  if (!/sans approbation/.test(unconfirmed.out)) problems.push('avertissement absent')
+  const after = (await daemonJson<ExecAllowResponse>(rt, `/api/exec-allow?project_dir=${encodeURIComponent(repo)}`)).body
+  if (after.entries.length !== 0) problems.push('une entrée a été ajoutée malgré le refus')
+
+  const confirmed = await cli('exec', 'allow', '--yes', '--dir', repo, '--', 'node', '-v')
+  const listed = await cli('exec', 'list', '--dir', repo)
+  const revoked = await cli('exec', 'revoke', '--dir', repo, '--', 'node', '-v')
+  if (confirmed.code !== 0 || !listed.out.includes('node -v') || revoked.code !== 0) problems.push('allow --yes / list / revoke')
+  if (v2) {
+    const removed = await cli('workspaces', 'remove', v2.workspace.branch)
+    if (removed.code !== 0 || !/la branche reste/.test(removed.out)) problems.push(`remove : ${removed.out.trim()}`)
+  }
+
+  // `clean` sans --force : les worktrees propres des tâches finies partent, le
+  // worktree de V6 — tâche interrompue, fichier en vol non commité — reste.
+  const v6 = (await daemonJson<WorkspacesResponse>(rt, '/api/workspaces')).body.workspaces.find(
+    (l) => l.workspace.status !== 'removed' && l.dirty !== null && l.dirty > 0,
+  )
+  const cleaned = await cli('workspaces', 'clean')
+  const left = (await daemonJson<WorkspacesResponse>(rt, '/api/workspaces')).body.workspaces.filter(
+    (l) => l.workspace.status !== 'removed',
+  )
+  if (!v6) problems.push('aucun worktree sale pour éprouver clean')
+  else if (left.length !== 1 || left[0]!.workspace.id !== v6.workspace.id) {
+    problems.push(`clean a laissé ${left.map((l) => l.workspace.branch).join(', ') || 'rien'} au lieu du seul worktree sale`)
+  }
+  if (v6 && !existsSync(v6.workspace.worktree_path)) problems.push('clean a supprimé le worktree sale')
+  if (!/non commité/.test(cleaned.out)) problems.push('clean ne dit pas pourquoi il laisse le worktree sale')
+  return {
+    verdict: problems.length ? 'FAIL' : 'PASS',
+    detail: problems.length
+      ? problems.join(' ; ')
+      : 'liste, orphelin montré, ajout refusé sans confirmation, --yes/list/revoke, remove, clean laisse le sale',
   }
 })
 

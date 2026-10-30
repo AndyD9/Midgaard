@@ -4,14 +4,15 @@
 changement dans un worktree isolé, une commande sensible suspend la tâche
 jusqu'à décision humaine, le diff est consultable, Claude récupère le résultat.
 
-**État : en cours — étapes 1 à 6 sur 8 livrées.** Les worktrees existent, sont
+**État : en cours — étapes 1 à 7 sur 8 livrées.** Les worktrees existent, sont
 enregistrés, et leur diff se calcule ; les outils d'écriture et `exec` existent
 et refusent tout hors d'un worktree ; une approbation porte sur l'opération
 exacte, préparée avant la demande ; le profil `developer` assemble le tout et
 rend une branche commitée. Il a été éprouvé dans un vrai daemon face à un
 **faux** fournisseur, **jamais face à un vrai modèle** : c'est l'étape 8.
-Le diff se lit dans le dashboard. `harness workspaces` est à faire, et ce
-document le dit à chaque endroit où la question se pose.
+Le diff se lit dans le dashboard ; `harness workspaces` et `harness exec`
+gèrent worktrees et liste blanche. Reste l'essai réel, et ce document le dit à
+chaque endroit où la question se pose.
 
 ---
 
@@ -48,7 +49,7 @@ liste qu'en connaissance de cause — ce que l'interface devra dire en ajoutant.
 | 4 | Approbations liées à l'opération exacte (outil, argv, dossier, chemin), affichées telles quelles | ✅ livrée |
 | 5 | Profil `developer` : worktree préparé en `preparing`, lecture et écriture reroutées sur le worktree, commit de fin à `submit_result`, branche et diff dans le résultat | ✅ livrée |
 | 6 | Onglet Files/Diff du dashboard, route de diff | ✅ livrée |
-| 7 | `harness workspaces` (liste, nettoyage), `doctor` vérifie Git | à faire |
+| 7 | `harness workspaces` (liste, nettoyage), `doctor` vérifie Git — et la liste blanche `exec` par dépôt promise à l'étape 3 | ✅ livrée |
 | 8 | Bout en bout MCP, puis l'essai d'acceptation du plan : « fais implémenter une route `/health` » | à faire |
 
 L'ordre suit une règle : **rien de ce qu'un agent peut faire n'arrive avant ce
@@ -460,6 +461,83 @@ navigateur.
 
 ---
 
+## Étape 7 — `harness workspaces`, `harness exec`, `doctor`
+
+### Ce qui existe
+
+- **`harness workspaces`** liste les worktrees avec leur état **relu sur le
+  disque** — propre, travail non commité, dossier absent — et les **dossiers
+  orphelins** sous `~/.midgaard/worktrees`, ceux qu'aucune ligne ne référence
+  (reste d'un crash entre la création et l'enregistrement). Les orphelins sont
+  montrés, **jamais retirés d'office** : rien ne dit à qui ils sont.
+- **`harness workspaces remove <branche|id> [--force]`** et **`clean [--force]`**.
+  Le retrait passe par le daemon, qui l'écrit avec son `workspace.removed`.
+  Trois refus : une tâche encore active (on ne retire pas un worktree sous un
+  agent), un worktree sale sans `--force` (ce travail, la branche ne le
+  contient pas), et tout chemin hors de `worktreesDir` (étape 1). La branche
+  reste **toujours**.
+- **La liste blanche `exec` par dépôt**, promise à l'étape 3 : migration 6,
+  table `exec_allow`, rangée sous la racine **canonique** du dépôt — celle que
+  le moteur consultera, sans quoi une entrée enregistrée depuis un sous-dossier
+  ne serait jamais retrouvée. Le moteur la lit **au départ** de la tâche et
+  l'ajoute à `MIDGAARD_EXEC_ALLOW` : un ajout en cours de tâche vaut pour la
+  suivante, une autorisation ne s'élargit pas en route.
+- **`harness exec [list|allow|revoke]`**. `allow` **dit** ce que la liste
+  laisse passer — « si cette commande exécute le code du projet, elle exécute
+  ce que l'agent a écrit » — puis demande confirmation ; **sans terminal, il
+  refuse** sauf `--yes`. Les options viennent avant la commande, pour que
+  `npx tsc --noEmit` garde son `--noEmit`. Le daemon journalise chaque ajout.
+- **`doctor`** vérifie Git (2.17 au moins, pour `git worktree remove` ; un
+  avertissement, pas un échec — le Researcher s'en passe), compte les worktrees
+  et rappelle comment les nettoyer, et **avertit** dès qu'une commande passe
+  sans approbation.
+- Routes `GET /api/workspaces`, `POST /api/workspaces/:id/remove`,
+  `GET|POST /api/exec-allow`, `POST /api/exec-allow/remove`. Des ajouts : pas de
+  changement de protocole.
+
+### Ce qui le prouve
+
+Trois scénarios de plus dans `test:developer`, dix en tout :
+
+| # | Ce qui est vérifié |
+|---|---|
+| V8 | Un worktree de tâche active n'est pas retiré, même forcé ; un sale est refusé sans `--force`, retiré avec, **sa branche restant** et `workspace.removed` au journal ; un propre part sans force ; un orphelin est listé et **laissé** |
+| V9 | L'argv en liste blanche tourne sans demande ; **le même avec un argument de plus** attend l'humain ; un dossier hors dépôt est refusé |
+| V10 | La **vraie CLI**, entrée standard fermée : `exec allow` sans `--yes` refuse et n'ajoute rien ; `--yes`, `list`, `revoke`, `remove` ; `clean` retire les propres et **laisse le seul worktree sale** en disant pourquoi |
+
+Et neuf tests unitaires (255 en tout) : lecture des arguments de `exec`,
+contrôles de `doctor`, liste blanche en base.
+
+**Contre-épreuve faite.** Retrait d'un worktree de tâche active, moteur qui
+ignore la liste du dépôt, ajout sans confirmation hors terminal : chacune est
+prise. Une quatrième ne l'est **pas**, et c'est la bonne nouvelle de l'étape :
+retirer de `clean` le filtre des worktrees sales n'en retire aucun — la CLI
+demande alors le retrait sans `--force`, et c'est le daemon, par
+`git worktree remove`, qui refuse. Le filtre de la CLI n'est qu'une politesse
+qui épargne un appel voué à l'échec ; la garde est côté daemon, et V8 l'éprouve
+directement.
+
+### Ce que l'écriture a appris
+
+**16. Une liste blanche rangée sous le mauvais chemin a l'air de marcher.**
+L'utilisateur lance `harness exec allow` depuis `packages/api` ; le moteur
+consulte la liste du dépôt sous sa racine. Ranger l'entrée sous le dossier
+courant l'aurait rendue introuvable, sans rien dire — la commande aurait
+continué à demander une approbation, et l'on aurait cru la liste en panne. Elle
+est donc toujours rangée sous la racine canonique, et V9 l'ajoute exprès depuis
+un sous-dossier.
+
+**17. `doctor` écrit dans la base qu'il diagnostique.** Il l'ouvre par
+`HarnessStore.open`, qui applique les migrations. En le lançant pendant cette
+étape sur l'installation réelle, la base de l'auteur est passée du schéma 3 au
+schéma 6 sous un daemon de la Slice 2 encore en marche. Sans dommage — les
+migrations n'ajoutent que des tables et des colonnes facultatives, et le
+prochain appel MCP remplace ce daemon —, mais un diagnostic ne devrait rien
+écrire. Le comportement date de la Slice 1 ; il est noté au § « Ce qui reste
+ouvert ».
+
+---
+
 ## Écarts au plan
 
 1. **Pas de table `projects`, pas de table `artifacts`** (PLAN §6). Un projet est
@@ -469,7 +547,8 @@ navigateur.
    au moment de l'écrire. L'événement `artifact.created` n'est donc pas créé.
 2. **`exec` en approbation par défaut**, et non en liste blanche — voir les
    décisions plus haut.
-3. **Liste blanche `exec` globale**, pas encore par projet — voir l'étape 3.
+3. ~~**Liste blanche `exec` globale**, pas encore par projet.~~ Réglé à
+   l'étape 7 : liste par dépôt, à laquelle la globale s'ajoute.
 4. **Pas d'outil `git` généraliste** (PLAN §4 : « `git` dans le worktree »),
    seulement `git_diff` — voir l'étape 2.
 
@@ -477,6 +556,10 @@ navigateur.
 
 ## Ce qui reste ouvert
 
+- **`doctor` migre la base qu'il diagnostique** (leçon n° 17). Il devrait
+  l'ouvrir en lecture seule et dire « base à migrer » plutôt que de le faire.
+  Hors de la Slice 3, qui ne l'a pas introduit ; à régler avant la
+  distribution (Slice 4).
 - **Les sous-modules** ne sont pas initialisés dans un worktree. Un dépôt qui en
   dépend donnera à l'agent des dossiers vides ; à annoncer quand le profil
   existera.

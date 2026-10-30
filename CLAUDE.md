@@ -37,12 +37,14 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `approve`, `reject` |
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho |
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
+| `npm run harness -- workspaces` | Worktrees : `remove`, `clean` — la branche reste toujours |
+| `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme), `revoke` |
 | `npm run test:unit` | ~5 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git) |
 | `npm run test:vault` | ~1 s — les coffres seuls, sur le coffre réel de la machine |
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
 | `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer compris (`npx playwright install chromium` au préalable) |
-| `npm run test:developer` | ~15 s — le Developer dans un vrai daemon, face à un faux fournisseur |
+| `npm run test:developer` | ~25 s — le Developer dans un vrai daemon, face à un faux fournisseur |
 | `npm run test:wait` | ~3 min — 12 scénarios de bout en bout MCP |
 
 ## Invariants à ne pas casser
@@ -142,6 +144,9 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   d'une tâche **aboutie**, et seulement elle : une tâche qui échoue laisse sa
   branche au commit de départ, son travail lisible dans le worktree, jamais une
   branche qui a l'air d'un résultat. Le worktree est conservé dans tous les cas.
+- **Une liste blanche `exec` se range sous la racine canonique du dépôt**, d'où
+  que la CLI soit lancée : rangée ailleurs, elle aurait l'air de marcher et ne
+  servirait jamais. Le moteur la lit au départ de la tâche, jamais en route.
 - **Les commits d'agent ne portent ni l'identité ni la signature de
   l'utilisateur** : `Midgaard <agent> <agent@midgaard.invalid>`, `--no-gpg-sign`.
 - **Le diff se calcule contre `base_commit`, jamais contre une branche**, et
@@ -195,13 +200,14 @@ Files/Diff. Le profil `developer` rejoindra `simulated` et `researcher` dans
 `packages/daemon/src/agents.ts`, et son moteur sera l'`AgentEngine` existant avec
 une autre boîte à outils : la boucle n'a pas à changer.
 
-**Étapes 1 à 6 sur 8 livrées** — le paquet `workspace` et la table
+**Étapes 1 à 7 sur 8 livrées** — le paquet `workspace` et la table
 `workspaces` (migration 4) ; `write_file`, `edit_file`, `delete_file`,
 `git_diff` et `exec` ; des approbations portant sur l'opération exacte
 (migration 5) ; le profil `developer` (`PROTOCOL_VERSION` 7), éprouvé contre
 un faux fournisseur dans `test:developer`, **jamais contre un vrai modèle** —
-c'est l'étape 8. Le diff se lit dans le dashboard (6) ; reste
-`harness workspaces` (7). Les quatre
+c'est l'étape 8, la seule qui reste. Le diff se lit dans le dashboard (6) ;
+`harness workspaces` et `harness exec`, avec la liste blanche par dépôt, sont
+là (7, migration 6). Les quatre
 décisions prises avec l'auteur (merge manuel, worktrees conservés jusqu'au
 nettoyage, sous `~/.midgaard/worktrees`, `exec` en approbation par défaut) et le
 découpage des sept étapes restantes sont dans [docs/SLICE3.md](docs/SLICE3.md) :

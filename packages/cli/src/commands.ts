@@ -9,6 +9,7 @@
  * démarre s'il dort — sauf `status` et `doctor`, qui doivent pouvoir constater
  * son absence sans la provoquer.
  */
+import { execFile } from 'node:child_process'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { relative } from 'node:path'
 import {
@@ -27,6 +28,7 @@ import { StaticFiles, defaultDashboardDir } from '@midgaard/daemon'
 import { loadPricing, packagedPricingPath, userPricingPath } from '@midgaard/providers'
 import { openVault, VAULT_ENV } from '@midgaard/secrets'
 import { ensureDaemon } from '@midgaard/mcp-server'
+import { inspectRepository } from '@midgaard/workspace'
 import { MIN_NODE, SERVER_NAME, mcpConfigPath, mcpServerEntry, writeMcpConfig } from './mcp-config.ts'
 import type { McpServerEntry } from './mcp-config.ts'
 import { bold, colorStatus, dim, green, humanDuration, mark, red, yellow } from './ui.ts'
@@ -202,7 +204,7 @@ export async function decide(
 // --- doctor ----------------------------------------------------------------
 
 /** Un contrôle de `doctor` : son verdict, ce qu'il dit, et quoi faire si ça cloche. */
-interface Check {
+export interface Check {
   level: 'ok' | 'warn' | 'fail'
   label: string
   detail: string
@@ -364,6 +366,40 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
     }
   }
 
+  // Git : le Developer ne travaille que dans un worktree. Sans Git, il échoue
+  // à chaque tâche ; le Researcher, lui, s'en passe — d'où un avertissement,
+  // pas un échec.
+  checks.push(gitCheck(await gitVersionOutput()))
+
+  // Worktrees et liste blanche : lus en base, sans démarrer le daemon.
+  if (existsSync(config.dbPath)) {
+    try {
+      const store = HarnessStore.open(config)
+      const all = store.listWorkspaces()
+      let projectRepo: string | null = null
+      try {
+        projectRepo = (await inspectRepository(projectDir)).toplevel
+      } catch {}
+      const projectAllow = projectRepo ? store.listExecAllow(projectRepo) : []
+      store.close()
+
+      const kept = all.filter((w) => w.status === 'kept').length
+      const active = all.filter((w) => w.status === 'active').length
+      checks.push({
+        level: 'ok',
+        label: 'Worktrees',
+        detail: all.length
+          ? `${active} en cours, ${kept} conservé(s), ${all.length - kept - active} retiré(s) — sous ${config.worktreesDir}`
+          : 'aucun pour l\'instant',
+        // Conservés jusqu'au nettoyage, par décision : on rappelle comment, sans presser.
+        ...(kept > 0 ? { fix: 'npm run harness -- workspaces   # puis « workspaces clean » quand ils sont lus' } : {}),
+      })
+      checks.push(execAllowCheck(config.execAllow, projectAllow.map((e) => e.argv), projectRepo))
+    } catch {
+      // La base a déjà été signalée plus haut ; inutile de le redire.
+    }
+  }
+
   for (const c of checks) {
     console.log(`${mark[c.level]()} ${bold(c.label.padEnd(18))} ${c.detail}`)
     if (c.fix) console.log(`  ${dim('→ ' + c.fix)}`)
@@ -372,6 +408,65 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
   console.log()
   console.log(failed ? red(`${failed} contrôle(s) en échec.`) : green('Installation saine.'))
   return failed ? 1 : 0
+}
+
+/** Version minimale de Git : `git worktree remove` date de la 2.17. */
+export const MIN_GIT: readonly [number, number] = [2, 17]
+
+/** Sortie de `git --version`, ou `null` si Git est introuvable ou muet. */
+function gitVersionOutput(): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile('git', ['--version'], { timeout: 5000, windowsHide: true }, (error, stdout) =>
+      resolve(error ? null : String(stdout).trim()),
+    )
+  })
+}
+
+/**
+ * Contrôle de Git, à partir de la sortie de `git --version`.
+ *
+ * @param output par exemple `git version 2.54.0 (Apple Git-157)` ; `null` si
+ *               Git est absent
+ */
+export function gitCheck(output: string | null): Check {
+  const fix = 'Installe Git (2.17 ou plus) : le profil developer travaille dans un worktree Git.'
+  if (!output) return { level: 'warn', label: 'Git', detail: 'introuvable : le profil developer ne peut pas travailler', fix }
+  const m = /git version (\d+)\.(\d+)/.exec(output)
+  if (!m) return { level: 'warn', label: 'Git', detail: `version illisible : ${output}`, fix }
+  const [major, minor] = [Number(m[1]), Number(m[2])]
+  const ok = major > MIN_GIT[0] || (major === MIN_GIT[0] && minor >= MIN_GIT[1])
+  return ok
+    ? { level: 'ok', label: 'Git', detail: output }
+    : { level: 'warn', label: 'Git', detail: `${output} — trop ancien pour retirer un worktree`, fix }
+}
+
+/**
+ * Contrôle de la liste blanche `exec`. Vide, tout va bien : chaque commande
+ * attend un humain. Non vide, c'est un **avertissement** — non une erreur —
+ * qui rappelle ce que la variable ne dit pas : une commande qui exécute le
+ * code du projet exécute ce que l'agent a écrit.
+ *
+ * @param global      liste de `MIDGAARD_EXEC_ALLOW`
+ * @param project     liste du dépôt diagnostiqué
+ * @param projectRepo racine de ce dépôt ; `null` hors dépôt Git
+ */
+export function execAllowCheck(global: string[][], project: string[][], projectRepo: string | null): Check {
+  const all = [...global.map((a) => `${a.join(' ')} (tous dépôts)`), ...project.map((a) => a.join(' '))]
+  if (all.length === 0) {
+    return {
+      level: 'ok',
+      label: 'Exec',
+      detail: `chaque commande attend une approbation${projectRepo ? '' : ' (dossier hors dépôt Git)'}`,
+    }
+  }
+  return {
+    level: 'warn',
+    label: 'Exec',
+    detail: `sans approbation : ${all.join(' ; ')}`,
+    fix:
+      'Si l\'une exécute le code du projet (tests, scripts, build), elle exécute ce que l\'agent a écrit. ' +
+      'npm run harness -- exec revoke <commande…> pour la retirer.',
+  }
 }
 
 /**

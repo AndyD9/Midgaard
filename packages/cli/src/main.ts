@@ -2,7 +2,7 @@
 /**
  * @file Point d'entrée de la CLI `harness`.
  *
- * Analyse d'arguments à la main : sept commandes, deux options. Une dépendance
+ * Analyse d'arguments à la main : une douzaine de commandes, deux options. Une dépendance
  * de plus pour ça coûterait plus qu'elle ne rapporte.
  *
  * Seul endroit du paquet qui lit l'environnement ; tout le reste reçoit la
@@ -11,6 +11,7 @@
 import { loadConfig } from '@midgaard/contracts'
 import { decide, doctor, init, start, status, stop } from './commands.ts'
 import { agents, pricing, providers } from './providers.ts'
+import { exec, workspaces } from './workspaces.ts'
 import { bold, dim } from './ui.ts'
 
 const USAGE = `${bold('harness')} — harness local d'agents pour Claude Code
@@ -33,6 +34,18 @@ ${bold('Agents et fournisseurs')}
   providers remove <id> Retire un fournisseur et sa clé
   pricing               Tarifs en vigueur, et leur date de relevé
   pricing refresh <id>  Relève les tarifs chez le fournisseur (Venice les publie)
+
+${bold('Worktrees et commandes des agents écrivants')}
+  workspaces            Worktrees des tâches Developer, leur état sur le disque, les orphelins
+  workspaces remove <branche|id> [--force]
+                        Retire un worktree ; la branche reste. --force perd le travail non commité
+  workspaces clean [--force]
+                        Retire ceux des tâches finies ; les worktrees sales sont laissés sans --force
+  exec                  Commandes lancées sans approbation dans les worktrees de ce dépôt
+  exec allow [--yes] [--] <commande…>
+                        Ajoute un argv exact à cette liste, après avertissement et confirmation
+  exec revoke [--] <commande…>
+                        Le retire : la commande attendra de nouveau un humain
 
 ${bold('Options')}
   -h, --help            Cette aide
@@ -87,6 +100,10 @@ export async function run(argv: string[]): Promise<number> {
       return providers(config, rest)
     case 'pricing':
       return pricing(config, rest)
+    case 'workspaces':
+      return workspaces(config, rest)
+    case 'exec':
+      return exec(config, rest)
     default:
       console.error(`Commande inconnue : ${command}\n`)
       console.error(USAGE)

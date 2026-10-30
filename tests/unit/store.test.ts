@@ -314,3 +314,20 @@ describe('espaces de travail', () => {
     assert.equal(store.listWorkspaces().length, 2)
   })
 })
+
+describe('liste blanche exec par dépôt', () => {
+  it('range des argv exacts par dépôt, sans doublon, et les retire', () => {
+    assert.equal(store.addExecAllow('/depot', ['npm', 'test'], 'cli'), true)
+    assert.equal(store.addExecAllow('/depot', ['npm', 'test'], 'cli'), false, 'pas de doublon')
+    store.addExecAllow('/depot', ['npm', 'test', '--', '--watch'], 'cli')
+    store.addExecAllow('/autre', ['make'], 'cli')
+
+    assert.deepEqual(store.listExecAllow('/depot').map((e) => e.argv), [['npm', 'test'], ['npm', 'test', '--', '--watch']])
+    assert.equal(store.listExecAllow('/depot')[0]!.added_by, 'cli')
+    assert.equal(store.listExecAllow().length, 3)
+
+    assert.equal(store.removeExecAllow('/depot', ['npm', 'test']), true)
+    assert.equal(store.removeExecAllow('/depot', ['npm', 'test']), false)
+    assert.deepEqual(store.listExecAllow('/depot').map((e) => e.argv), [['npm', 'test', '--', '--watch']])
+  })
+})

@@ -28,7 +28,8 @@
     "@midgaard/mcp-server": "*",
     "@midgaard/persistence": "*",
     "@midgaard/providers": "*",
-    "@midgaard/secrets": "*"
+    "@midgaard/secrets": "*",
+    "@midgaard/workspace": "*"
   },
   "bin": {
     "harness": "./dist/main.js"

@@ -217,6 +217,8 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
       touch,
       shutdown: (reason) => close(reason),
       providers,
+      bus,
+      config,
     }),
   )
   stream.attach(server)

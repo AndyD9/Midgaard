@@ -155,6 +155,14 @@ export class AgentEngine implements TaskEngine {
           root: made.root,
           writable: true,
           workspace: { path: workspace.worktree_path, baseCommit: workspace.base_commit },
+          // La liste blanche du dépôt s'ajoute à la globale. Lue ici, au départ
+          // de la tâche : un ajout fait pendant qu'elle tourne vaut pour la
+          // suivante, pas pour celle-ci — une autorisation ne s'élargit pas
+          // en cours de route.
+          execAllow: [
+            ...ctx.config.execAllow,
+            ...ctx.store.listExecAllow(workspace.repo_dir).map((e) => e.argv),
+          ],
         }
       }
 

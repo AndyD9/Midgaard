@@ -82,6 +82,18 @@ export const taskWorkspaceSchema = z.object({
 })
 export type TaskWorkspace = z.infer<typeof taskWorkspaceSchema>
 
+/**
+ * Une commande que `exec` lance sans approbation dans les worktrees d'un dépôt.
+ * Argv **exact** : rien de plus, rien de moins.
+ */
+export const execAllowEntrySchema = z.object({
+  repo_dir: z.string(),
+  argv: z.array(z.string()).min(1),
+  added_at: z.iso.datetime(),
+  added_by: z.string(),
+})
+export type ExecAllowEntry = z.infer<typeof execAllowEntrySchema>
+
 /** Nature d'un changement de fichier, au sens de `git diff --name-status`. */
 export const FILE_CHANGE_KINDS = ['added', 'modified', 'deleted', 'type_changed'] as const
 export type FileChangeKind = (typeof FILE_CHANGE_KINDS)[number]
