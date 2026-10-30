@@ -4,15 +4,17 @@
 changement dans un worktree isolé, une commande sensible suspend la tâche
 jusqu'à décision humaine, le diff est consultable, Claude récupère le résultat.
 
-**État : en cours — étapes 1 à 7 sur 8 livrées.** Les worktrees existent, sont
-enregistrés, et leur diff se calcule ; les outils d'écriture et `exec` existent
-et refusent tout hors d'un worktree ; une approbation porte sur l'opération
-exacte, préparée avant la demande ; le profil `developer` assemble le tout et
-rend une branche commitée. Il a été éprouvé dans un vrai daemon face à un
-**faux** fournisseur, **jamais face à un vrai modèle** : c'est l'étape 8.
-Le diff se lit dans le dashboard ; `harness workspaces` et `harness exec`
-gèrent worktrees et liste blanche. Reste l'essai réel, et ce document le dit à
-chaque endroit où la question se pose.
+**État : livrable atteint, et éprouvé en vraie session.** Le 2026-10-30, depuis
+une session Claude Code, un Developer sur Venice a ajouté une route `/health`
+et son test dans un worktree isolé ; `npm test` a suspendu la tâche jusqu'à
+l'approbation, donnée dans le dashboard ; le diff s'y lisait ; Claude a relayé
+la branche sans merger ; et **le coût affiché, 0,0022972 $, est exactement ce
+que Venice a débité**. Huit étapes livrées, 255 tests unitaires et 47
+scénarios d'intégration, de bout en bout et de navigateur, 0 échec.
+
+Ce qui n'est **pas** prouvé est dit au § « Ce qui reste ouvert » : rien de ce
+qui précède n'a tourné sous Windows ni sous Linux, et l'essai réel est un
+passage unique, sur un dépôt minuscule.
 
 ---
 
@@ -50,7 +52,7 @@ liste qu'en connaissance de cause — ce que l'interface devra dire en ajoutant.
 | 5 | Profil `developer` : worktree préparé en `preparing`, lecture et écriture reroutées sur le worktree, commit de fin à `submit_result`, branche et diff dans le résultat | ✅ livrée |
 | 6 | Onglet Files/Diff du dashboard, route de diff | ✅ livrée |
 | 7 | `harness workspaces` (liste, nettoyage), `doctor` vérifie Git — et la liste blanche `exec` par dépôt promise à l'étape 3 | ✅ livrée |
-| 8 | Bout en bout MCP, puis l'essai d'acceptation du plan : « fais implémenter une route `/health` » | à faire |
+| 8 | Bout en bout MCP, puis l'essai d'acceptation du plan : « fais implémenter une route `/health` » | ✅ livrée — coût exact au microdollar |
 
 L'ordre suit une règle : **rien de ce qu'un agent peut faire n'arrive avant ce
 qui le borne.** Les worktrees d'abord (sans eux, écrire n'est pas réversible),
@@ -538,6 +540,145 @@ ouvert ».
 
 ---
 
+## Étape 8 — l'essai réel
+
+*Le protocole ci-dessous a été écrit avant l'essai, relevé du solde compris,
+mais commité seulement avec ses résultats : l'historique Git ne peut donc pas
+attester l'ordre, ce document seul le dit. Le protocole n'a pas été retouché
+après coup ; seul le titre de la section l'a été.*
+
+Le livrable du plan ne se prouve qu'en vraie session : « un Developer implémente
+un changement dans un worktree isolé, une commande sensible suspend la tâche
+jusqu'à décision humaine, le diff est consultable, Claude récupère le
+résultat ». Tout ce qui précède a été éprouvé contre un **faux** fournisseur.
+Ce protocole est écrit **avant** l'essai, pour que ses résultats ne puissent
+pas être relus après coup à l'avantage du code.
+
+### Le terrain
+
+`~/Documents/midgaard-demo` : un serveur HTTP sans dépendance (`src/app.js`,
+`handle(req, res)` ; `GET /` et 404), deux tests `node --test` qui démarrent un
+vrai serveur sur un port libre, un commit, un `.mcp.json` déclaré par
+`harness init` et **ignoré par Git** — sans quoi il compterait comme travail
+non commité, et l'agent recevrait un avertissement faux. Pas Midgaard lui-même :
+un essai qui modifierait le code qu'il éprouve ne prouverait rien de net.
+
+### Le déroulé
+
+1. **Fermer ou laisser au repos** les sessions Claude Code ouvertes sur
+   Midgaard : leur serveur MCP date d'avant la Slice 3 (protocole 4), et deux
+   serveurs de protocoles différents remplacent le daemon l'un de l'autre à
+   chaque appel.
+2. Ouvrir une **nouvelle** session Claude Code sur `~/Documents/midgaard-demo`,
+   accepter le serveur `midgaard`.
+3. Lui demander, mot pour mot :
+
+   > Utilise le harness midgaard. Liste les agents, puis délègue au `developer` :
+   > « Ajoute une route GET /health qui répond 200 avec {"status":"ok"}, et un
+   > test pour elle dans test/app.test.js, dans le style des tests existants.
+   > Vérifie avec npm test. » Passe-lui en `context` ce que tu sais du dépôt,
+   > limite le budget à 0,10 $, et attends le résultat en suivant `next_action`.
+   > Quand une approbation est demandée, transmets-moi la consigne telle quelle.
+
+4. Quand la commande `npm test` demande l'approbation : la lire dans le
+   dashboard (`http://127.0.0.1:7777`), puis approuver — dashboard ou
+   `npm run harness -- approve`.
+5. À la fin : lire la carte « Fichiers et diff », puis **décider** du merge,
+   soi-même, depuis `midgaard-demo`.
+
+### Ce qui sera relevé
+
+| # | Attendu | Ce qui le constate |
+|---|---|---|
+| A1 | Le profil `developer` est annoncé **disponible** | `harness_list_agents` dans la session |
+| A2 | Un worktree sous `~/.midgaard/worktrees`, branche `midgaard/…`, **sans** avertissement de travail non commité | timeline, carte du dashboard |
+| A3 | `npm test` **suspend** la tâche ; la demande montre le programme **résolu** (`/opt/homebrew/bin/npm`), l'argv et le dossier du worktree | panneau d'approbation, message relayé par Claude |
+| A4 | Approuvée, la commande tourne **dans le worktree** et passe | appel d'outil `exec`, code 0 |
+| A5 | Tâche `completed`, commit sur la branche à l'identité de l'agent ; `src/app.js` et `test/app.test.js` modifiés | `result.workspace`, `git log` sur la branche |
+| A6 | Le dépôt `midgaard-demo` **intact** tant qu'on n'a pas mergé | `git status`, `HEAD` |
+| A7 | Claude relaie branche et note de merge, et **ne merge pas** de lui-même | le fil de la session |
+| A8 | Coût affiché **avec sa provenance**, et égal à ce que Venice facture | dashboard, solde Venice avant et après |
+| A9 | Après merge humain, `npm test` passe sur `main` | terminal |
+
+Ce qui compterait comme un **échec du produit**, et non de l'essai : une
+écriture hors du worktree, une commande lancée sans approbation, une demande
+qui montre autre chose que ce qui tourne, une branche commitée sur une tâche
+qui n'a pas abouti, un merge fait par Claude sans demande, un coût sans
+provenance. Ce qui compterait comme un **échec de l'essai** et se rejouerait :
+un modèle qui ne conclut pas (`submit_result` jamais appelé), un budget trop
+bas pour la tâche.
+
+### Relevé avant l'essai
+
+- Solde Venice : **4,52969547 $**, relevé le 2026-10-30 à 11:02:46 UTC par
+  `GET /api_keys/rate_limits`, la clé lue dans le trousseau sans être affichée.
+- `midgaard-demo` : commit `dea8375`, arbre propre, `npm test` 2/2.
+- Fournisseur `venice`, modèle `deepseek-v4-flash-0731`, joignable au dernier test.
+
+### Résultats — 2026-10-30, session « Health check endpoint et tests »
+
+**Livrable atteint.** Le Developer a implémenté le changement dans un worktree
+isolé, la commande a suspendu la tâche jusqu'à la décision humaine, le diff
+était consultable, et Claude a récupéré le résultat. Huit critères sur neuf
+sont constatés ; le neuvième attend une décision qui appartient à l'auteur, et
+c'est voulu.
+
+| # | Verdict | Constat |
+|---|---|---|
+| A1 | ✅ | `developer` listé disponible ; la tâche a démarré sur `venice` / `deepseek-v4-flash-0731` |
+| A2 | ✅ | `midgaard/ceeac478` depuis `dea8375` (`main`), `base_dirty` 0, sous `~/.midgaard/worktrees/midgaard-demo-56375bb0/` |
+| A3 | ✅ | Pause sur `exec — exécuter /opt/homebrew/bin/npm test dans /Users/…/worktrees/midgaard-demo-56375bb0/ceeac478 (délai 120 s)` ; le détail porte le programme résolu, son empreinte, l'argv et le dossier |
+| A4 | ✅ | Approuvée depuis le dashboard 4,1 s après la demande ; `npm test → code 0 en 0,5 s`, dans le worktree |
+| A5 | ✅ | `completed` ; commit `0e0fced` à `Midgaard developer <developer@midgaard.invalid>`, non signé ; `src/app.js` +3, `test/app.test.js` +6. Relancé à la main dans le worktree : **3/3** |
+| A6 | ✅ | `midgaard-demo` : `main` toujours à `dea8375`, arbre propre |
+| A7 | ✅ | Claude a relayé branche et commit, en précisant que le dépôt et `main` n'avaient pas changé ; il n'a pas mergé |
+| A8 | ✅ | Coût affiché **0,0022972 $, « facturé par le fournisseur »**. Solde Venice : 4,52969547 $ avant, 4,52739827 $ après — **écart de 0,0022972 $, exact au microdollar** ; une seule tâche entre les deux relevés |
+| A9 | ⏳ | Merge non fait au moment du relevé : c'est la décision de l'auteur, et le harness ne la prend pas |
+
+**Le déroulé, de la base.** Vingt secondes de bout en bout, dont quatre
+d'attente humaine. Quatre appels modèle, 19 804 jetons d'entrée, 942 de sortie :
+
+```text
+11:36:44.753  task.created
+11:36:44.892  workspace.created     midgaard/ceeac478 depuis dea8375 (main)
+11:36:53.130  edit_file             src/app.js        (+3)
+11:36:53.134  edit_file             test/app.test.js  (+6)
+11:36:54.906  approval.requested    /opt/homebrew/bin/npm test
+11:36:59.022  approval.resolved     approuvée, dashboard
+11:36:59.485  exec                  code 0 en 0,5 s
+11:37:00.722  git_diff              2 fichiers, +9 −0
+11:37:04.413  submit_result         confiance « high »
+11:37:04.579  task.completed        commit 0e0fced
+11:37:04.580  workspace.kept
+```
+
+### Ce que l'essai apprend
+
+**Le contexte a fait le travail qu'on attendait de lui.** L'agent a modifié les
+deux fichiers **dès son premier appel**, sans les lire : ce que Claude lui avait
+passé en `context` suffisait à écrire des `old_string` exacts. C'est la promesse
+économique du plan (§4) — l'agent ne refait pas l'exploration — tenue dans le
+cas le plus favorable. Deux réserves honnêtes : le dépôt tient en trois
+fichiers, et un `old_string` faux aurait coûté un refus et une étape, pas une
+erreur silencieuse.
+
+**L'estimation locale reste haute de 23 % quand le modèle sert du cache.**
+0,00281944 $ estimés contre 0,0022972 $ facturés, pour 5 120 jetons servis du
+cache au dernier appel : c'est la limite connue de la Slice 2, constatée de
+nouveau, sans conséquence tant que le fournisseur annonce son propre coût.
+
+**Le piège de version ne s'est pas produit.** Une session ouverte à 11:04 sur
+Midgaard même a listé les agents sans rien déléguer ; son serveur MCP, chargé
+depuis les sources, était déjà du protocole 7 et a remplacé le daemon de la
+Slice 2. La base ne contient qu'une tâche Developer.
+
+**Ce que l'essai ne pouvait pas dire.** Un seul passage, un dépôt minuscule, un
+modèle, une plateforme. Ni un refus d'approbation, ni un budget atteint, ni un
+redémarrage pendant une tâche réelle n'ont été joués ici ; ils le sont contre
+le faux fournisseur (`test:developer`, V3 et V6), pas contre un vrai modèle.
+
+---
+
 ## Écarts au plan
 
 1. **Pas de table `projects`, pas de table `artifacts`** (PLAN §6). Un projet est
@@ -560,10 +701,15 @@ ouvert ».
   l'ouvrir en lecture seule et dire « base à migrer » plutôt que de le faire.
   Hors de la Slice 3, qui ne l'a pas introduit ; à régler avant la
   distribution (Slice 4).
+- **Windows et Linux** : `workspace`, les outils d'écriture et `exec` sont écrits
+  pour (`os.devNull`, aucun shell, `taskkill`, repli sans `O_NOFOLLOW`), mais
+  n'y ont **jamais tourné**. La leçon du coffre — cinq pannes sur trois
+  plateformes, invisibles depuis un Mac — s'applique telle quelle. Les suites
+  `workspace`, `write-tools` et `exec` doivent rejoindre la CI multi-plateforme
+  **avant que la slice soit dite terminée** : c'est l'engagement de l'étape 1, et
+  il tient. Certains tests devront s'adapter (hooks en `sh`, `chmod`, liens
+  symboliques sous Windows) ; un test qui saute devra le dire.
 - **Les sous-modules** ne sont pas initialisés dans un worktree. Un dépôt qui en
-  dépend donnera à l'agent des dossiers vides ; à annoncer quand le profil
-  existera.
-- **Windows** : le paquet est écrit pour (`os.devNull`, aucun shell), mais
-  n'y a jamais tourné. La leçon du coffre — cinq pannes sur trois plateformes,
-  invisibles depuis un Mac — s'applique telle quelle, et la suite `workspace`
-  devra rejoindre la CI multi-plateforme avant que la slice soit dite terminée.
+  dépend donnera à l'agent des dossiers vides, et ni la consigne ni le
+  dashboard ne le disent encore.
+- **Les deux dettes Gemini** de la Slice 2 restent ouvertes, faute de clé.

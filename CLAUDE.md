@@ -3,8 +3,8 @@
 Harness local qui laisse Claude Code déléguer des tâches à des agents exécutants,
 les observer et les soumettre à approbation humaine. **Lire d'abord** :
 [README.md](README.md) (état, commandes), [docs/PLAN.md](docs/PLAN.md) (décisions
-et slices), [docs/SLICE3.md](docs/SLICE3.md) (la slice en cours : décisions,
-découpage, étape atteinte), [docs/SLICE2.md](docs/SLICE2.md),
+et slices), [docs/SLICE3.md](docs/SLICE3.md) (Developer, worktrees,
+approbations : décisions, étapes, essai réel), [docs/SLICE2.md](docs/SLICE2.md),
 [docs/SLICE1.md](docs/SLICE1.md) et [docs/SLICE0.md](docs/SLICE0.md) (d'où
 viennent les invariants).
 
@@ -192,26 +192,29 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
 
-## Slice 3 en cours
+## Slice 3 : livrable atteint — reste la CI multi-plateforme
 
-`workspace` (création, nettoyage et diff des worktrees Git), outils d'écriture,
-`git` et `exec` contrôlé, ApprovalBroker et UI d'approbation bloquante, onglet
-Files/Diff. Le profil `developer` rejoindra `simulated` et `researcher` dans
-`packages/daemon/src/agents.ts`, et son moteur sera l'`AgentEngine` existant avec
-une autre boîte à outils : la boucle n'a pas à changer.
+Le 2026-10-30, depuis une vraie session Claude Code, un Developer sur Venice a
+ajouté une route `/health` et son test dans un worktree isolé ; `npm test` a
+attendu l'approbation humaine ; le diff se lisait dans le dashboard ; Claude a
+relayé la branche sans merger ; le coût affiché est **exactement** ce que
+Venice a débité. Récit, critères et mesures : [docs/SLICE3.md](docs/SLICE3.md),
+§ « Étape 8 ». Les quatre décisions prises avec l'auteur (merge manuel,
+worktrees conservés jusqu'au nettoyage, sous `~/.midgaard/worktrees`, `exec` en
+approbation par défaut) y sont aussi.
 
-**Étapes 1 à 7 sur 8 livrées** — le paquet `workspace` et la table
-`workspaces` (migration 4) ; `write_file`, `edit_file`, `delete_file`,
-`git_diff` et `exec` ; des approbations portant sur l'opération exacte
-(migration 5) ; le profil `developer` (`PROTOCOL_VERSION` 7), éprouvé contre
-un faux fournisseur dans `test:developer`, **jamais contre un vrai modèle** —
-c'est l'étape 8, la seule qui reste. Le diff se lit dans le dashboard (6) ;
-`harness workspaces` et `harness exec`, avec la liste blanche par dépôt, sont
-là (7, migration 6). Les quatre
-décisions prises avec l'auteur (merge manuel, worktrees conservés jusqu'au
-nettoyage, sous `~/.midgaard/worktrees`, `exec` en approbation par défaut) et le
-découpage des sept étapes restantes sont dans [docs/SLICE3.md](docs/SLICE3.md) :
-le lire avant de poursuivre.
+Ce qui existe : le paquet `workspace` ; `write_file`, `edit_file`,
+`delete_file`, `git_diff`, `exec` ; des approbations portant sur l'opération
+préparée ; le profil `developer` ; la carte « Fichiers et diff » ;
+`harness workspaces` et `harness exec` (liste blanche par dépôt). Migrations 4
+à 6, `PROTOCOL_VERSION` 7.
+
+**La slice n'est pas dite terminée**, par engagement écrit à son étape 1 : les
+suites `workspace`, `write-tools` et `exec` n'ont tourné que sur ce Mac. Elles
+doivent rejoindre la CI multi-plateforme (`.github/workflows/`), comme le
+coffre — qui avait révélé cinq pannes invisibles depuis macOS. Restent aussi,
+notés au § « Ce qui reste ouvert » de `docs/SLICE3.md` : `doctor` qui migre la
+base qu'il diagnostique, et les sous-modules absents des worktrees.
 
 Des cinq dettes nées de la Slice 2, **trois sont soldées** le 2026-10-29 ; le
 récit complet est au § « Les dettes, soldées » de [docs/SLICE2.md](docs/SLICE2.md).

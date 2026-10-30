@@ -26,13 +26,12 @@ et les coûts.
 | 0 | Spike : Claude Code → MCP → daemon, attente longue, approbation humaine | ✅ **Terminée**, validée en sessions réelles |
 | 1 | Squelette observable : persistance SQLite, dashboard temps réel, CLI `harness` | ✅ **Terminée**, 91 vérifications + essai en session réelle |
 | 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 167 vérifications + essai en session réelle ; coût **exact au microdollar** contre le solde Venice, trois fois |
-| 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | 🚧 **En cours** — étapes 1-7/8 : le profil `developer` travaille dans un worktree Git, sous approbation pour chaque commande, rend une branche commitée dont le diff se lit dans le dashboard ; `harness workspaces` et `harness exec` ; éprouvé contre un faux fournisseur, **pas encore contre un vrai modèle** |
+| 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | ✅ **Livrable atteint** en vraie session : un Developer a implémenté `/health` dans un worktree, sous approbation, coût **exact au microdollar** ; reste à faire tourner ses suites en CI sous Windows et Linux |
 | 4 | Durcissement sécurité, distribution npm | À faire |
 
 Le détail des slices est dans [docs/PLAN.md](docs/PLAN.md). Ce que chaque slice a
 prouvé et appris : [docs/SLICE0.md](docs/SLICE0.md), [docs/SLICE1.md](docs/SLICE1.md),
-[docs/SLICE2.md](docs/SLICE2.md) ; la slice en cours, ses décisions et son
-découpage : [docs/SLICE3.md](docs/SLICE3.md).
+[docs/SLICE2.md](docs/SLICE2.md), [docs/SLICE3.md](docs/SLICE3.md).
 
 ## Démarrer depuis un clone
 
@@ -90,6 +89,16 @@ Node fournissent `node:sqlite` sans drapeau expérimental ? ». Passe-lui en
 `context` ce que tu sais déjà du dépôt, limite le budget à 0,05 $, et attends le
 résultat. » Le coût, les appels d'outils et les sources s'affichent en direct sur
 le dashboard.
+
+**Avec le Developer**, depuis une session ouverte sur un dépôt Git propre :
+« Utilise le harness midgaard. Délègue au `developer` : « Ajoute une route
+GET /health qui répond 200 avec {"status":"ok"}, et un test pour elle. Vérifie
+avec npm test. » Passe-lui en `context` ce que tu sais du dépôt, limite le
+budget à 0,10 $, et attends le résultat. » Le Developer travaille dans un
+worktree sous `~/.midgaard/worktrees`, chaque commande attend ton approbation,
+et le diff se lit sur le dashboard, carte « Fichiers et diff ». **Rien n'arrive
+dans ton dépôt** tant que tu n'as pas mergé toi-même la branche `midgaard/…` ;
+`npm run harness -- workspaces clean` retire ensuite les worktrees lus.
 
 Abaisse le **budget** et le **délai** sans crainte : les dépasser arrête une
 tâche proprement. Retiens surtout qu'**une tâche qui échoue a déjà dépensé** —
@@ -158,7 +167,7 @@ Midgaard/
 │   ├── SLICE0.md                 ce que le spike a prouvé et appris
 │   ├── SLICE1.md                 résultats de la Slice 1, écarts au plan, découvertes
 │   ├── SLICE2.md                 agents réels, coûts, coffre, et les dettes soldées
-│   └── SLICE3.md                 la slice en cours : décisions, découpage, étape atteinte
+│   └── SLICE3.md                 Developer, worktrees, approbations : décisions, essai réel
 ├── packages/
 │   ├── contracts/                schémas Zod, machine à états, protocole — aucune dépendance
 │   ├── persistence/              SQLite (node:sqlite), migrations, dépôt
