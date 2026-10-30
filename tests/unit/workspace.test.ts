@@ -127,7 +127,15 @@ describe('createWorktree', () => {
     assert.ok(wt.path.startsWith(join(worktreesDir, 'mon-d')), `worktree sous worktreesDir : ${wt.path}`)
     assert.equal(wt.root, join(wt.path, 'packages/api/'))
     assert.equal(wt.baseCommit, info.head)
-    assert.equal(readFileSync(join(wt.path, 'src', 'a.ts'), 'utf8'), 'export const a = 1\n', 'le travail non commité n\'est pas recopié')
+    // Fins de ligne normalisées : sous Windows, Git convertit en CRLF au
+    // checkout (`core.autocrlf`), comme il le fait pour le dépôt de
+    // l'utilisateur. Ce qui est vérifié ici, c'est que le travail en cours
+    // n'est pas recopié — constaté en CI, passage 41050259725.
+    assert.equal(
+      readFileSync(join(wt.path, 'src', 'a.ts'), 'utf8').replaceAll('\r\n', '\n'),
+      'export const a = 1\n',
+      'le travail non commité n\'est pas recopié',
+    )
 
     assert.equal(sh(repo, 'status', '--porcelain'), before, 'le dépôt de l\'utilisateur est intact')
     assert.equal(sh(repo, 'rev-parse', 'HEAD'), headBefore)

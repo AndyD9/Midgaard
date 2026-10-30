@@ -139,8 +139,11 @@ describe('exécution', () => {
   })
 
   it('refuse un programme ou un dossier hors du worktree', async () => {
-    // `/bin/echo` s'écrit `echo` : un chemin absolu désigne le worktree ou rien.
-    await assert.rejects(run({ command: '/bin/echo', args: ['x'] }), /escapes/)
+    // Un chemin absolu désigne le worktree ou rien. Le binaire de Node existe
+    // hors du worktree sur toutes les plateformes ; `/bin/echo`, choisi d'abord,
+    // n'existe pas sous Windows, où le refus arrivait pour une autre raison
+    // (« no such path ») — constaté en CI, passage 41050259725.
+    await assert.rejects(run({ command: process.execPath, args: ['-v'] }), /escapes/)
     await assert.rejects(run({ command: '../dehors/x.sh' }), /escapes|no such path/)
     await assert.rejects(run({ command: 'node', args: ['-v'], cwd: '..' }), /escapes/)
   })
