@@ -21,7 +21,7 @@ let root: string
 let outside: string
 
 beforeEach(() => {
-  home = realpathSync(mkdtempSync(join(tmpdir(), 'midgaard-write-')))
+  home = realpathSync.native(mkdtempSync(join(tmpdir(), 'midgaard-write-')))
   root = join(home, 'worktree')
   outside = join(home, 'dehors')
   mkdirSync(join(root, 'src'), { recursive: true })

@@ -14,13 +14,13 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, wr
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { afterEach, beforeEach, describe, it } from 'node:test'
-import { execAllowed, findTool, formatArgv, parseExecAllow, type ToolContext } from '@midgaard/tools'
+import { candidateNames, execAllowed, findTool, formatArgv, parseExecAllow, type ToolContext } from '@midgaard/tools'
 
 let home: string
 let root: string
 
 beforeEach(() => {
-  home = realpathSync(mkdtempSync(join(tmpdir(), 'midgaard-exec-')))
+  home = realpathSync.native(mkdtempSync(join(tmpdir(), 'midgaard-exec-')))
   root = join(home, 'worktree')
   mkdirSync(join(root, 'bin'), { recursive: true })
   mkdirSync(join(home, 'dehors'))
@@ -34,6 +34,13 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
 }
 
 const exec = findTool('exec')!
+
+/**
+ * Motif de saut des cas qui lancent un script `sh` comme programme. Windows
+ * n'exécute pas un fichier par son shebang : le cas n'y a pas de sens, et un
+ * test qui saute doit **le dire** — `node --test` affiche ce motif.
+ */
+const POSIX_ONLY = process.platform === 'win32' ? 'Windows n\'exécute pas un script sh comme programme' : false
 
 /** Exécute `exec` **sans** passer par la politique : on teste ici l'exécution elle-même. */
 async function run(args: Record<string, unknown>, c: ToolContext = ctx()) {
@@ -125,10 +132,13 @@ describe('exécution', () => {
     }
   })
 
-  it('lance un script du worktree par son chemin, refuse un chemin hors du worktree', async () => {
+  it('lance un script du worktree par son chemin', { skip: POSIX_ONLY }, async () => {
     writeFileSync(join(root, 'bin', 'bonjour.sh'), '#!/bin/sh\necho "bonjour $1"\n')
     chmodSync(join(root, 'bin', 'bonjour.sh'), 0o755)
     assert.match((await run({ command: 'bin/bonjour.sh', args: ['monde'] })).content, /bonjour monde/)
+  })
+
+  it('refuse un programme ou un dossier hors du worktree', async () => {
     // `/bin/echo` s'écrit `echo` : un chemin absolu désigne le worktree ou rien.
     await assert.rejects(run({ command: '/bin/echo', args: ['x'] }), /escapes/)
     await assert.rejects(run({ command: '../dehors/x.sh' }), /escapes|no such path/)
@@ -205,10 +215,12 @@ describe('ce qui est approuvé est ce qui tourne', () => {
     assert.ok(program.startsWith('/') || /^[A-Za-z]:\\/.test(program), program)
     assert.equal(prepared.detail.cwd, root)
     assert.match(String(prepared.detail.program_fingerprint), /^\d+:\d+:\d+:[\d.]+$/)
-    assert.equal(prepared.summary, `exécuter ${program} -v dans ${root} (délai 120 s)`)
+    assert.equal(prepared.summary, `exécuter ${formatArgv([program, '-v'])} dans ${root} (délai 120 s)`)
   })
 
   it('refuse de lancer un programme modifié depuis l\'approbation, et ne lance rien', async () => {
+    // Le refus a lieu AVANT tout lancement : il se vérifie donc aussi sous
+    // Windows, où un `.sh` ne s'exécuterait de toute façon pas.
     const script = join(root, 'bin', 'deploie.sh')
     const marker = join(home, 'dehors', 'a-tourne')
     writeFileSync(script, '#!/bin/sh\necho approuvé\n')
@@ -219,10 +231,26 @@ describe('ce qui est approuvé est ce qui tourne', () => {
     writeFileSync(script, `#!/bin/sh\ntouch "${marker}"\n`)
     await assert.rejects(exec.run(args as never, ctx(), prepared), /changed since the command was approved.*Nothing was run/)
     assert.equal(existsSync(marker), false)
-    // Sans modification, la même opération préparée tourne.
+  })
+
+  it('lance la même opération préparée quand rien n\'a changé', { skip: POSIX_ONLY }, async () => {
+    const script = join(root, 'bin', 'deploie.sh')
     writeFileSync(script, '#!/bin/sh\necho approuvé\n')
+    chmodSync(script, 0o755)
+    const args = exec.schema.parse({ command: 'bin/deploie.sh' })
     const fresh = await exec.prepare!(args as never, ctx())
     assert.match((await exec.run(args as never, ctx(), fresh)).content, /approuvé/)
+  })
+})
+
+describe('noms cherchés dans le PATH', () => {
+  it('sous Windows, jamais le nom nu : seulement les extensions de PATHEXT', () => {
+    // Le dossier de Node y contient `npm` (script sh) à côté de `npm.cmd` : le
+    // nom nu serait trouvé, puis échouerait au lancement.
+    assert.deepEqual(candidateNames('npm', 'win32', '.COM;.EXE;.BAT;.CMD'), ['npm.COM', 'npm.EXE', 'npm.BAT', 'npm.CMD'])
+    assert.deepEqual(candidateNames('node.exe', 'win32', '.COM;.EXE'), ['node.exe'], 'une extension déjà là suffit')
+    assert.deepEqual(candidateNames('npm', 'darwin'), ['npm'])
+    assert.deepEqual(candidateNames('npm', 'linux'), ['npm'])
   })
 })
 

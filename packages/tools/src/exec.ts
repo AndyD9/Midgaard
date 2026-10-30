@@ -148,12 +148,12 @@ export async function resolveCommand(command: string, cwd: string, root: string,
     return real
   }
   const pathVar = env.PATH ?? env.Path ?? ''
-  const exts = process.platform === 'win32' ? ['', ...(env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';')] : ['']
+  const exts = candidateNames(command, process.platform, env.PATHEXT)
   for (const dir of pathVar.split(delimiter)) {
     // Règle n° 2 de l'en-tête : une entrée relative désigne le worktree.
     if (!dir || !isAbsolute(dir)) continue
-    for (const ext of exts) {
-      const candidate = join(dir, command + ext)
+    for (const name of exts) {
+      const candidate = join(dir, name)
       const st = await stat(candidate).catch(() => null)
       if (!st?.isFile()) continue
       if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(candidate)) {
@@ -170,6 +170,24 @@ export async function resolveCommand(command: string, cwd: string, root: string,
     }
   }
   throw new ToolError(`command not found in PATH: ${command}`)
+}
+
+/**
+ * Noms à chercher dans chaque dossier du `PATH`.
+ *
+ * **Sous Windows, jamais le nom nu.** Windows n'exécute pas un fichier sans
+ * extension, et le dossier de Node en contient justement un : `npm`, un script
+ * `sh` pour les shells POSIX, posé à côté de `npm.cmd`. Chercher d'abord le nom
+ * nu le « trouvait », puis échouait au lancement. Seules les extensions de
+ * `PATHEXT` comptent, sauf si la commande en porte déjà une.
+ *
+ * @param platform injecté pour que la règle Windows se vérifie depuis un Mac
+ */
+export function candidateNames(command: string, platform: NodeJS.Platform, pathext?: string): string[] {
+  if (platform !== 'win32') return [command]
+  const exts = (pathext ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+  const hasExt = exts.some((e) => command.toLowerCase().endsWith(e.toLowerCase()))
+  return hasExt ? [command] : exts.map((e) => command + e)
 }
 
 /** Conserve le début et la fin d'un flux, et compte ce qui a été retiré entre les deux. */

@@ -19,7 +19,7 @@ import { splitPatch } from '../../apps/dashboard/src/lib/patch.ts'
 
 describe('splitPatch', () => {
   it('rattache chaque morceau à son fichier, chemins à espaces, ajouts et suppressions compris', async () => {
-    const home = realpathSync(mkdtempSync(join(tmpdir(), 'midgaard-patch-')))
+    const home = realpathSync.native(mkdtempSync(join(tmpdir(), 'midgaard-patch-')))
     try {
       const repo = join(home, 'depot')
       mkdirSync(join(repo, 'dossier avec espace'), { recursive: true })

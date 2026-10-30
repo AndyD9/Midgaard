@@ -46,7 +46,7 @@ function sh(cwd: string, ...args: string[]): string {
 beforeEach(() => {
   // `realpath` d'emblée : sous macOS, le dossier temporaire passe par un lien
   // symbolique, et c'est précisément ce que le paquet doit savoir traverser.
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'midgaard-ws-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'midgaard-ws-')))
   repo = join(scratch, 'mon dépôt')
   worktreesDir = join(scratch, 'home', 'worktrees')
   mkdirSync(join(repo, 'src'), { recursive: true })

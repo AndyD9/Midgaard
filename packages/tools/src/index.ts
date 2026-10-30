@@ -23,7 +23,7 @@ export { follow, htmlToText } from './http.ts'
 export type { HostGuard } from './http.ts'
 export { checkWritePath, openForWrite, MAX_WRITE_BYTES } from './write.ts'
 export {
-  execAllowed, execEnv, formatArgv, parseExecAllow, resolveCommand, runCommand,
+  candidateNames, execAllowed, execEnv, formatArgv, parseExecAllow, resolveCommand, runCommand,
   EXEC_DEFAULT_TIMEOUT_S, EXEC_MAX_TIMEOUT_S, EXEC_KILL_GRACE_MS,
 } from './exec.ts'
 export type { ExecOutcome } from './exec.ts'

@@ -29,6 +29,7 @@
     "test": "npm run test:unit && npm run test:lock && npm run test:restart && npm run test:developer && npm run test:wait",
     "test:unit": "node --conditions=midgaard-dev --test tests/unit/*.test.ts",
     "test:vault": "node --conditions=midgaard-dev --test tests/unit/secrets.test.ts",
+    "test:worktrees": "node --conditions=midgaard-dev --test tests/unit/workspace.test.ts tests/unit/write-tools.test.ts tests/unit/exec.test.ts tests/unit/dashboard-patch.test.ts",
     "test:lock": "node --conditions=midgaard-dev tests/single-instance.ts",
     "test:restart": "node --conditions=midgaard-dev tests/restart.ts",
     "test:developer": "node --conditions=midgaard-dev tests/developer.ts",
