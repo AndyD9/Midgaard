@@ -27,11 +27,11 @@ et les coûts.
 | 1 | Squelette observable : persistance SQLite, dashboard temps réel, CLI `harness` | ✅ **Terminée**, 91 vérifications + essai en session réelle |
 | 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 167 vérifications + essai en session réelle ; coût **exact au microdollar** contre le solde Venice, trois fois |
 | 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | ✅ **Terminée** : un Developer a implémenté `/health` en vraie session, dans un worktree, sous approbation, coût **exact au microdollar** ; suites vertes sur macOS, Linux et Windows |
-| 4 | Durcissement sécurité, distribution npm | À faire |
+| 4 | Durcissement sécurité, distribution npm | 🚧 **En cours** : décisions prises, découpage en huit étapes ([docs/SLICE4.md](docs/SLICE4.md)) |
 
 Le détail des slices est dans [docs/PLAN.md](docs/PLAN.md). Ce que chaque slice a
 prouvé et appris : [docs/SLICE0.md](docs/SLICE0.md), [docs/SLICE1.md](docs/SLICE1.md),
-[docs/SLICE2.md](docs/SLICE2.md), [docs/SLICE3.md](docs/SLICE3.md).
+[docs/SLICE2.md](docs/SLICE2.md), [docs/SLICE3.md](docs/SLICE3.md), [docs/SLICE4.md](docs/SLICE4.md).
 
 ## Démarrer depuis un clone
 
@@ -168,7 +168,8 @@ Midgaard/
 │   ├── SLICE0.md                 ce que le spike a prouvé et appris
 │   ├── SLICE1.md                 résultats de la Slice 1, écarts au plan, découvertes
 │   ├── SLICE2.md                 agents réels, coûts, coffre, et les dettes soldées
-│   └── SLICE3.md                 Developer, worktrees, approbations : décisions, essai réel
+│   ├── SLICE3.md                 Developer, worktrees, approbations : décisions, essai réel
+│   └── SLICE4.md                 durcissement et distribution npm : décisions, étapes
 ├── packages/
 │   ├── contracts/                schémas Zod, machine à états, protocole — aucune dépendance
 │   ├── persistence/              SQLite (node:sqlite), migrations, dépôt
