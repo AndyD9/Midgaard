@@ -14,6 +14,12 @@ MCP, la CLI, les tests et (pour les types) le dashboard.
 | `protocol.ts` | `PROTOCOL_VERSION`, formes des réponses HTTP, messages WebSocket |
 | `runtime.ts` | Fichier de découverte du daemon (lecture, écriture atomique, `pidAlive`) |
 | `client.ts` | `daemonFetch` / `daemonJson` — client HTTP authentifié |
+| `agent.ts` | Profils d'agents exécutants : modèle, outils, limites |
+| `provider.ts` | Configuration des fournisseurs de modèles ; la clé n'y est qu'une référence au coffre |
+| `usage.ts` | Consommation et coût, toujours avec sa provenance (`cost_source`) |
+| `workspace.ts` | Worktree d'un agent écrivant, et ce qui y manque (travail non commité, sous-modules) |
+| `tools.ts` | Noms d'outils, journal des appels, `wrapUntrusted` |
+| `redact.ts` | `createRedactor`, `redactDeep` : l'expurgation avant toute persistance |
 
 ## Deux règles à ne pas casser
 
@@ -26,3 +32,18 @@ devaient recourir à des imports dynamiques pour changer `MIDGAARD_HOME`.
 MCP et daemon. Le daemon survit aux mises à jour du code ; c'est ce numéro qui le
 fait remplacer au lieu de laisser un serveur récent dialoguer avec un daemon
 périmé.
+
+## Deux filets contre ce qui vient d'ailleurs
+
+**`createRedactor`** expurge avant journalisation et persistance : les secrets
+connus (la clé du fournisseur) exactement, les autres par motif (`sk-…`,
+`ghp_…`, `AIza…`…). **Tout** ce qui s'écrit en base y passe, y compris le
+message d'un refus : il cite ce que le modèle a demandé, et un modèle détourné
+y recopie ce qu'il a lu. Deux chemins l'oubliaient jusqu'à la Slice 4 ; la suite
+`tests/security.ts` les a trouvés en lisant la base octet pour octet.
+
+**`wrapUntrusted`** encadre ce qui vient d'une source que personne ne contrôle,
+entre deux marqueurs portant un nonce aléatoire, et désamorce toute balise de
+fin dans le contenu **et dans l'étiquette** — pour `exec`, l'étiquette est la
+commande écrite par le modèle, et elle passait telle quelle jusqu'à la Slice 4.
+Les deux sont éprouvés directement par `tests/unit/redact.test.ts`.

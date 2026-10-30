@@ -4,7 +4,7 @@
  * réconciliation au redémarrage.
  */
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { chmodSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -51,6 +51,28 @@ describe('migrations', () => {
     // a pu changer.
     store.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 10}`)
     assert.throws(() => migrate(store.db), /version de schéma/)
+  })
+})
+
+describe('droits de la base', { skip: process.platform === 'win32' && 'Windows règle les droits par ACL, pas par mode' }, () => {
+  // Ce qui suit l'ouverture du beforeEach : une base neuve, et ses compagnons WAL.
+  it('crée la base et ses fichiers WAL lisibles du seul utilisateur', () => {
+    newTask() // une écriture, pour que -wal et -shm existent
+    for (const suffix of ['', '-wal', '-shm']) {
+      const path = `${join(home, 'harness.db')}${suffix}`
+      assert.equal(statSync(path).mode & 0o777, 0o600, `${path} en ${(statSync(path).mode & 0o777).toString(8)}`)
+    }
+  })
+
+  it('resserre une base laissée lisible par une version précédente, et le dit', () => {
+    // Constaté sur l'installation de l'auteur : harness.db en 644.
+    const dbPath = join(home, 'ancienne.db')
+    HarnessStore.open({ dbPath }).close()
+    chmodSync(dbPath, 0o644)
+    const said: string[] = []
+    HarnessStore.open({ dbPath }, (m) => void said.push(m)).close()
+    assert.equal(statSync(dbPath).mode & 0o777, 0o600)
+    assert.match(said.join('\n'), /droits resserrés de 644 à 600/)
   })
 })
 

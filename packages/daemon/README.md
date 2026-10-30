@@ -46,6 +46,13 @@ fichier de découverte ; on ne prétend pas s'en protéger.
 | `Sec-Fetch-Site` ∈ {`same-origin`, `none`} | Confirmation directe par le navigateur |
 | Jeton porteur, comparé à temps constant | Tout client qui n'a pas lu `daemon.json` (`0600`) |
 
+Les fichiers d'état sont lisibles du seul utilisateur : `daemon.json`, le
+journal et **la base**, en `0600` depuis la Slice 4 — elle était créée selon
+l'umask, donc en `0644`, et gardait objectifs, contexte, sorties d'outils et
+diffs à la portée des autres comptes du poste. Une base plus ancienne est
+resserrée à l'ouverture. Prouvé par `tests/security.ts` (X4), qui vérifie aussi
+qu'aucune autre interface que la boucle locale ne répond.
+
 `/ui/bootstrap` et les fichiers du dashboard sont servis **sans jeton** — le
 navigateur n'en a aucun avant d'avoir chargé la page — mais restent soumis aux
 contrôles d'enveloppe, qui sont précisément ce qui arrête une page hostile.

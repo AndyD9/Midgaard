@@ -6,7 +6,7 @@ intégré. En chemin : tests de sécurité ciblés, scénarios de crash et de re
 deux tâches concurrentes sur des worktrees distincts, README et guide de
 dépannage.
 
-**État : en cours.** Décisions prises, découpage arrêté ; étapes 1 et 2 livrées.
+**État : en cours.** Décisions prises, découpage arrêté ; étapes 1 à 3 livrées.
 
 ---
 
@@ -52,7 +52,7 @@ la règle de `dashboard_available` : ne rien annoncer qu'on n'a pas constaté.
 |---|---|---|
 | 1 | `doctor` en lecture seule : il diagnostique la base sans la migrer, et dit « base à migrer » | ✅ livrée |
 | 2 | Ce que le worktree ne montre pas : `edit_file` tolérant aux fins de ligne ; sous-modules absents, signalés à l'agent et au dashboard | ✅ livrée |
-| 3 | La suite de sécurité du PLAN §8.4, point par point : chaque refus prouvé par un test qui l'observe directement, les trous comblés | à faire |
+| 3 | La suite de sécurité du PLAN §8.4, point par point : chaque refus prouvé par un test qui l'observe directement, les trous comblés | ✅ livrée — quatre défauts réels trouvés |
 | 4 | Crash et concurrence : daemon tué en plein Developer (tâche `interrupted`, worktree conservé, branche au commit de départ) ; deux Developer concurrents sur deux worktrees | à faire |
 | 5 | Le daemon de bout en bout, le dashboard et la CLI en CI sur macOS, Linux et Windows | à faire |
 | 6 | Le paquet `midgaard` : tarball unique, `npm pack` installé dans un préfixe vierge puis `harness init`, `doctor` et un aller-retour MCP — sur les trois plateformes | à faire |
@@ -67,16 +67,6 @@ livrable qu'on ne peut pas reprendre.
 
 ### Ce que chaque étape doit trancher ou surveiller
 
-- **Étape 3.** Beaucoup existe déjà, éparpillé : traversée et liens
-  (`tools`, `write-tools`), `;` dans un argument (`exec`), IMDS et IP privées,
-  redirections comprises (`tools`), `Origin` étrangère sur HTTP et WebSocket
-  (`restart.ts`, R4). Le travail est d'abord un **inventaire** — une table
-  « promesse du §5 → test qui la prouve » — puis de combler ce qui manque.
-  Un trou déjà visible : « un secret dans une sortie d'outil est expurgé en
-  base » n'est prouvé que sur un faux expurgeur, jamais en lisant la base
-  d'un vrai daemon. Un autre, vu sur l'installation réelle à l'étape 1 :
-  `~/.midgaard` en `755` et `harness.db` en `644`, donc lisibles par les autres
-  comptes du poste (le jeton, lui, est bien en `600`).
 - **Étape 5.** Les suites de bout en bout envoient des signaux et tuent des
   processus : c'est là que Windows a le plus de chances de différer. La leçon
   du coffre (cinq passages pour quatre postes verts) vaut d'être retenue :
@@ -216,6 +206,111 @@ phrase a été retirée plutôt que rendue vraie.
 
 ---
 
+## Étape 3 — la suite de sécurité
+
+### La méthode
+
+D'abord un **inventaire** : chaque promesse du PLAN §5 et chaque attaque du
+§8.4, face au test qui la prouve. Ensuite, pour chaque trou, un test qui
+**observe l'effet** — la base lue octet pour octet, le journal, le disque —
+écrit **avant** le correctif, pour le voir échouer. Ce n'est qu'ainsi que les
+défauts ci-dessous sont apparus : l'expurgation avait l'air couverte, parce que
+les suites qui l'employaient passaient.
+
+### Ce qui existe
+
+- **`tests/security.ts`** (`npm run test:security`, ~3 s, dans `npm test`) :
+  un vrai daemon, de vrais dépôts, le faux fournisseur qui fait tenter à
+  l'agent ce qu'un modèle détourné tenterait.
+  - **X1** — un agent lit une clé tierce (`ghp_…`) dans le projet et la recopie
+    partout : argument, chemin que l'outil refusera, commande, résultat, et la
+    clé du fournisseur avec. La base, son WAL et `daemon.log` — sortie du daemon
+    redirigée comme le fait le serveur MCP — sont lus **octet pour octet**, et
+    chaque colonne de chaque table est interrogée, pour dire **par où** un
+    secret fuit quand il fuit.
+  - **X2** — dix refus (lecture par `..`, par chemin absolu et par lien ; IMDS,
+    `127.0.0.1` et `localhost` vers le daemon lui-même ; écriture par `..`, par
+    chemin absolu, sur `.git` et par lien) : chacun est au journal, la tâche se
+    termine, rien n'existe hors du worktree.
+  - **X3** — `; rm -rf <dossier> && echo pwned` en argument : l'humain approuve
+    cet argv exact, la commande tourne sans shell, le dossier est intact.
+  - **X4** — l'API ne répond sur **aucune** interface autre que la boucle locale
+    (éprouvé sur chaque adresse IPv4 de la machine) ; jeton, base, `-wal` et
+    `-shm` en `0600`. Ce qui ne peut pas s'éprouver ici le dit : sans interface
+    externe, ou sous Windows pour les modes.
+- **`tests/unit/redact.test.ts`**, 15 tests : `createRedactor` (secrets connus,
+  six motifs, dans un chemin et dans du JSON, valeur seule expurgée, texte
+  ordinaire intact), `redactDeep`, `wrapUntrusted` (nonce, balise de fin
+  hostile dans le contenu et dans l'étiquette).
+- Dans `agent-runtime.test.ts` : l'encadrement **dans la boucle**, sur une
+  sortie d'`exec` hostile ; l'expurgation d'un refus et de `submit_result`.
+  Dans `tools.test.ts` : `localhost` refusé sur ce qu'il résout. Dans
+  `store.test.ts` : la base créée en `0600`, une base en `0644` resserrée.
+
+Au total : 301 tests unitaires, puis `test:lock`, `test:restart`,
+`test:developer` (11), `test:security` (4), `test:wait` (12) et `test:ui` (8),
+**0 échec**, sous macOS. `test:security` n'est pas encore en CI : c'est
+l'étape 5.
+
+### Les quatre défauts trouvés
+
+**7. Le message d'un refus était persisté sans expurgation.** La boucle
+n'expurgeait pas les `ToolError`, jugés sûrs parce que le harness les écrit.
+Mais ils **citent** ce que le modèle a demandé : `writing under .git is not
+allowed: .git/ghp_…`. X1 a trouvé la clé tierce dans `tool_calls.error` et dans
+le journal. Contre-épreuve faite : le correctif retiré, X1 échoue.
+
+**8. L'appel `submit_result` était journalisé en clair.** Son résumé était
+expurgé pour le **résultat**, quelques lignes plus bas, mais pas pour la ligne
+`tool_calls.arguments_json` écrite avant. Trouvé par X1 une fois le n° 7
+corrigé — la colonne fautive nommée par la requête sur chaque table. Au passage,
+les URL citées par la recherche web native, journalisées sans expurgation,
+le sont désormais : une URL peut porter un jeton.
+
+**9. L'étiquette de l'encadrement n'était pas désamorcée.** `wrapUntrusted`
+neutralisait les balises de fin dans le contenu, pas dans `source="…"`. Pour
+`exec`, l'étiquette est la commande — écrite par le modèle : une
+`</untrusted_data>` y passait telle quelle, dans le bloc même qui prétend
+l'encadrer. Trouvé par le test d'encadrement dans la boucle, qui n'existait pas :
+celui qui s'intitulait « encadre une page web » ne vérifiait que le cas
+contraire — qu'un fichier du projet n'est **pas** encadré. Titre corrigé.
+
+**10. La base était lisible par les autres comptes.** `node:sqlite` crée le
+fichier selon l'umask : `0644`, constaté sur l'installation de l'auteur. Elle
+garde objectifs, contexte transmis par Claude, sorties d'outils. `open()` la
+crée désormais en `0600` — SQLite donne ce mode à `-wal` et `-shm`, constaté —
+et resserre une base existante. Le dossier `~/.midgaard` reste tel que
+l'utilisateur l'a : un `MIDGAARD_HOME` peut désigner un dossier qui n'est pas à
+nous, et `doctor` avertit déjà.
+
+### Promesse par promesse
+
+| Promesse (PLAN §5, §8.4) | Ce qui la prouve |
+|---|---|
+| Chemins canoniques, sous la racine ; `..` et absolus refusés | `tools`, `write-tools`, X2 |
+| Liens sortants refusés, sans dire où ils mènent | `tools`, `write-tools`, X2 |
+| Revérification à l'ouverture (`dev`/`ino`) | **écrite, jamais provoquée** : aucune suite ne gagne la course entre vérification et ouverture |
+| Écriture dans le seul worktree ; ni `.git` ni sous-module | `write-tools`, `agent-runtime`, X2, V11 |
+| `exec` : argv exact en liste blanche, sinon approbation | `exec`, V2, V9 |
+| `exec` : pas de shell | `exec`, X3 |
+| `exec` : environnement reconstruit | `exec` (« n'expose ni les clés du daemon ni `GIT_DIR` ») |
+| `exec` : délai, groupe de processus tué | `exec` ; sous Windows, nuance de SLICE3 n° 21 |
+| Réseau : privées, IMDS, chaque saut de redirection, noms résolus | `tools`, X2 |
+| Réseau : liste de domaines | `tools` |
+| Secrets au coffre, référence seule en base | `secrets`, X1 (clé du fournisseur absente de la base) |
+| Expurgation avant persistance | `redact`, `agent-runtime`, **X1** |
+| API sur `127.0.0.1` seulement | **X4** |
+| Jeton `0600` ; base `0600` | **X4**, `store` |
+| `Host` et `Origin` vérifiés, WebSocket comprise | `restart` R4 |
+| Approbation liée à l'opération exacte | `approvals`, `exec`, V2, X3 |
+| Approbation à usage unique, expirant | `store`, `restart` R5 |
+| Contenu non fiable encadré, nonce, balise de fin désamorcée | `redact`, `agent-runtime`, `test:live` |
+| Budget vérifié avant l'appel ; `budget_exceeded` ≠ `failed` | `agent-runtime` |
+
+En gras, ce qui n'était prouvé par rien avant cette étape.
+
+---
+
 ## Ce qui restera ouvert, déjà su
 
 - **Les sous-processus lancés hors de libuv, sous Windows** (SLICE3, leçon
@@ -229,5 +324,10 @@ phrase a été retirée plutôt que rendue vraie.
 - **Un `exec` peut écrire dans un sous-module** : le refus ne vaut que pour les
   outils d'écriture. Ce qu'une commande y écrirait serait perdu de la même
   façon ; la consigne de l'agent dit que les sous-modules sont vides.
+- **La revérification à l'ouverture** n'a jamais été provoquée : la course
+  entre `stat` et `open` ne se gagne pas sur commande. Il faudrait un point
+  d'injection entre les deux, que le code n'a pas.
+- **Le *DNS rebinding*** contre `http_fetch` reste la limite annoncée dans
+  `net.ts` : le nom est vérifié, puis `fetch` résout à nouveau.
 - **Les deux dettes Gemini** (SLICE2) restent ouvertes tant qu'aucune clé
   Google n'est disponible.

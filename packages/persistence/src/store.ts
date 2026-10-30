@@ -13,7 +13,7 @@
  * daemon écrit, sans se bloquer mutuellement.
  */
 import { randomUUID } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import {
@@ -169,6 +169,38 @@ function toEvent(row: EventRow): TaskEvent {
 }
 
 /**
+ * Rend la base et ses fichiers compagnons lisibles du seul utilisateur.
+ *
+ * La base garde les objectifs, le contexte que Claude transmet — souvent du
+ * code —, les sorties d'outils et les diffs : rien qui doive être lisible par
+ * les autres comptes du poste. `node:sqlite` crée pourtant le fichier selon
+ * l'umask, soit `0644` d'ordinaire ; constaté sur l'installation de l'auteur
+ * (docs/SLICE4.md, étape 1). SQLite donne à `-wal` et `-shm` le mode de la base
+ * (constaté aussi) : il suffit donc de créer la base en `0600` avant de
+ * l'ouvrir, et de resserrer une base existante — compagnons compris, pour ceux
+ * qu'une version précédente a déjà créés.
+ *
+ * Sous Windows, `chmod` ne règle que la lecture seule : les droits y passent
+ * par les ACL du dossier utilisateur, que ce code ne touche pas.
+ */
+function restrictDatabaseFiles(dbPath: string, log: (msg: string) => void): void {
+  // `a` : crée un fichier vide s'il manque — une base SQLite valide —, sans
+  // jamais tronquer une base existante.
+  if (!existsSync(dbPath)) writeFileSync(dbPath, '', { mode: 0o600, flag: 'a' })
+  // Windows rapporte toujours `0666` : resserrer n'y changerait rien, et le
+  // journal le redirait à chaque démarrage.
+  if (process.platform === 'win32') return
+  for (const path of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    if (!existsSync(path)) continue
+    const mode = statSync(path).mode & 0o777
+    if (mode & 0o077) {
+      chmodSync(path, 0o600)
+      log(`${path} : droits resserrés de ${mode.toString(8)} à 600`)
+    }
+  }
+}
+
+/**
  * Dépôt unique du harness. Une instance par processus : `node:sqlite` est
  * synchrone et ne demande donc aucun pool de connexions.
  */
@@ -188,6 +220,7 @@ export class HarnessStore {
    */
   static open(config: Pick<HarnessConfig, 'dbPath'>, log: (msg: string) => void = () => {}): HarnessStore {
     mkdirSync(dirname(config.dbPath), { recursive: true, mode: 0o700 })
+    restrictDatabaseFiles(config.dbPath, log)
     const db = new DatabaseSync(config.dbPath)
     // WAL : lecteurs et écrivain ne se bloquent plus (la CLI lit pendant que le
     // daemon écrit). `busy_timeout` évite un `SQLITE_BUSY` immédiat sur la

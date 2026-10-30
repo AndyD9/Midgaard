@@ -271,10 +271,13 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
       })
       input.hooks.onToolCompleted(id, {
         status: 'succeeded',
-        summary: `${completion.citations.length} source(s) : ${completion.citations
-          .map((c) => c.url)
-          .slice(0, 5)
-          .join(', ')}`,
+        // Une URL citée peut porter un jeton dans sa requête : expurgée comme le reste.
+        summary: input.redact(
+          `${completion.citations.length} source(s) : ${completion.citations
+            .map((c) => c.url)
+            .slice(0, 5)
+            .join(', ')}`,
+        ),
         bytes: null,
         durationMs: 0,
         error: null,
@@ -395,7 +398,11 @@ function finishWith(
     name: SUBMIT_RESULT,
     decision: 'allow',
     status: 'running',
-    argumentsJson: JSON.stringify({ summary: validated.data.summary, confidence: validated.data.confidence }),
+    // Expurgé comme tout appel journalisé : le résumé l'est plus bas pour le
+    // résultat, mais il était persisté ici en clair (suite de sécurité, X1).
+    argumentsJson: input.redact(
+      JSON.stringify({ summary: validated.data.summary, confidence: validated.data.confidence }),
+    ),
   })
   input.hooks.onToolCompleted(id, {
     status: 'succeeded',
@@ -489,7 +496,10 @@ async function runOneTool(call: ToolCallRequest, input: LoopInput, step: number)
   try {
     prepared = tool.prepare ? await tool.prepare(validated.data as never, input.tools) : undefined
   } catch (e) {
-    const message = e instanceof ToolError ? e.message : input.redact((e as Error).message)
+    // Expurgé même quand c'est un refus du harness : un `ToolError` cite ce que
+    // le modèle a demandé — un chemin, une URL —, et un modèle détourné y
+    // recopie ce qu'il a lu. La suite de sécurité (X1) l'a trouvé dans la base.
+    const message = input.redact((e as Error).message)
     input.hooks.onToolCompleted(logId, {
       status: 'failed', summary: null, bytes: null, durationMs: Date.now() - started, error: message,
     })
@@ -541,7 +551,8 @@ async function runOneTool(call: ToolCallRequest, input: LoopInput, step: number)
     const content = result.untrusted ? wrapUntrusted(result.summary, result.content) : result.content
     return reply(input.redact(content))
   } catch (e) {
-    const message = e instanceof ToolError ? e.message : input.redact((e as Error).message)
+    // Expurgé pour la même raison qu'à la préparation, plus haut.
+    const message = input.redact((e as Error).message)
     input.hooks.onToolCompleted(logId, {
       status: 'failed', summary: null, bytes: null, durationMs: Date.now() - running, error: message,
     })

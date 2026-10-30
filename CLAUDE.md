@@ -47,6 +47,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
 | `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer compris (`npx playwright install chromium` au préalable) |
 | `npm run test:developer` | ~25 s — le Developer dans un vrai daemon, face à un faux fournisseur |
+| `npm run test:security` | ~3 s — PLAN §8.4 de bout en bout : base et journal lus octet pour octet, refus tracés, API sur la seule boucle locale |
 | `npm run test:wait` | ~3 min — 12 scénarios de bout en bout MCP |
 
 ## Invariants à ne pas casser
@@ -113,9 +114,13 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - **Tout ce qui vient du web est encadré en `<untrusted_data>`** avec un nonce
   aléatoire, avant d'être réinjecté dans la conversation de l'agent **et** avant
   de remonter à Claude. Sans nonce, il suffit qu'une page contienne la balise de
-  fin pour sortir du cadre.
+  fin pour sortir du cadre. L'étiquette se désamorce comme le contenu : pour
+  `exec`, c'est la commande écrite par le modèle.
 - **Aucune clé d'API en base.** La base ne garde qu'une référence vers le coffre.
-  Et tout ce qui est journalisé ou persisté passe par `createRedactor`.
+  Et tout ce qui est journalisé ou persisté passe par `createRedactor` —
+  **y compris le message d'un refus**, qui cite ce que le modèle a demandé.
+  `tests/security.ts` lit la base et le journal octet pour octet : c'est là
+  que deux oublis ont été trouvés, pas dans les tests de l'expurgation.
 
 - **Aucun programme désigné par l'arbre d'un worktree ne s'exécute.** Cet arbre
   est écrit par l'agent. Tout `git` du paquet `workspace` passe par `git()`, qui

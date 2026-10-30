@@ -224,6 +224,16 @@ describe('http_fetch — destinations refusées', () => {
     )
   })
 
+  it('juge un nom sur les adresses qu\'il résout, pas sur son orthographe', async () => {
+    // Un littéral IP se juge directement ; un nom doit être résolu. `localhost`
+    // n'a l'air de rien — c'est le cas qu'une liste de littéraux laisserait passer.
+    const port = new URL(serverUrl).port
+    await assert.rejects(
+      () => fetchTool().run({ url: `http://localhost:${port}/` } as never, ctx()),
+      /localhost resolves to a private or loopback address/,
+    )
+  })
+
   it('refuse le service de métadonnées du nuage, en le nommant', async () => {
     const error = await fetchTool()
       .run({ url: 'http://169.254.169.254/latest/meta-data/' } as never, ctx())

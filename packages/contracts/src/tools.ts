@@ -143,7 +143,10 @@ export function wrapUntrusted(label: string, content: string): string {
   // n'existe, donc il ne peut pas le contenir, et un encadrement ne vit que le
   // temps d'une réponse.
   const nonce = randomBytes(8).toString('hex')
-  const open = `<untrusted_data nonce="${nonce}" source=${JSON.stringify(label)}>`
+  // L'étiquette est désamorcée elle aussi : pour `exec`, c'est la commande
+  // écrite par le modèle, et une balise de fin y passait telle quelle — trouvé
+  // par un test de la Slice 4, le contenu, lui, l'était déjà.
+  const open = `<untrusted_data nonce="${nonce}" source=${JSON.stringify(neutralizeMarkers(label))}>`
   const close = `</untrusted_data nonce="${nonce}">`
   return `${UNTRUSTED_NOTICE}\n\n${open}\n${neutralizeMarkers(content)}\n${close}`
 }

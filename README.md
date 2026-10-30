@@ -129,23 +129,24 @@ Depuis la racine du dépôt :
 | `npm run harness -- workspaces` | Worktrees des tâches Developer ; `remove`, `clean` (la branche reste toujours) |
 | `npm run harness -- exec` | Commandes sans approbation dans ce dépôt ; `allow`, `revoke` |
 | `npm run dashboard:dev` | Dashboard avec rechargement à chaud (lance `harness start` avant) |
-| `npm test` | Les cinq suites gratuites, environ 4 minutes |
+| `npm test` | Les six suites gratuites, environ 4 minutes |
 | `npm run test:ui` | Le dashboard dans un vrai navigateur (voir le prérequis plus bas) |
 | `npm run test:live` | Essai réel contre un vrai fournisseur — **dépense de l'argent** |
 
 | Suite | Durée | Contenu |
 |---|---|---|
-| `npm run test:unit` | ~5 s | 281 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils (écriture et `exec` compris), boucle d'agent, formatage des montants, coffres, worktrees sur de vrais dépôts Git |
+| `npm run test:unit` | ~5 s | 301 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils (écriture et `exec` compris), boucle d'agent, formatage des montants, coffres, worktrees sur de vrais dépôts Git |
 | `npm run test:worktrees` | ~5 s | Worktrees, écriture et `exec` seuls — la CI les rejoue sur macOS, Linux et Windows |
 | `npm run test:vault` | ~1 s | Les 41 cas de coffre, sur le coffre **réel de la machine** — la CI les rejoue sur macOS, Windows et Linux (avec et sans trousseau) |
 | `npm run test:lock` | ~30 s | Instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s | Redémarrage, reprise WebSocket, sécurité, expiration, inactivité |
 | `npm run test:developer` | ~25 s | 11 scénarios : le Developer dans un vrai daemon, face à un faux fournisseur compatible OpenAI |
+| `npm run test:security` | ~3 s | 4 scénarios : le PLAN §8.4 de bout en bout — aucun secret dans la base ni le journal du daemon (lus octet pour octet), chaque refus tracé, `; rm -rf` reste un argument, API sur la seule boucle locale |
 | `npm run test:ui` | ~1 min | 8 scénarios dans un vrai navigateur : direct, approbation au clic, reconnexion, diff d'une tâche Developer |
 | `npm run test:wait` | ~3 min | 12 scénarios de bout en bout avec le client MCP officiel |
 | `npm run test:live` | ~3 min | 5 scénarios **contre la vraie API** — opt-in, dépense ~0,003 $, s'abstient sans clé |
 
-`npm test` enchaîne `unit`, `lock`, `restart`, `developer` et `wait`. `test:ui` se lance à
+`npm test` enchaîne `unit`, `lock`, `restart`, `developer`, `security` et `wait`. `test:ui` se lance à
 part : il lui faut le dashboard compilé et le navigateur de Playwright, que
 `npm ci` ne télécharge pas.
 
