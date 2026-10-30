@@ -4,7 +4,7 @@ Harness local qui laisse Claude Code déléguer des tâches à des agents exécu
 les observer et les soumettre à approbation humaine. **Lire d'abord** :
 [README.md](README.md) (état, commandes), [docs/PLAN.md](docs/PLAN.md) (décisions
 et slices), [docs/SLICE3.md](docs/SLICE3.md) (Developer, worktrees,
-approbations : décisions, étapes, essai réel), [docs/SLICE2.md](docs/SLICE2.md),
+approbations : décisions, étapes, essai réel, CI), [docs/SLICE2.md](docs/SLICE2.md),
 [docs/SLICE1.md](docs/SLICE1.md) et [docs/SLICE0.md](docs/SLICE0.md) (d'où
 viennent les invariants).
 
@@ -41,6 +41,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme), `revoke` |
 | `npm run test:unit` | ~5 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git) |
 | `npm run test:vault` | ~1 s — les coffres seuls, sur le coffre réel de la machine |
+| `npm run test:worktrees` | ~5 s — worktrees, écriture et `exec` seuls (rejoués en CI sur trois plateformes) |
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
 | `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer compris (`npx playwright install chromium` au préalable) |
@@ -192,16 +193,13 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
 
-## Slice 3 : livrable atteint — reste la CI multi-plateforme
+## Slice 3 terminée — prochaine étape : Slice 4
 
-Le 2026-10-30, depuis une vraie session Claude Code, un Developer sur Venice a
-ajouté une route `/health` et son test dans un worktree isolé ; `npm test` a
-attendu l'approbation humaine ; le diff se lisait dans le dashboard ; Claude a
-relayé la branche sans merger ; le coût affiché est **exactement** ce que
-Venice a débité. Récit, critères et mesures : [docs/SLICE3.md](docs/SLICE3.md),
-§ « Étape 8 ». Les quatre décisions prises avec l'auteur (merge manuel,
-worktrees conservés jusqu'au nettoyage, sous `~/.midgaard/worktrees`, `exec` en
-approbation par défaut) y sont aussi.
+Le 2026-10-30, en vraie session, un Developer sur Venice a implémenté `/health`
+dans un worktree, sous approbation humaine, coût **exact au microdollar** ; les
+suites `workspace`, écriture et `exec` sont vertes sur macOS, Linux et Windows
+(`.github/workflows/worktrees.yml`, passage `41050506668`). Récit, décisions,
+mesures et leçons (21) : [docs/SLICE3.md](docs/SLICE3.md).
 
 Ce qui existe : le paquet `workspace` ; `write_file`, `edit_file`,
 `delete_file`, `git_diff`, `exec` ; des approbations portant sur l'opération
@@ -209,12 +207,13 @@ préparée ; le profil `developer` ; la carte « Fichiers et diff » ;
 `harness workspaces` et `harness exec` (liste blanche par dépôt). Migrations 4
 à 6, `PROTOCOL_VERSION` 7.
 
-**La slice n'est pas dite terminée**, par engagement écrit à son étape 1 : les
-suites `workspace`, `write-tools` et `exec` n'ont tourné que sur ce Mac. Elles
-doivent rejoindre la CI multi-plateforme (`.github/workflows/`), comme le
-coffre — qui avait révélé cinq pannes invisibles depuis macOS. Restent aussi,
-notés au § « Ce qui reste ouvert » de `docs/SLICE3.md` : `doctor` qui migre la
-base qu'il diagnostique, et les sous-modules absents des worktrees.
+**Slice 4** (PLAN §7) : durcissement et distribution npm. Ce que la Slice 3
+lui laisse, au § « Ce qui reste ouvert » de `docs/SLICE3.md` :
+
+- `doctor` migre la base qu'il diagnostique ; il doit l'ouvrir en lecture seule ;
+- `edit_file` dans un dépôt CRLF : l'`old_string` correspond octet pour octet ;
+- le daemon de bout en bout, le dashboard et la CLI n'ont tourné que sous macOS ;
+- les sous-modules sont absents des worktrees, sans que rien le dise.
 
 Des cinq dettes nées de la Slice 2, **trois sont soldées** le 2026-10-29 ; le
 récit complet est au § « Les dettes, soldées » de [docs/SLICE2.md](docs/SLICE2.md).

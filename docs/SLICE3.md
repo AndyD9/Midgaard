@@ -4,7 +4,9 @@
 changement dans un worktree isolé, une commande sensible suspend la tâche
 jusqu'à décision humaine, le diff est consultable, Claude récupère le résultat.
 
-**État : livrable atteint, et éprouvé en vraie session.** Le 2026-10-30, depuis
+**État : terminée.** Livrable atteint et éprouvé en vraie session ; suites
+`workspace`, écriture et `exec` vertes sur macOS, Linux et Windows (passage
+`41050506668`). Le 2026-10-30, depuis
 une session Claude Code, un Developer sur Venice a ajouté une route `/health`
 et son test dans un worktree isolé ; `npm test` a suspendu la tâche jusqu'à
 l'approbation, donnée dans le dashboard ; le diff s'y lisait ; Claude a relayé
@@ -12,9 +14,9 @@ la branche sans merger ; et **le coût affiché, 0,0022972 $, est exactement ce
 que Venice a débité**. Huit étapes livrées, 255 tests unitaires et 47
 scénarios d'intégration, de bout en bout et de navigateur, 0 échec.
 
-Ce qui n'est **pas** prouvé est dit au § « Ce qui reste ouvert » : rien de ce
-qui précède n'a tourné sous Windows ni sous Linux, et l'essai réel est un
-passage unique, sur un dépôt minuscule.
+Ce qui n'est **pas** prouvé est dit au § « Ce qui reste ouvert » : l'essai réel
+est un passage unique, sur un dépôt minuscule, et seules les suites unitaires
+de la slice — pas le daemon de bout en bout — ont tourné sous Windows et Linux.
 
 ---
 
@@ -679,6 +681,64 @@ le faux fournisseur (`test:developer`, V3 et V6), pas contre un vrai modèle.
 
 ---
 
+## La CI multi-plateforme — l'engagement de l'étape 1, tenu
+
+L'étape 1 s'était engagée à ne pas dire la slice terminée tant que `workspace`,
+l'écriture et `exec` n'auraient tourné que sur le Mac qui les a écrits. Nouveau
+workflow `.github/workflows/worktrees.yml` : `npm run test:worktrees` (les
+suites `workspace`, `write-tools`, `exec` et `dashboard-patch`) sur macOS, Linux
+et Windows, sans `fail-fast`.
+
+| Passage | Commit | macOS | Linux | Windows |
+|---|---|---|---|---|
+| `41050259725` | `0d01ddb` | 60/60 | 60/60 | **56/60**, 2 sauts annoncés |
+| `41050506668` | `47b902c` | 60/60 | 60/60 | **58/60**, 2 sauts annoncés, 0 échec |
+
+Git 2.56 sur les trois postes. Deux passages, là où le coffre en avait demandé
+cinq — en partie parce qu'un défaut Windows avait été corrigé **avant** de
+pousser, à la relecture.
+
+Les deux sauts sont les cas qui lancent un script `sh` comme programme :
+Windows n'exécute pas un fichier par son shebang. Ils le disent dans la sortie
+(`# Windows n'exécute pas un script sh comme programme`) ; le refus d'un
+programme modifié depuis l'approbation, qui a lieu avant tout lancement, reste
+vérifié partout.
+
+### Ce que la CI a appris
+
+**18. Sous Windows, le nom nu d'une commande est un piège.** `resolveCommand`
+essayait d'abord `npm`, puis `npm.EXE`, `npm.CMD`… Or le dossier de Node
+contient justement un `npm` sans extension — un script `sh` pour les shells
+POSIX — à côté de `npm.cmd`. Il aurait été « trouvé », puis aurait échoué au
+lancement. Windows n'exécute jamais un fichier sans extension : seules les
+extensions de `PATHEXT` comptent désormais (`candidateNames`, testé pour les
+trois plateformes depuis n'importe laquelle). Trouvé à la relecture avant de
+pousser, pas par la CI — ce qui ne dispense pas de l'avoir fait tourner.
+
+**19. Les deux échecs Windows étaient des hypothèses POSIX des tests.**
+`/bin/echo` n'existe pas sous Windows : le refus avait lieu, mais pour « chemin
+introuvable » au lieu de « hors du worktree ». Et Git pour Windows convertit en
+CRLF au checkout (`core.autocrlf`) : le worktree contient les mêmes octets que
+le dépôt de l'utilisateur, ce qui est juste. Aucune faille dans les deux cas ;
+les tests visent désormais ce qu'ils prétendent vérifier.
+
+**20. La conversion CRLF a une conséquence réelle, que les tests ne couvrent
+pas.** Dans un dépôt Windows en CRLF, `edit_file` cherche un `old_string`
+**octet pour octet** ; un modèle qui écrit `\n` ne le trouvera pas, et le
+dira par un refus (« old_string not found »), pas par une erreur silencieuse.
+Noté au § « Ce qui reste ouvert ».
+
+**21. Une limite annoncée s'est révélée plus étroite qu'écrit.** Le README des
+outils annonçait que, sous Windows, `taskkill /T` ne retrouve plus les enfants
+d'un parent déjà sorti. Le test « aucun petit-enfant ne survit à une sortie
+normale » **passe pourtant sous Windows**. L'explication la plus probable :
+libuv place les processus qu'il lance dans un *Job Object* qui les tue avec
+leur parent, et le petit-enfant du test est lancé par Node. Ce n'est **pas
+constaté** pour un programme qui ne passe pas par libuv ; la limite reste donc
+annoncée, avec cette nuance.
+
+---
+
 ## Écarts au plan
 
 1. **Pas de table `projects`, pas de table `artifacts`** (PLAN §6). Un projet est
@@ -701,14 +761,15 @@ le faux fournisseur (`test:developer`, V3 et V6), pas contre un vrai modèle.
   l'ouvrir en lecture seule et dire « base à migrer » plutôt que de le faire.
   Hors de la Slice 3, qui ne l'a pas introduit ; à régler avant la
   distribution (Slice 4).
-- **Windows et Linux** : `workspace`, les outils d'écriture et `exec` sont écrits
-  pour (`os.devNull`, aucun shell, `taskkill`, repli sans `O_NOFOLLOW`), mais
-  n'y ont **jamais tourné**. La leçon du coffre — cinq pannes sur trois
-  plateformes, invisibles depuis un Mac — s'applique telle quelle. Les suites
-  `workspace`, `write-tools` et `exec` doivent rejoindre la CI multi-plateforme
-  **avant que la slice soit dite terminée** : c'est l'engagement de l'étape 1, et
-  il tient. Certains tests devront s'adapter (hooks en `sh`, `chmod`, liens
-  symboliques sous Windows) ; un test qui saute devra le dire.
+- ~~**Windows et Linux** : jamais tourné.~~ **Réglé** : `worktrees.yml`, trois
+  postes au vert (§ « La CI multi-plateforme »). Restent hors CI, sous Windows
+  et Linux : le daemon de bout en bout (`test:developer`), le dashboard, et la
+  CLI.
+- **`edit_file` dans un dépôt CRLF** (leçon n° 20) : l'`old_string` doit
+  correspondre octet pour octet, et un modèle écrit `\n`. À trancher en Slice 4 :
+  tolérer les fins de ligne à la recherche, ou le dire dans la consigne.
+- **Des sous-processus lancés hors de libuv, sous Windows** (leçon n° 21) : leur
+  nettoyage après la sortie du parent n'est pas constaté.
 - **Les sous-modules** ne sont pas initialisés dans un worktree. Un dépôt qui en
   dépend donnera à l'agent des dossiers vides, et ni la consigne ni le
   dashboard ne le disent encore.

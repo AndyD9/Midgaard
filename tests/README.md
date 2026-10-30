@@ -1,12 +1,13 @@
 # `@midgaard/tests`
 
-Sept suites, de la plus rapide à la plus lente. Elles utilisent le lanceur
+Huit suites, de la plus rapide à la plus lente. Elles utilisent le lanceur
 intégré à Node (`node --test`) et de vrais processus — aucun double, aucune
 simulation de notre côté.
 
 | Suite | Durée | Ce qu'elle protège |
 |---|---|---|
 | `npm run test:unit` | ~5 s | Machine à états (matrice complète), persistance, configuration, traversée de chemins, **coffres**, **worktrees** sur de vrais dépôts Git |
+| `npm run test:worktrees` | ~5 s | Worktrees, écriture et `exec` seuls — `.github/workflows/worktrees.yml` les rejoue sur macOS, Linux et Windows ; sous Windows, les deux cas qui lancent un script `sh` sautent en le disant |
 | `npm run test:vault` | ~1 s | Les coffres seuls : conformité du coffre **réel de la machine**, plus le repli |
 | `npm run test:lock` | ~30 s | Un seul daemon vivant, sous concurrence |
 | `npm run test:restart` | ~45 s | Redémarrage, reprise WebSocket, contrôles d'accès, expiration, inactivité |

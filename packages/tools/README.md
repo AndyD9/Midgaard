@@ -161,8 +161,16 @@ le vérifie en interrogeant le pid du petit-enfant au système.
   plus sans shell (CVE-2024-27980), et `cmd.exe` a des règles d'échappement qui
   ne se maîtrisent pas. Lancer `node` avec le chemin du script fonctionne ;
 - l'arbre de processus est tué par `taskkill /T`, qui ne retrouve plus les
-  enfants d'un parent déjà sorti ;
-- rien de cela n'a tourné sous Windows.
+  enfants d'un parent déjà sorti. **Nuance constatée en CI** : le test du
+  petit-enfant laissé par une commande sortie passe pourtant sous Windows,
+  vraisemblablement parce que libuv place ses enfants dans un *Job Object* qui
+  les tue avec leur parent. Non constaté pour un programme qui ne passe pas par
+  libuv ;
+- dans un dépôt en CRLF (`core.autocrlf`), `edit_file` compare octet pour
+  octet : un `old_string` écrit avec `\n` n'y correspond pas, et le refus le dit.
+
+Le reste — chemins, liens, `.git`, `exec`, résolution par `PATHEXT` — tourne en
+CI sur macOS, Linux et Windows (`.github/workflows/worktrees.yml`).
 
 Un processus qui quitte volontairement son groupe (`setsid`) échappe aussi au
 nettoyage, sur toutes les plateformes : c'est la limite d'un contrôle sans
