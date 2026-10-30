@@ -37,9 +37,11 @@ import { toolCallSchema } from './tools.ts'
  *  - 6 : Slice 3, étape 4 — une approbation porte `operation_detail`, l'opération
  *        exacte sous forme structurée, et son empreinte en est tirée. Un daemon
  *        de protocole 5 rendrait des approbations sans ce champ, que le
- *        dashboard et le serveur MCP valident désormais.
+ *        dashboard et le serveur MCP valident désormais ;
+ *  - 7 : Slice 3, étape 5 — le profil `developer` (nouveau `kind`) et le
+ *        résultat de tâche gagne `workspace` (branche, commit, ampleur).
  */
-export const PROTOCOL_VERSION = 6
+export const PROTOCOL_VERSION = 7
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({

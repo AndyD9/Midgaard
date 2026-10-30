@@ -16,8 +16,11 @@
  */
 import { z } from 'zod'
 
-/** Profils livrés. `developer` arrivera en Slice 3, avec les worktrees. */
-export const AGENT_KINDS = ['simulated', 'researcher'] as const
+/**
+ * Profils livrés. `developer` (Slice 3) est le seul qui écrit — dans un
+ * worktree Git créé pour la tâche, jamais dans le dépôt de l'utilisateur.
+ */
+export const AGENT_KINDS = ['simulated', 'researcher', 'developer'] as const
 export type AgentKind = (typeof AGENT_KINDS)[number]
 
 /** Identifiant du profil simulé, réservé : aucun fournisseur, aucun coût. */
@@ -53,6 +56,24 @@ export const DEFAULT_RESEARCHER_LIMITS: AgentLimits = Object.freeze({
   max_cost_usd: 0.5,
   timeout_s: 300,
   max_output_tokens: 4096,
+  max_tool_calls_per_step: 5,
+})
+
+/**
+ * Limites par défaut d'un Developer.
+ *
+ * Plus larges que celles du Researcher, pour trois raisons mesurables : écrire
+ * du code demande de lire, modifier puis vérifier (plus d'étapes) ; le contenu
+ * d'un `write_file` est payé en jetons de **sortie** (plafond par réponse plus
+ * haut) ; et chaque `exec` peut attendre une approbation humaine jusqu'à dix
+ * minutes, que le délai total compte. Elles restent un plafond que
+ * l'utilisateur relève en connaissance de cause.
+ */
+export const DEFAULT_DEVELOPER_LIMITS: AgentLimits = Object.freeze({
+  max_steps: 30,
+  max_cost_usd: 1,
+  timeout_s: 1800,
+  max_output_tokens: 8192,
   max_tool_calls_per_step: 5,
 })
 

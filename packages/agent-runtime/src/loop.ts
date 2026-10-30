@@ -47,7 +47,7 @@ import {
   type ToolContext,
 } from '@midgaard/tools'
 import { budgetIsEnforceable, checkLimits, formatUsd, type StopReason } from './budget.ts'
-import { buildMessages, workspaceTree } from './context.ts'
+import { buildMessages, workspaceTree, type WorkspaceBrief } from './context.ts'
 
 /** Décision humaine rendue sur une demande d'approbation. */
 export type ApprovalOutcome = 'approved' | 'rejected' | 'expired'
@@ -122,6 +122,11 @@ export interface LoopInput {
   signal: AbortSignal
   /** Injectable pour les tests, qui ne veulent pas d'horloge réelle. */
   now?: () => number
+  /**
+   * Le worktree d'un agent écrivant, pour sa consigne. Les outils, eux, le
+   * reçoivent par `tools.workspace` et `tools.writable`.
+   */
+  workspace?: WorkspaceBrief | undefined
 }
 
 /** Ce que rend une boucle terminée. */
@@ -205,6 +210,7 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
     // dit si le budget pourra s'appliquer, et on ne le saura qu'après le premier
     // appel. On annonce donc l'optimisme, et on corrige après coup si besoin.
     budgetEnforceable: true,
+    workspace: input.workspace,
   })
 
   let budgetWarned = false
@@ -408,6 +414,9 @@ function finishWith(
     // son résultat reprend du contenu que personne ne contrôle, et le serveur
     // MCP l'encadrera avant de le rendre à Claude.
     untrusted: validated.data.citations.length > 0,
+    // Le worktree, s'il y en a un, est décrit par le moteur après le commit de
+    // fin : la boucle ne connaît ni Git ni la branche.
+    workspace: null,
   }
   return { status: 'completed', result, usage }
 }

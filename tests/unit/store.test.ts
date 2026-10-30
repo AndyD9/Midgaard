@@ -88,7 +88,7 @@ describe('création et journal', () => {
     const { task } = newTask()
     store.record(task.id, 'preparing', { type: 'task.started' })
     store.record(task.id, 'running', { type: 'task.progress' }, { step: 1 })
-    store.record(task.id, 'completed', { type: 'task.completed' }, { result: { summary: 'ok', details: '', steps: [], citations: [], untrusted: false } })
+    store.record(task.id, 'completed', { type: 'task.completed' }, { result: { summary: 'ok', details: '', steps: [], citations: [], untrusted: false, workspace: null } })
     const events = store.taskEvents(task.id)
     assert.deepEqual(
       events.map((e) => e.status),
@@ -141,7 +141,7 @@ describe('redémarrage', () => {
     const finished = newTask().task
     store.record(finished.id, 'preparing', { type: 'task.started' })
     store.record(finished.id, 'running', { type: 'task.progress' })
-    store.record(finished.id, 'completed', { type: 'task.completed' }, { result: { summary: 'ok', details: '', steps: [], citations: [], untrusted: false } })
+    store.record(finished.id, 'completed', { type: 'task.completed' }, { result: { summary: 'ok', details: '', steps: [], citations: [], untrusted: false, workspace: null } })
 
     const interrupted = store.markInterrupted()
     assert.equal(interrupted.length, 3, 'queued, running et waiting_approval doivent tous être interrompus')
@@ -217,7 +217,7 @@ describe('lecture', () => {
     newTask()
     store.record(a.id, 'preparing', { type: 'task.started' })
     store.record(a.id, 'running', { type: 'task.progress' })
-    store.record(a.id, 'completed', { type: 'task.completed' }, { result: { summary: 'ok', details: '', steps: [], citations: [], untrusted: false } })
+    store.record(a.id, 'completed', { type: 'task.completed' }, { result: { summary: 'ok', details: '', steps: [], citations: [], untrusted: false, workspace: null } })
     assert.deepEqual(store.countTasks(), { total: 2, active: 1 })
   })
 

@@ -156,14 +156,19 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
     log,
   }
 
-  tasks.register(
-    new AgentEngine({
-      ctx: tasks.engineContextFor(),
-      vault,
-      pricing: () => pricing,
-      env: options.env ?? {},
-    }),
-  )
+  // Researcher et Developer partagent la boucle : deux instances du même
+  // moteur, une par type de profil. Seul le Developer crée un worktree.
+  for (const kind of ['researcher', 'developer'] as const) {
+    tasks.register(
+      new AgentEngine({
+        kind,
+        ctx: tasks.engineContextFor(),
+        vault,
+        pricing: () => pricing,
+        env: options.env ?? {},
+      }),
+    )
+  }
   const files = new StaticFiles(config.dashboardDir ?? defaultDashboardDir())
   if (!files.available) log('dashboard non compilé : les URL de dashboard ne seront pas annoncées')
 

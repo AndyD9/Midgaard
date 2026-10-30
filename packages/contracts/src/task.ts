@@ -15,6 +15,7 @@
  * ```
  */
 import { z } from 'zod'
+import { taskWorkspaceSchema } from './workspace.ts'
 import { agentLimitsSchema } from './agent.ts'
 import { usageSchema } from './usage.ts'
 
@@ -124,6 +125,11 @@ export const taskResultSchema = z.object({
     .default([]),
   /** Vrai si le résultat reprend du contenu extérieur, donc non fiable. */
   untrusted: z.boolean().default(false),
+  /**
+   * Le worktree d'une tâche Developer : branche, commit de fin, ampleur du
+   * changement. `null` pour les profils qui n'écrivent pas.
+   */
+  workspace: taskWorkspaceSchema.nullable().default(null),
 })
 export type TaskResult = z.infer<typeof taskResultSchema>
 

@@ -4,12 +4,14 @@
 changement dans un worktree isolé, une commande sensible suspend la tâche
 jusqu'à décision humaine, le diff est consultable, Claude récupère le résultat.
 
-**État : en cours — étapes 1 à 4 sur 8 livrées.** Les worktrees existent, sont
+**État : en cours — étapes 1 à 5 sur 8 livrées.** Les worktrees existent, sont
 enregistrés, et leur diff se calcule ; les outils d'écriture et `exec` existent
 et refusent tout hors d'un worktree ; une approbation porte sur l'opération
-exacte, préparée avant la demande. **Aucun agent ne s'en sert encore** : aucun
-profil n'a de worktree. Le profil `developer` et l'onglet Diff sont à faire, et
-ce document le dit à chaque endroit où la question se pose.
+exacte, préparée avant la demande ; le profil `developer` assemble le tout et
+rend une branche commitée. Il a été éprouvé dans un vrai daemon face à un
+**faux** fournisseur, **jamais face à un vrai modèle** : c'est l'étape 8.
+L'onglet Diff et `harness workspaces` sont à faire, et ce document le dit à
+chaque endroit où la question se pose.
 
 ---
 
@@ -44,7 +46,7 @@ liste qu'en connaissance de cause — ce que l'interface devra dire en ajoutant.
 | 2 | Outils d'écriture bornés au worktree, refus d'écrire sous `.git`, `git_diff` en lecture | ✅ livrée |
 | 3 | `exec` contrôlé : sans shell, binaire résolu d'avance, environnement reconstruit, groupe de processus tué, délai borné par la tâche, sortie bornée | ✅ livrée |
 | 4 | Approbations liées à l'opération exacte (outil, argv, dossier, chemin), affichées telles quelles | ✅ livrée |
-| 5 | Profil `developer` : worktree préparé en `preparing`, lecture et écriture reroutées sur le worktree, commit de fin à `submit_result`, branche et diff dans le résultat | à faire |
+| 5 | Profil `developer` : worktree préparé en `preparing`, lecture et écriture reroutées sur le worktree, commit de fin à `submit_result`, branche et diff dans le résultat | ✅ livrée |
 | 6 | Onglet Files/Diff du dashboard, route de diff | à faire |
 | 7 | `harness workspaces` (liste, nettoyage), `doctor` vérifie Git | à faire |
 | 8 | Bout en bout MCP, puis l'essai d'acceptation du plan : « fais implémenter une route `/health` » | à faire |
@@ -323,6 +325,85 @@ worktree réécrit. D'où la séparation `prepare` / `run`, et la revérificatio
 de l'identité du binaire juste avant `spawn` — la même discipline que
 l'ouverture d'un fichier (« revérifier à l'ouverture, pas seulement avant »),
 appliquée au temps humain.
+
+---
+
+## Étape 5 — le profil `developer`
+
+### Ce qui existe
+
+- **Le profil `developer`** (`packages/daemon/src/agents.ts`), troisième des
+  profils livrés : lecture, écriture, `git_diff` et `exec` — **pas de web**
+  (PLAN §4). Désactivé sans fournisseur, comme le Researcher. Limites par
+  défaut plus larges, et justifiées : 30 étapes, 1 $, 30 minutes (les
+  approbations comptent), 8 192 jetons de sortie (le contenu d'un `write_file`
+  se paie en sortie).
+- **Le même moteur, deux instances.** `AgentEngine` reçoit son type de profil ;
+  la boucle n'a pas changé, comme la Slice 2 l'avait prévu.
+- **En `preparing`**, le worktree est créé (`inspectRepository`,
+  `createWorktree`) et enregistré avec son `workspace.created`. La racine des
+  outils devient le worktree plus le sous-dossier délégué ; l'écriture et
+  `exec` y sont ouverts. Un dossier qui n'est pas un dépôt Git fait échouer la
+  tâche avec une phrase qui dit quoi faire.
+- **La consigne parle du worktree** : sa branche, son commit de départ, le fait
+  que les chemins absolus cités par Claude se lisent en relatif, que rien
+  n'atteint le dépôt sans merge humain — et, s'il y a lieu, que le travail non
+  commité de l'utilisateur **manque**.
+- **À la fin**, le harness commite — **seulement si la tâche a abouti** — puis
+  décrit le worktree dans le résultat (`result.workspace` : branche, commit,
+  fichiers, lignes, `base_dirty`). Un commit qui échoue fait échouer la tâche,
+  en disant où est resté le travail. Le worktree passe en `kept` **dans tous les
+  cas** ; au redémarrage, ceux des tâches interrompues aussi.
+- **Ce que Claude reçoit** : le résultat porte `workspace` et un `merge_note` —
+  le harness ne merge jamais, voici la branche, voici `git diff` pour la lire,
+  ne merge que si l'utilisateur le demande. La note renvoie à Git, **pas au
+  dashboard**, dont l'onglet Diff n'existe pas encore.
+- **`PROTOCOL_VERSION` 7.**
+
+### Ce qui le prouve
+
+**`npm run test:developer`**, une suite nouvelle, inscrite dans `npm test` : un
+vrai daemon, de vrais dépôts Git, et un **faux fournisseur compatible OpenAI**
+qui joue, tour après tour, les appels d'outils d'un scénario. Six scénarios,
+chacun vérifié par son effet sur le disque :
+
+| # | Ce qui est vérifié |
+|---|---|
+| V1 | Le fichier est sur la branche, à l'identité de l'agent ; **le dépôt de l'utilisateur est intact** (`status`, `HEAD`, aucun fichier) ; le worktree est conservé sous `MIDGAARD_HOME` |
+| V2 | La commande attend l'humain, montrée avec le programme **absolu** et l'argv exact ; approuvée, elle tourne **dans le worktree**, et son effet est commité |
+| V3 | Une tâche qui échoue laisse sa branche **au commit de départ**, et son travail partiel lisible dans le worktree |
+| V4 | Le travail non commité de l'utilisateur est compté, absent du worktree, et une tâche sans changement ne fait pas de commit vide |
+| V5 | Un dossier hors dépôt Git échoue en disant pourquoi |
+| V6 | Un `SIGKILL` pendant une approbation : la tâche devient `interrupted`, le worktree `kept` (« daemon redémarré »), le fichier en vol est là |
+
+Plus trois tests unitaires de la consigne (246 en tout). **Contre-épreuve
+faite** : racine non déplacée sur le worktree (quatre scénarios échouent —
+l'agent écrivait alors dans le dépôt de l'« utilisateur »), commit même sur
+échec, worktrees non conservés au redémarrage — chacune est prise.
+
+Le premier passage de la suite a échoué six fois sur six, et c'était le test :
+il exigeait le code `200` d'une création qui répond `201`.
+
+### Ce que l'écriture a appris
+
+**12. La branche est un résultat ; elle ne doit pas en avoir l'air quand elle
+n'en est pas un.** Commiter à la fin de toute tâche, aboutie ou non, aurait
+laissé sur `midgaard/…` le travail à moitié fait d'un agent coupé par son
+budget — et Claude, ou l'utilisateur, l'aurait mergé en croyant merger une
+réponse. Le commit est donc lié à `submit_result`, comme la fin de la tâche.
+
+**13. Claude parle en chemins absolus du dépôt d'origine.** Son contexte cite
+`/Users/…/projet/src/app.ts` ; l'agent travaille dans `~/.midgaard/worktrees/…`.
+Sans la phrase de la consigne qui le dit, chaque lecture serait refusée « hors
+du workspace », et chaque refus coûterait une étape. On a préféré la consigne à
+une traduction automatique des chemins dans les outils : la traduction aurait
+ajouté une surface à la vérification de chemin, qui est la frontière.
+
+**14. Le daemon importait quatre paquets sans les déclarer.** `agent-runtime`,
+`providers`, `secrets` et `tools` étaient résolus grâce aux liens du monorepo,
+absents de son `package.json` comme de ses références de compilation. Rien ne
+le voyait en développement ; la distribution npm de la Slice 4 aurait cassé.
+Déclarés, avec `workspace`.
 
 ---
 

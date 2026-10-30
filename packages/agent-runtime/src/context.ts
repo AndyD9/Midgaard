@@ -58,6 +58,19 @@ export async function workspaceTree(root: string): Promise<string> {
   return lines.join('\n') + (truncated ? `\n[…truncated at ${MAX_TREE_ENTRIES} entries]` : '')
 }
 
+/**
+ * Ce qu'un agent écrivant doit savoir de son worktree, et qu'il ne peut pas
+ * deviner : où il est, d'où il part, et ce qui **manque**.
+ */
+export interface WorkspaceBrief {
+  branch: string
+  baseCommit: string
+  /** Chemins non commités du dépôt d'origine — absents du worktree. */
+  baseDirty: number
+  /** Dossier d'origine, tel que Claude le cite dans son contexte. */
+  originDir: string
+}
+
 /** Ce qu'il faut pour composer le premier tour de conversation. */
 export interface ContextInput {
   agent: Agent
@@ -69,6 +82,8 @@ export interface ContextInput {
   limits: AgentLimits
   /** Vrai si le budget en dollars est réellement applicable. */
   budgetEnforceable: boolean
+  /** Le worktree, pour un agent écrivant ; absent pour un agent qui ne fait que lire. */
+  workspace?: WorkspaceBrief | undefined
 }
 
 /**
@@ -98,8 +113,10 @@ export function buildMessages(input: ContextInput): Message[] {
     `- ${limits.timeout_s} seconds wall clock in total, human approvals included.`,
     `- At most ${limits.max_tool_calls_per_step} tool calls per step.`,
     '',
-    `Project root (the only directory you can read): ${input.root}`,
-    'Paths you pass to tools may be relative to that root. Anything outside it is refused.',
+    ...(input.workspace ? workspaceLines(input.root, input.workspace) : [
+      `Project root (the only directory you can read): ${input.root}`,
+      'Paths you pass to tools may be relative to that root. Anything outside it is refused.',
+    ]),
   ].join('\n')
 
   const parts = [`# Task\n\n${input.objective}`]
@@ -118,4 +135,35 @@ export function buildMessages(input: ContextInput): Message[] {
     { role: 'system', content: system },
     { role: 'user', content: parts.join('\n\n') },
   ]
+}
+
+/**
+ * Ce que la consigne dit du worktree. Trois pièges y sont nommés, parce que
+ * chacun coûte des étapes s'il est découvert en tâtonnant :
+ *
+ *  - Claude cite les chemins **du dépôt d'origine** ; l'agent doit les lire
+ *    comme relatifs, sans quoi chaque appel est refusé « hors du workspace » ;
+ *  - le travail non commité de l'utilisateur **n'est pas là** ;
+ *  - rien de ce que fait l'agent n'atteint le dépôt sans un merge humain — ce
+ *    qui l'autorise à travailler franchement, et lui interdit de prétendre
+ *    avoir livré.
+ */
+function workspaceLines(root: string, w: WorkspaceBrief): string[] {
+  const lines = [
+    `Workspace root (a git worktree of the project; the only directory you can read and write): ${root}`,
+    `It is on branch ${w.branch}, created for this task from commit ${w.baseCommit.slice(0, 12)}.`,
+    'Paths you pass to tools should be relative to that root. Anything outside it is refused.',
+    `The orchestrator's context may cite absolute paths in the original repository (${w.originDir}): ` +
+      'the same files are at the same relative paths in your workspace. Use relative paths.',
+    'Nothing you do reaches the user\'s repository until a human reviews the diff and merges the branch. ' +
+      'The harness commits your work when you call submit_result; do not try to commit yourself.',
+  ]
+  if (w.baseDirty > 0) {
+    lines.push(
+      `WARNING: the user had ${w.baseDirty} uncommitted change(s) in the original repository. They are NOT ` +
+        'in your workspace, which starts from the last commit. If the context describes code you cannot find, ' +
+        'this is why: say so in your result rather than guessing.',
+    )
+  }
+  return lines
 }

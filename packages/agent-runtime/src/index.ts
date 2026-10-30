@@ -19,4 +19,5 @@ export type {
 export { budgetIsEnforceable, checkLimits, formatUsd } from './budget.ts'
 export type { BudgetState, StopReason } from './budget.ts'
 export { buildMessages, workspaceTree } from './context.ts'
+export type { WorkspaceBrief } from './context.ts'
 export type { ContextInput } from './context.ts'

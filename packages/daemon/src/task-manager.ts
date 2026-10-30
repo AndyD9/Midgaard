@@ -133,6 +133,11 @@ export class TaskManager {
       const resolved = this.store.resolveApproval(a.id, 'expired', 'daemon', 'daemon redémarré')
       if (resolved) this.bus.emitApproval(resolved)
     }
+    // Les worktrees de ces tâches sont conservés pour inspection, jamais
+    // nettoyés d'office : ce qu'ils contiennent est peut-être la seule trace de
+    // ce que l'agent avait fait (PLAN §3).
+    const kept = this.bus.keepActiveWorkspaces()
+    if (kept.length) this.log(`${kept.length} worktree(s) d'une tâche interrompue conservé(s) pour inspection`)
     const sweepMs = Math.min(MAX_EXPIRY_SWEEP_MS, Math.max(500, Math.round(this.config.approvalTtlMs / 2)))
     this.sweeper = setInterval(() => this.expireDueApprovals(), sweepMs)
     this.sweeper.unref()

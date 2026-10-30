@@ -1,6 +1,6 @@
 # `@midgaard/tests`
 
-Six suites, de la plus rapide à la plus lente. Elles utilisent le lanceur
+Sept suites, de la plus rapide à la plus lente. Elles utilisent le lanceur
 intégré à Node (`node --test`) et de vrais processus — aucun double, aucune
 simulation de notre côté.
 
@@ -10,10 +10,11 @@ simulation de notre côté.
 | `npm run test:vault` | ~1 s | Les coffres seuls : conformité du coffre **réel de la machine**, plus le repli |
 | `npm run test:lock` | ~30 s | Un seul daemon vivant, sous concurrence |
 | `npm run test:restart` | ~45 s | Redémarrage, reprise WebSocket, contrôles d'accès, expiration, inactivité |
+| `npm run test:developer` | ~15 s | Le Developer dans un **vrai daemon**, face à un **faux fournisseur** qui joue des scénarios d'appels d'outils : commit sur la branche, dépôt de l'utilisateur intact, approbation d'une commande, échec sans branche trompeuse, redémarrage |
 | `npm run test:ui` | ~1 min | Le dashboard **rendu dans un navigateur** : direct, approbation, reconnexion |
 | `npm run test:wait` | ~3 min | 12 scénarios de bout en bout avec le client MCP officiel |
 
-`npm test` enchaîne `unit`, `lock`, `restart` et `wait`. Les deux autres ont
+`npm test` enchaîne `unit`, `lock`, `restart`, `developer` et `wait`. Les deux autres ont
 chacune un prérequis qui ne peut pas être supposé, et se lancent à part.
 
 ## Les deux suites à prérequis

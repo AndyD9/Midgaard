@@ -23,8 +23,13 @@
     }
   },
   "dependencies": {
+    "@midgaard/agent-runtime": "*",
     "@midgaard/contracts": "*",
     "@midgaard/persistence": "*",
+    "@midgaard/providers": "*",
+    "@midgaard/secrets": "*",
+    "@midgaard/tools": "*",
+    "@midgaard/workspace": "*",
     "ws": "^8.22.0"
   },
   "devDependencies": {

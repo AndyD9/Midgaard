@@ -112,6 +112,7 @@ export class SimulatedEngine implements TaskEngine {
         citations: [],
         // Aucun contenu extérieur : une tâche simulée n'appelle ni modèle ni outil.
         untrusted: false,
+        workspace: null,
       }
       // `cancel_requested → completed` est légal : une tâche peut franchir sa
       // dernière étape avant d'avoir pris connaissance de l'annulation.

@@ -138,7 +138,9 @@ function toTask(row: TaskRow): Task {
     updated_at: row.updated_at,
     started_at: row.started_at,
     ended_at: row.ended_at,
-    result: row.result_json ? (JSON.parse(row.result_json) as TaskResult) : null,
+    // Un résultat écrit avant la Slice 3 n'a pas de `workspace` : on le lit
+    // comme `null`, ce qu'il était, plutôt que de laisser circuler un champ absent.
+    result: row.result_json ? withWorkspace(JSON.parse(row.result_json) as Partial<TaskResult>) : null,
     error: row.error,
     agent_id: row.agent_id,
     context: row.context,
@@ -146,6 +148,11 @@ function toTask(row: TaskRow): Task {
     usage: JSON.parse(row.usage_json) as Usage,
     project_dir: row.project_dir,
   }
+}
+
+/** Complète un résultat antérieur à la Slice 3, qui n'avait pas de `workspace`. */
+function withWorkspace(result: Partial<TaskResult>): TaskResult {
+  return { ...result, workspace: result.workspace ?? null } as TaskResult
 }
 
 function toEvent(row: EventRow): TaskEvent {

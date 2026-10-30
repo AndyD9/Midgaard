@@ -22,7 +22,7 @@ import { describe, it } from 'node:test'
 import type { Agent, Usage } from '@midgaard/contracts'
 import { DEFAULT_RESEARCHER_LIMITS, emptyUsage } from '@midgaard/contracts'
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from '@midgaard/providers'
-import { runAgent, type ApprovalOutcome, type ApprovalRequest, type LoopHooks } from '@midgaard/agent-runtime'
+import { buildMessages, runAgent, type ApprovalOutcome, type ApprovalRequest, type LoopHooks } from '@midgaard/agent-runtime'
 import type { ToolContext } from '@midgaard/tools'
 
 /** Racine de projet jetable, partagée par les tests qui lisent des fichiers. */
@@ -467,5 +467,42 @@ describe('exec sous approbation', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('consigne d\'un agent écrivant', () => {
+  const base = {
+    agent: agentWith({ system_prompt: 'You are a developer.' }),
+    objective: 'o',
+    context: 'Voir /depot/src/app.ts',
+    root: '/wt/abcd',
+    tree: 'src/',
+    limits: DEFAULT_RESEARCHER_LIMITS,
+    budgetEnforceable: true,
+  }
+
+  it('dit le worktree, sa branche, et que les chemins de Claude se lisent en relatif', () => {
+    const [system] = buildMessages({
+      ...base,
+      workspace: { branch: 'midgaard/abcd', baseCommit: 'a'.repeat(40), baseDirty: 0, originDir: '/depot' },
+    })
+    assert.match(system!.content, /Workspace root \(a git worktree.*\): \/wt\/abcd/)
+    assert.match(system!.content, /branch midgaard\/abcd/)
+    assert.match(system!.content, /original repository \(\/depot\)/)
+    assert.doesNotMatch(system!.content, /uncommitted/, 'aucun avertissement sans travail en cours')
+  })
+
+  it('avertit quand le travail en cours de l\'utilisateur est absent', () => {
+    const [system] = buildMessages({
+      ...base,
+      workspace: { branch: 'midgaard/abcd', baseCommit: 'a'.repeat(40), baseDirty: 3, originDir: '/depot' },
+    })
+    assert.match(system!.content, /3 uncommitted change\(s\).*NOT/)
+  })
+
+  it('garde la consigne de lecture seule pour un agent sans worktree', () => {
+    const [system] = buildMessages(base)
+    assert.match(system!.content, /Project root \(the only directory you can read\)/)
+    assert.doesNotMatch(system!.content, /worktree/)
   })
 })

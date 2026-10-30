@@ -63,6 +63,25 @@ export const workspaceSchema = z.object({
 })
 export type Workspace = z.infer<typeof workspaceSchema>
 
+/**
+ * Ce que le résultat d'une tâche Developer dit de son worktree. C'est ce que
+ * Claude reçoit : où est le travail, et sur quelle branche le merger — le
+ * harness, lui, ne merge jamais.
+ */
+export const taskWorkspaceSchema = z.object({
+  branch: z.string(),
+  base_commit: z.string(),
+  /** Commit fait par le harness à la fin de la tâche ; `null` si l'agent n'a rien changé. */
+  commit: z.string().nullable(),
+  worktree_path: z.string(),
+  files_changed: z.number().int().min(0),
+  additions: z.number().int().min(0),
+  deletions: z.number().int().min(0),
+  /** Chemins non commités du dépôt d'origine, absents du worktree : voir {@link Workspace.base_dirty}. */
+  base_dirty: z.number().int().min(0),
+})
+export type TaskWorkspace = z.infer<typeof taskWorkspaceSchema>
+
 /** Nature d'un changement de fichier, au sens de `git diff --name-status`. */
 export const FILE_CHANGE_KINDS = ['added', 'modified', 'deleted', 'type_changed'] as const
 export type FileChangeKind = (typeof FILE_CHANGE_KINDS)[number]

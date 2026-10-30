@@ -15,7 +15,8 @@ et les coûts.
   dashboard ───────────────┘                             └─ WebSocket ─► dashboard
                                                             └─► agent-runtime
                                                                  ├─► providers (Venice, OpenAI, Gemini)
-                                                                 └─► outils (lecture, http_fetch)
+                                                                 └─► outils (lecture, http_fetch,
+                                                                     écriture et exec dans un worktree)
 ```
 
 ## État
@@ -25,7 +26,7 @@ et les coûts.
 | 0 | Spike : Claude Code → MCP → daemon, attente longue, approbation humaine | ✅ **Terminée**, validée en sessions réelles |
 | 1 | Squelette observable : persistance SQLite, dashboard temps réel, CLI `harness` | ✅ **Terminée**, 91 vérifications + essai en session réelle |
 | 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 167 vérifications + essai en session réelle ; coût **exact au microdollar** contre le solde Venice, trois fois |
-| 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | 🚧 **En cours** — étapes 1-4/8 : worktrees Git, diff, écriture et `exec` bornés au worktree, approbations sur l'opération exacte ; aucun agent ne s'en sert encore |
+| 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | 🚧 **En cours** — étapes 1-5/8 : le profil `developer` travaille dans un worktree Git, sous approbation pour chaque commande, et rend une branche commitée ; éprouvé contre un faux fournisseur, **pas encore contre un vrai modèle** |
 | 4 | Durcissement sécurité, distribution npm | À faire |
 
 Le détail des slices est dans [docs/PLAN.md](docs/PLAN.md). Ce que chaque slice a
@@ -117,21 +118,22 @@ Depuis la racine du dépôt :
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; la clé est saisie sans écho |
 | `npm run harness -- pricing refresh <id>` | Relève les tarifs chez le fournisseur |
 | `npm run dashboard:dev` | Dashboard avec rechargement à chaud (lance `harness start` avant) |
-| `npm test` | Les quatre suites gratuites, environ 4 minutes |
+| `npm test` | Les cinq suites gratuites, environ 4 minutes |
 | `npm run test:ui` | Le dashboard dans un vrai navigateur (voir le prérequis plus bas) |
 | `npm run test:live` | Essai réel contre un vrai fournisseur — **dépense de l'argent** |
 
 | Suite | Durée | Contenu |
 |---|---|---|
-| `npm run test:unit` | ~5 s | 243 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils (écriture et `exec` compris), boucle d'agent, formatage des montants, coffres, worktrees sur de vrais dépôts Git |
+| `npm run test:unit` | ~5 s | 246 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils (écriture et `exec` compris), boucle d'agent, formatage des montants, coffres, worktrees sur de vrais dépôts Git |
 | `npm run test:vault` | ~1 s | Les 41 cas de coffre, sur le coffre **réel de la machine** — la CI les rejoue sur macOS, Windows et Linux (avec et sans trousseau) |
 | `npm run test:lock` | ~30 s | Instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s | Redémarrage, reprise WebSocket, sécurité, expiration, inactivité |
+| `npm run test:developer` | ~15 s | 6 scénarios : le Developer dans un vrai daemon, face à un faux fournisseur compatible OpenAI |
 | `npm run test:ui` | ~1 min | 7 scénarios dans un vrai navigateur : direct, approbation au clic, reconnexion |
 | `npm run test:wait` | ~3 min | 12 scénarios de bout en bout avec le client MCP officiel |
 | `npm run test:live` | ~3 min | 5 scénarios **contre la vraie API** — opt-in, dépense ~0,003 $, s'abstient sans clé |
 
-`npm test` enchaîne `unit`, `lock`, `restart` et `wait`. `test:ui` se lance à
+`npm test` enchaîne `unit`, `lock`, `restart`, `developer` et `wait`. `test:ui` se lance à
 part : il lui faut le dashboard compilé et le navigateur de Playwright, que
 `npm ci` ne télécharge pas.
 

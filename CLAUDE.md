@@ -42,6 +42,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
 | `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur (`npx playwright install chromium` au préalable) |
+| `npm run test:developer` | ~15 s — le Developer dans un vrai daemon, face à un faux fournisseur |
 | `npm run test:wait` | ~3 min — 12 scénarios de bout en bout MCP |
 
 ## Invariants à ne pas casser
@@ -137,6 +138,10 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - **Une phrase de documentation est une affirmation à prouver.** À l'étape 3,
   « binaire résolu avant la demande » a été écrit sans être vrai, et le test du
   même sujet vérifiait le défaut (docs/SLICE3.md, leçon n° 10).
+- **La branche ne bouge qu'à `submit_result`.** Le harness commite le travail
+  d'une tâche **aboutie**, et seulement elle : une tâche qui échoue laisse sa
+  branche au commit de départ, son travail lisible dans le worktree, jamais une
+  branche qui a l'air d'un résultat. Le worktree est conservé dans tous les cas.
 - **Les commits d'agent ne portent ni l'identité ni la signature de
   l'utilisateur** : `Midgaard <agent> <agent@midgaard.invalid>`, `--no-gpg-sign`.
 - **Le diff se calcule contre `base_commit`, jamais contre une branche**, et
@@ -190,11 +195,12 @@ Files/Diff. Le profil `developer` rejoindra `simulated` et `researcher` dans
 `packages/daemon/src/agents.ts`, et son moteur sera l'`AgentEngine` existant avec
 une autre boîte à outils : la boucle n'a pas à changer.
 
-**Étapes 1 à 4 sur 8 livrées** — le paquet `workspace` et la table
+**Étapes 1 à 5 sur 8 livrées** — le paquet `workspace` et la table
 `workspaces` (migration 4) ; `write_file`, `edit_file`, `delete_file`,
 `git_diff` et `exec` ; des approbations portant sur l'opération exacte
-(migration 5, `PROTOCOL_VERSION` 6). Aucun agent ne s'en sert encore : aucun profil n'a
-de worktree, et `ToolContext.writable` est fermé par défaut. Les quatre
+(migration 5) ; le profil `developer` (`PROTOCOL_VERSION` 7), éprouvé contre
+un faux fournisseur dans `test:developer`, **jamais contre un vrai modèle** —
+c'est l'étape 8. Restent l'onglet Diff (6) et `harness workspaces` (7). Les quatre
 décisions prises avec l'auteur (merge manuel, worktrees conservés jusqu'au
 nettoyage, sous `~/.midgaard/worktrees`, `exec` en approbation par défaut) et le
 découpage des sept étapes restantes sont dans [docs/SLICE3.md](docs/SLICE3.md) :
