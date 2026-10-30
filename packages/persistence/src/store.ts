@@ -455,65 +455,63 @@ export class HarnessStore {
 
   // --- Approbations --------------------------------------------------------
 
-  /** Crée une demande d'approbation en attente. */
+  /**
+   * Crée une demande d'approbation en attente.
+   *
+   * @param input.operationDetail forme structurée de l'opération, d'où
+   *        `operationHash` a été tirée ; conservée pour qu'on puisse relire,
+   *        après coup, ce qui a été autorisé au juste
+   */
   createApproval(input: {
     taskId: string
     seq: number
     operation: string
+    operationDetail: Record<string, unknown> | null
     operationHash: string
     ttlMs: number
   }): Approval {
     const now = new Date()
-    const approval: Approval = {
-      id: randomUUID(),
-      task_id: input.taskId,
-      seq: input.seq,
-      operation: input.operation,
-      operation_hash: input.operationHash,
-      status: 'pending',
-      requested_at: now.toISOString(),
-      expires_at: new Date(now.getTime() + input.ttlMs).toISOString(),
-      resolved_at: null,
-      resolved_by: null,
-      reason: null,
-    }
+    const id = randomUUID()
     this.db
       .prepare(
-        `INSERT INTO approvals (id, task_id, seq, operation, operation_hash, status, requested_at, expires_at)
-         VALUES (:id, :task_id, :seq, :operation, :operation_hash, 'pending', :requested_at, :expires_at)`,
+        `INSERT INTO approvals (id, task_id, seq, operation, operation_json, operation_hash, status,
+                                requested_at, expires_at)
+         VALUES (:id, :task_id, :seq, :operation, :operation_json, :operation_hash, 'pending',
+                 :requested_at, :expires_at)`,
       )
       .run({
-        id: approval.id,
-        task_id: approval.task_id,
-        seq: approval.seq,
-        operation: approval.operation,
-        operation_hash: approval.operation_hash,
-        requested_at: approval.requested_at,
-        expires_at: approval.expires_at,
+        id,
+        task_id: input.taskId,
+        seq: input.seq,
+        operation: input.operation,
+        operation_json: input.operationDetail ? JSON.stringify(input.operationDetail) : null,
+        operation_hash: input.operationHash,
+        requested_at: now.toISOString(),
+        expires_at: new Date(now.getTime() + input.ttlMs).toISOString(),
       })
-    return approval
+    return this.getApproval(id)!
   }
 
   /** Approbation en attente d'une tâche, s'il y en a une. */
   pendingApprovalFor(taskId: string): Approval | null {
     return (
-      row<Approval>(
+      toApprovalOrNull(
         this.db
           .prepare("SELECT * FROM approvals WHERE task_id = :id AND status = 'pending' ORDER BY seq DESC LIMIT 1")
           .get({ id: taskId }),
-      ) ?? null
+      )
     )
   }
 
   /** Toutes les approbations en attente, de la plus ancienne à la plus récente. */
   pendingApprovals(): Approval[] {
-    return rows<Approval>(
+    return rows<ApprovalRow>(
       this.db.prepare("SELECT * FROM approvals WHERE status = 'pending' ORDER BY requested_at ASC").all(),
-    )
+    ).map(toApproval)
   }
 
   getApproval(id: string): Approval | null {
-    return row<Approval>(this.db.prepare('SELECT * FROM approvals WHERE id = :id').get({ id })) ?? null
+    return toApprovalOrNull(this.db.prepare('SELECT * FROM approvals WHERE id = :id').get({ id }))
   }
 
   /**
@@ -535,11 +533,11 @@ export class HarnessStore {
 
   /** Approbations en attente dont le délai est écoulé. La décision de ce qu'on en fait appartient au daemon. */
   dueApprovals(now = new Date()): Approval[] {
-    return rows<Approval>(
+    return rows<ApprovalRow>(
       this.db
         .prepare("SELECT * FROM approvals WHERE status = 'pending' AND expires_at <= :now")
         .all({ now: now.toISOString() }),
-    )
+    ).map(toApproval)
   }
 
   // --- Fournisseurs --------------------------------------------------------
@@ -925,6 +923,51 @@ export class HarnessStore {
       : this.db.prepare('SELECT * FROM workspaces ORDER BY created_at DESC, rowid DESC LIMIT :l').all({ l: limit })
     return rows<WorkspaceRow>(found).map(toWorkspace)
   }
+}
+
+/** Ligne `approvals` telle que SQLite la rend. */
+interface ApprovalRow {
+  id: string
+  task_id: string
+  seq: number
+  operation: string
+  operation_json: string | null
+  operation_hash: string
+  status: string
+  requested_at: string
+  expires_at: string
+  resolved_at: string | null
+  resolved_by: string | null
+  reason: string | null
+}
+
+/**
+ * Convertit une ligne `approvals`. Elle était rendue telle quelle jusqu'à la
+ * Slice 3, ses colonnes ayant la forme du contrat ; le détail en JSON exige
+ * désormais une conversion — et un champ de plus dans l'objet rendu
+ * (`operation_json`) qui n'appartient pas au contrat.
+ */
+function toApproval(row: ApprovalRow): Approval {
+  return {
+    id: row.id,
+    task_id: row.task_id,
+    seq: row.seq,
+    operation: row.operation,
+    operation_detail: row.operation_json ? (JSON.parse(row.operation_json) as Record<string, unknown>) : null,
+    operation_hash: row.operation_hash,
+    status: row.status as ApprovalStatus,
+    requested_at: row.requested_at,
+    expires_at: row.expires_at,
+    resolved_at: row.resolved_at,
+    resolved_by: row.resolved_by,
+    reason: row.reason,
+  }
+}
+
+/** Variante de {@link toApproval} pour une ligne qui peut manquer. */
+function toApprovalOrNull(value: unknown): Approval | null {
+  const found = row<ApprovalRow>(value)
+  return found ? toApproval(found) : null
 }
 
 /** Ligne `workspaces` telle que SQLite la rend. */

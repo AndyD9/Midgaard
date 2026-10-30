@@ -121,7 +121,12 @@ export class SimulatedEngine implements TaskEngine {
     }
 
     if (task.needs_approval && step === APPROVAL_STEP) {
-      this.ctx.requestApproval(task.id, `étape ${step}/${task.steps_total} de « ${task.objective} »`, { step })
+      this.ctx.requestApproval(
+        task.id,
+        `étape ${step}/${task.steps_total} de « ${task.objective} »`,
+        { kind: 'simulated_step', step, steps_total: task.steps_total },
+        { step },
+      )
       return
     }
 

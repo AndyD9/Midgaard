@@ -17,12 +17,12 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { describe, it } from 'node:test'
 import type { Agent, Usage } from '@midgaard/contracts'
 import { DEFAULT_RESEARCHER_LIMITS, emptyUsage } from '@midgaard/contracts'
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from '@midgaard/providers'
-import { runAgent, type ApprovalOutcome, type LoopHooks } from '@midgaard/agent-runtime'
+import { runAgent, type ApprovalOutcome, type ApprovalRequest, type LoopHooks } from '@midgaard/agent-runtime'
 import type { ToolContext } from '@midgaard/tools'
 
 /** Racine de projet jetable, partagée par les tests qui lisent des fichiers. */
@@ -91,7 +91,7 @@ function recordingHooks(over: Partial<LoopHooks> = {}) {
       }
     },
     requestApproval: async (operation) => {
-      approvals.push(operation)
+      approvals.push(operation.operation)
       return 'approved' as ApprovalOutcome
     },
     isCancelled: () => false,
@@ -310,7 +310,7 @@ describe('appels d\'outils', () => {
         ctx: { httpPolicy: 'approval' },
         hooks: {
           requestApproval: async (op) => {
-            vus.push(op)
+            vus.push(op.operation)
             return 'rejected' as ApprovalOutcome
           },
         },
@@ -392,12 +392,12 @@ describe('écriture hors worktree', () => {
 })
 
 describe('exec sous approbation', () => {
-  it('montre la commande exacte à l\'humain, et ne lance rien s\'il refuse', async () => {
+  it('montre le programme résolu et l\'argv exact, et ne lance rien si l\'humain refuse', async () => {
     const elsewhere = mkdtempSync(join(tmpdir(), 'midgaard-exec-refus-'))
     const marker = join(elsewhere, 'a-tourne')
     try {
       const args = ['-e', `require('fs').writeFileSync(${JSON.stringify(marker)}, 'x')`]
-      const approvals: string[] = []
+      const requests: ApprovalRequest[] = []
       const { outcome, tools } = await run(
         [
           { toolCalls: [{ id: 'e1', name: 'exec', argumentsJson: JSON.stringify({ command: 'node', args }) }] },
@@ -406,16 +406,66 @@ describe('exec sous approbation', () => {
         {
           agent: { tools: ['exec', 'submit_result'] },
           ctx: { writable: true },
-          hooks: { requestApproval: async (operation) => (approvals.push(operation), 'rejected') },
+          hooks: { requestApproval: async (request) => (requests.push(request), 'rejected') },
         },
       )
       assert.equal(outcome.status, 'completed')
-      assert.equal(approvals.length, 1)
-      assert.match(approvals[0]!, /^exec — exécuter node -e 'require\(/)
+      assert.equal(requests.length, 1)
+      const [request] = requests
+      // Le programme est résolu AVANT la demande : l'humain lit un chemin
+      // absolu, pas un nom que le PATH résoudra plus tard.
+      const program = String(request!.detail.program)
+      assert.ok(isAbsolute(program), `programme résolu : ${program}`)
+      assert.ok(request!.operation.startsWith(`exec — exécuter ${program} -e 'require(`), request!.operation)
+      assert.deepEqual(request!.detail.args, args)
+      assert.equal(request!.detail.tool, 'exec')
       assert.equal(tools.find((t) => t.name === 'exec')?.status, 'rejected')
       assert.equal(existsSync(marker), false, 'la commande refusée ne doit pas avoir tourné')
     } finally {
       rmSync(elsewhere, { recursive: true, force: true })
+    }
+  })
+
+  it('ne sollicite personne pour un programme introuvable', async () => {
+    const requests: ApprovalRequest[] = []
+    const { tools } = await run(
+      [
+        { toolCalls: [{ id: 'e1', name: 'exec', argumentsJson: JSON.stringify({ command: 'midgaard-introuvable' }) }] },
+        { toolCalls: submit('rien') },
+      ],
+      {
+        agent: { tools: ['exec', 'submit_result'] },
+        ctx: { writable: true },
+        hooks: { requestApproval: async (request) => (requests.push(request), 'approved') },
+      },
+    )
+    assert.deepEqual(requests, [], 'un échec certain ne doit pas déranger un humain')
+    const exec = tools.find((t) => t.name === 'exec')
+    assert.equal(exec?.status, 'failed')
+    assert.match(exec?.error ?? '', /command not found/)
+  })
+
+  it('expurge le détail persisté, comme tout ce qui s\'écrit en base', async () => {
+    const requests: ApprovalRequest[] = []
+    const root = makeRoot()
+    try {
+      const { adapter } = scriptedAdapter([
+        { toolCalls: [{ id: 'e1', name: 'exec', argumentsJson: JSON.stringify({ command: 'node', args: ['-e', 'x', 'sk-secret-123'] }) }] },
+        { toolCalls: submit('fini') },
+      ])
+      const rec = recordingHooks({ requestApproval: async (request) => (requests.push(request), 'rejected') })
+      await runAgent({
+        agent: agentWith({ tools: ['exec', 'submit_result'] }),
+        objective: 'o', context: null, adapter,
+        tools: toolCtx(root, { writable: true }),
+        hooks: rec.hooks,
+        redact: (t) => t.replaceAll('sk-secret-123', '[expurgé]'),
+        signal: new AbortController().signal,
+      })
+      assert.doesNotMatch(JSON.stringify(requests), /sk-secret-123/)
+      assert.deepEqual(requests[0]!.detail.args, ['-e', 'x', '[expurgé]'])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
     }
   })
 })

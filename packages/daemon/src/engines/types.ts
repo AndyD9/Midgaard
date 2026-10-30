@@ -36,11 +36,18 @@ export interface EngineContext {
   /**
    * Met la tâche en pause et crée la demande d'approbation correspondante.
    *
-   * @param operation ce que l'humain autorise, en clair
+   * @param operation ce que l'humain autorise, en clair et sans abréviation
+   * @param detail    la même opération, structurée : c'est d'elle que
+   *                  l'empreinte est tirée, et elle est conservée avec la demande
    * @param payload   détail joint à l'événement `approval.requested`
    * @returns la demande créée, ou `null` si la tâche n'est plus en état de pauser
    */
-  requestApproval(taskId: string, operation: string, payload?: Record<string, unknown>): Approval | null
+  requestApproval(
+    taskId: string,
+    operation: string,
+    detail: Record<string, unknown>,
+    payload?: Record<string, unknown>,
+  ): Approval | null
   /**
    * Conclut une annulation demandée, quand le moteur atteint un point de
    * contrôle en `cancel_requested`.

@@ -126,10 +126,17 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   d'approbation à la place. Dans un worktree, `.git` est un fichier qui désigne
   le dépôt : le réécrire redirigerait le commit de fin ailleurs.
 - **`exec` : l'approbation est la frontière, et aucun processus ne survit.**
-  Approbation par défaut ; le binaire est résolu **avant** la demande (entrées
-  relatives du `PATH` ignorées) pour que l'humain approuve ce qui tourne ; le
+  Approbation par défaut ; le binaire est résolu **avant** la demande
+  (`Tool.prepare`, entrées relatives du `PATH` ignorées) et **revérifié avant
+  de lancer**, pour que l'humain approuve ce qui tourne ; le
   groupe de processus est tué à la sortie, au délai et à l'annulation — vérifié
   en interrogeant les pid au système.
+- **Une approbation porte sur l'opération préparée, et son empreinte sur le
+  détail structuré** (`operation_detail`, JSON canonique), jamais sur le texte
+  affiché. Le détail est expurgé avant d'être persisté.
+- **Une phrase de documentation est une affirmation à prouver.** À l'étape 3,
+  « binaire résolu avant la demande » a été écrit sans être vrai, et le test du
+  même sujet vérifiait le défaut (docs/SLICE3.md, leçon n° 10).
 - **Les commits d'agent ne portent ni l'identité ni la signature de
   l'utilisateur** : `Midgaard <agent> <agent@midgaard.invalid>`, `--no-gpg-sign`.
 - **Le diff se calcule contre `base_commit`, jamais contre une branche**, et
@@ -183,9 +190,10 @@ Files/Diff. Le profil `developer` rejoindra `simulated` et `researcher` dans
 `packages/daemon/src/agents.ts`, et son moteur sera l'`AgentEngine` existant avec
 une autre boîte à outils : la boucle n'a pas à changer.
 
-**Étapes 1 à 3 sur 8 livrées** — le paquet `workspace` et la table
-`workspaces` (migration 4, `PROTOCOL_VERSION` 5) ; `write_file`, `edit_file`,
-`delete_file`, `git_diff` et `exec`. Aucun agent ne s'en sert encore : aucun profil n'a
+**Étapes 1 à 4 sur 8 livrées** — le paquet `workspace` et la table
+`workspaces` (migration 4) ; `write_file`, `edit_file`, `delete_file`,
+`git_diff` et `exec` ; des approbations portant sur l'opération exacte
+(migration 5, `PROTOCOL_VERSION` 6). Aucun agent ne s'en sert encore : aucun profil n'a
 de worktree, et `ToolContext.writable` est fermé par défaut. Les quatre
 décisions prises avec l'auteur (merge manuel, worktrees conservés jusqu'au
 nettoyage, sous `~/.midgaard/worktrees`, `exec` en approbation par défaut) et le

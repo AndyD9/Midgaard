@@ -43,6 +43,7 @@ import {
   submitResultSchema,
   toolSpecs,
   ToolError,
+  type PreparedOperation,
   type ToolContext,
 } from '@midgaard/tools'
 import { budgetIsEnforceable, checkLimits, formatUsd, type StopReason } from './budget.ts'
@@ -50,6 +51,15 @@ import { buildMessages, workspaceTree } from './context.ts'
 
 /** Décision humaine rendue sur une demande d'approbation. */
 export type ApprovalOutcome = 'approved' | 'rejected' | 'expired'
+
+/**
+ * Ce qu'une demande d'approbation soumet à l'humain : le texte qu'il lit, et
+ * la même opération structurée, dont l'empreinte est tirée.
+ */
+export interface ApprovalRequest {
+  operation: string
+  detail: Record<string, unknown>
+}
 
 /** Ce que la boucle journalise au moment où elle demande un outil. */
 export interface ToolRequestedInput {
@@ -89,8 +99,11 @@ export interface LoopHooks {
   onToolRequested(input: ToolRequestedInput): string
   /** Clôt un appel d'outil journalisé. */
   onToolCompleted(id: string, input: ToolCompletedInput): void
-  /** Suspend la tâche jusqu'à décision humaine. */
-  requestApproval(operation: string, step: number): Promise<ApprovalOutcome>
+  /**
+   * Suspend la tâche jusqu'à décision humaine. L'opération est **déjà
+   * préparée** : ce qu'elle décrit est ce qui s'exécutera si l'humain accepte.
+   */
+  requestApproval(request: ApprovalRequest, step: number): Promise<ApprovalOutcome>
   /** Vrai si une annulation a été demandée depuis le dernier point de contrôle. */
   isCancelled(): boolean
 }
@@ -458,10 +471,36 @@ async function runOneTool(call: ToolCallRequest, input: LoopInput, step: number)
     return reply(`Refused: ${verdict.reason}`)
   }
 
-  // 4. Approbation humaine. C'est le seul endroit où la boucle attend sans
+  // 4. Préparation : l'opération est figée — chemins, programme résolu — avant
+  //    qu'un humain ne soit sollicité. Ce qu'il lira est ce qui tournera. Un
+  //    échec ici (programme introuvable) se dit tout de suite au modèle, sans
+  //    déranger personne.
+  const started = Date.now()
+  let prepared: PreparedOperation | undefined
+  try {
+    prepared = tool.prepare ? await tool.prepare(validated.data as never, input.tools) : undefined
+  } catch (e) {
+    const message = e instanceof ToolError ? e.message : input.redact((e as Error).message)
+    input.hooks.onToolCompleted(logId, {
+      status: 'failed', summary: null, bytes: null, durationMs: Date.now() - started, error: message,
+    })
+    return reply(`Failed: ${message}`)
+  }
+
+  // 5. Approbation humaine. C'est le seul endroit où la boucle attend sans
   //    consommer — et le seul que le modèle ne peut pas contourner.
   if (verdict.decision === 'approval') {
-    const outcome = await input.hooks.requestApproval(`${call.name} — ${verdict.reason}`, step)
+    // Le détail est persisté avec la demande : il passe par l'expurgation comme
+    // tout ce qui s'écrit en base. Un agent peut glisser une clé dans un argument.
+    const request: ApprovalRequest = prepared
+      ? { operation: `${call.name} — ${input.redact(prepared.summary)}`, detail: redactDeep(prepared.detail, input.redact) }
+      : // Un outil sans préparation est décrit par ses arguments validés : c'est
+        // exactement ce que `run` recevra.
+        {
+          operation: `${call.name} — ${input.redact(verdict.reason)}`,
+          detail: redactDeep({ tool: call.name, arguments: validated.data }, input.redact),
+        }
+    const outcome = await input.hooks.requestApproval(request, step)
     if (outcome !== 'approved') {
       input.hooks.onToolCompleted(logId, {
         status: outcome === 'rejected' ? 'rejected' : 'denied',
@@ -476,15 +515,15 @@ async function runOneTool(call: ToolCallRequest, input: LoopInput, step: number)
     }
   }
 
-  // 5. Exécution.
-  const started = Date.now()
+  // 6. Exécution — de l'opération préparée, et d'elle seule.
+  const running = Date.now()
   try {
-    const result = await tool.run(validated.data as never, input.tools)
+    const result = await tool.run(validated.data as never, input.tools, prepared)
     input.hooks.onToolCompleted(logId, {
       status: 'succeeded',
       summary: input.redact(result.summary),
       bytes: result.bytes,
-      durationMs: Date.now() - started,
+      durationMs: Date.now() - running,
       error: null,
     })
     // Le contenu extérieur est encadré **ici aussi**, pas seulement avant de
@@ -495,10 +534,23 @@ async function runOneTool(call: ToolCallRequest, input: LoopInput, step: number)
   } catch (e) {
     const message = e instanceof ToolError ? e.message : input.redact((e as Error).message)
     input.hooks.onToolCompleted(logId, {
-      status: 'failed', summary: null, bytes: null, durationMs: Date.now() - started, error: message,
+      status: 'failed', summary: null, bytes: null, durationMs: Date.now() - running, error: message,
     })
     return reply(`Failed: ${message}`)
   }
+}
+
+/**
+ * Applique l'expurgation à toutes les chaînes d'une valeur JSON, à toute
+ * profondeur. Les clés restent : ce sont des noms de champ, pas des données.
+ */
+function redactDeep<T>(value: T, redact: (text: string) => string): T {
+  if (typeof value === 'string') return redact(value) as T
+  if (Array.isArray(value)) return value.map((v) => redactDeep(v, redact)) as T
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redactDeep(v, redact)])) as T
+  }
+  return value
 }
 
 /** Identifiant d'appel de secours, quand un fournisseur n'en fournit pas. */

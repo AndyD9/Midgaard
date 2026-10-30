@@ -4,9 +4,10 @@
 changement dans un worktree isolé, une commande sensible suspend la tâche
 jusqu'à décision humaine, le diff est consultable, Claude récupère le résultat.
 
-**État : en cours — étapes 1 à 3 sur 8 livrées.** Les worktrees existent, sont
+**État : en cours — étapes 1 à 4 sur 8 livrées.** Les worktrees existent, sont
 enregistrés, et leur diff se calcule ; les outils d'écriture et `exec` existent
-et refusent tout hors d'un worktree. **Aucun agent ne s'en sert encore** : aucun
+et refusent tout hors d'un worktree ; une approbation porte sur l'opération
+exacte, préparée avant la demande. **Aucun agent ne s'en sert encore** : aucun
 profil n'a de worktree. Le profil `developer` et l'onglet Diff sont à faire, et
 ce document le dit à chaque endroit où la question se pose.
 
@@ -42,7 +43,7 @@ liste qu'en connaissance de cause — ce que l'interface devra dire en ajoutant.
 | 1 | Paquet `workspace` (worktrees, commit, diff, retrait) et table `workspaces` | ✅ livrée |
 | 2 | Outils d'écriture bornés au worktree, refus d'écrire sous `.git`, `git_diff` en lecture | ✅ livrée |
 | 3 | `exec` contrôlé : sans shell, binaire résolu d'avance, environnement reconstruit, groupe de processus tué, délai borné par la tâche, sortie bornée | ✅ livrée |
-| 4 | Approbations liées à l'opération exacte (outil, argv, dossier, chemin), affichées telles quelles | à faire |
+| 4 | Approbations liées à l'opération exacte (outil, argv, dossier, chemin), affichées telles quelles | ✅ livrée |
 | 5 | Profil `developer` : worktree préparé en `preparing`, lecture et écriture reroutées sur le worktree, commit de fin à `submit_result`, branche et diff dans le résultat | à faire |
 | 6 | Onglet Files/Diff du dashboard, route de diff | à faire |
 | 7 | `harness workspaces` (liste, nettoyage), `doctor` vérifie Git | à faire |
@@ -209,6 +210,13 @@ Le fichier est ouvert sans troncature et vidé une fois tout vérifié.
 L'approbation montre la commande exacte **dans le texte de l'opération** ; son
 empreinte, elle, ne lie pas encore la décision à cet argv : c'est l'étape 4.
 
+> ⚠️ **Rectifié à l'étape 4.** Le paragraphe ci-dessus, la leçon n° 8 plus bas,
+> le README des outils, `CLAUDE.md` et le message du commit `d2a646d`
+> affirmaient que le binaire était résolu **avant** la demande. C'était faux :
+> il l'était dans `run()`, donc **après** l'approbation, et l'humain lisait
+> `npm`, pas `/opt/homebrew/bin/npm`. Le texte est conservé tel quel ; le récit
+> de l'erreur est au § « Étape 4 ».
+
 ### Ce qui le prouve
 
 `tests/unit/exec.test.ts` — 15 tests, plus un de boucle : une commande refusée
@@ -243,6 +251,78 @@ fils détaché, puis sort, rend la main — et laisse un processus vivant, qui t
 les tubes de sortie ouverts. Sans le nettoyage du groupe à la sortie, la tâche
 aurait attendu une minute de plus ; avec un serveur de développement, pour
 toujours.
+
+---
+
+## Étape 4 — l'opération exacte
+
+### Ce qui existe
+
+- **`Tool.prepare`**, facultatif : un outil fige son opération **avant** toute
+  demande d'approbation, et `run` reçoit ce qui a été figé. Pour `exec` :
+  dossier absolu, programme résolu, identité du binaire (périphérique, inœud,
+  taille, date). Avant de lancer, `run` revérifie cette identité et ce dossier ;
+  si l'un a changé pendant l'attente — jusqu'à dix minutes —, rien ne tourne.
+- **La boucle prépare, puis demande.** Un échec de préparation — programme
+  introuvable — revient au modèle sans solliciter personne. La durée journalisée
+  d'un appel exclut désormais l'attente humaine.
+- **`operation_detail`** sur chaque approbation (migration 5, `operation_json`),
+  et **une empreinte tirée de lui**, en JSON canonique (`operationHash`), au
+  lieu du texte affiché. Le détail est expurgé, à toute profondeur, avant d'être
+  persisté : un agent peut glisser une clé dans un argument.
+- **Le dashboard montre l'opération telle quelle** : pour une commande, le
+  programme, puis **chaque argument sur sa ligne**, encadré — `a;b` et `a ; b`
+  ne se lisent plus pareil. Tout autre outil est montré en JSON, tel qu'haché.
+- **`PROTOCOL_VERSION` 6.**
+
+Ce que l'humain lit désormais, pour une commande :
+
+```text
+exec — exécuter /opt/homebrew/bin/npm test -- --grep 'a b' dans /Users/…/worktrees/app-1a2b3c4d/0b9f3c2e/packages/api (délai 120 s)
+```
+
+### Ce qui le prouve
+
+Neuf tests de plus, 243 en tout. Les décisifs : un script préparé puis réécrit
+pendant l'« attente » n'est **pas** lancé (un marqueur reste absent) ; la
+demande soumise par la boucle porte un programme **absolu** ; un programme
+introuvable ne déclenche **aucune** demande ; une clé passée en argument
+n'apparaît pas dans le détail persisté ; l'empreinte distingue `["a;b"]` de
+`["a", ";", "b"]` et ignore l'ordre des clés.
+
+**Contre-épreuve faite** : `run` qui re-prépare au lieu d'exécuter le préparé,
+identité du binaire non revérifiée, boucle qui ne prépare pas, détail non
+expurgé — chacune fait échouer un à trois tests.
+
+**Le gérant de tâches est couvert de bout en bout** : le scénario R5 de
+`test:restart` relit, sur un vrai daemon, la demande en attente et exige que
+son empreinte se recalcule depuis son détail. Contre-épreuve faite — un gérant
+qui hache le texte affiché fait échouer R5. Toutes les suites gratuites passent,
+navigateur compris (le panneau d'approbation a changé).
+
+### Ce que l'écriture a appris
+
+**10. Le test verrouillait le défaut.** À l'étape 3, la résolution du binaire
+« avant la demande » a été écrite dans la documentation, l'en-tête du module et
+le message de commit — sans être constatée. Le code résolvait dans `run()`. Et
+le test de boucle de l'étape 3, censé prouver que l'humain voyait la commande
+exacte, vérifiait `exec — exécuter node -e …` : **le nom nu**, c'est-à-dire
+précisément le défaut. Il passait parce qu'il décrivait ce que le code faisait,
+pas ce que la documentation promettait. L'erreur a été trouvée en relisant le
+chemin d'approbation de bout en bout pour l'étape 4, pas par un test.
+
+La leçon rejoint celle des dettes de la Slice 2, avec une nuance de plus :
+*une phrase de documentation est une affirmation, et une affirmation sans test
+qui la contredirait si elle était fausse n'est pas vérifiée — même quand un test
+porte sur le même sujet.* Le test réécrit exige un chemin **absolu**.
+
+**11. L'attente humaine est une fenêtre.** Entre la demande et la décision, il
+peut s'écouler dix minutes. Ce qui a été montré à l'humain doit être ce qui
+tourne, et le monde peut changer entre les deux : `brew upgrade`, un script du
+worktree réécrit. D'où la séparation `prepare` / `run`, et la revérification
+de l'identité du binaire juste avant `spawn` — la même discipline que
+l'ouverture d'un fichier (« revérifier à l'ouverture, pas seulement avant »),
+appliquée au temps humain.
 
 ---
 

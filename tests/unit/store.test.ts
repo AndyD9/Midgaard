@@ -173,6 +173,7 @@ describe('approbations', () => {
       taskId: task.id,
       seq: 1,
       operation: 'rm -rf quelque-chose',
+      operationDetail: null,
       operationHash: 'abc123',
       ttlMs: 60_000,
     })
@@ -196,8 +197,8 @@ describe('approbations', () => {
 
   it('n\'expire que ce qui a dépassé son délai', () => {
     const { task } = newTask(true)
-    const court = store.createApproval({ taskId: task.id, seq: 1, operation: 'a', operationHash: 'h', ttlMs: -1 })
-    const long = store.createApproval({ taskId: task.id, seq: 2, operation: 'b', operationHash: 'h', ttlMs: 60_000 })
+    const court = store.createApproval({ taskId: task.id, seq: 1, operation: 'a', operationDetail: null, operationHash: 'h', ttlMs: -1 })
+    const long = store.createApproval({ taskId: task.id, seq: 2, operation: 'b', operationDetail: null, operationHash: 'h', ttlMs: 60_000 })
     const due = store.dueApprovals()
     assert.deepEqual(due.map((a) => a.id), [court.id], `${long.id} ne doit pas être dedans`)
   })

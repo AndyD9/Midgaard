@@ -64,6 +64,24 @@ export interface ToolContext {
 }
 
 /**
+ * Une opération **préparée** : tout ce qui sera exécuté, figé avant de demander
+ * quoi que ce soit à un humain.
+ *
+ * C'est ce qui fait qu'une approbation porte sur ce qui tourne. Sans cette
+ * étape, l'humain approuverait `npm test` et l'outil résoudrait `npm` ensuite —
+ * dix minutes plus tard, dans un `PATH` qui a pu changer. La Slice 3 a d'abord
+ * fait exactement cela, en écrivant le contraire (docs/SLICE3.md, étape 4).
+ */
+export interface PreparedOperation {
+  /** Ce que l'humain lit : exact, sans abréviation, chemins absolus. */
+  summary: string
+  /** La même opération, structurée. L'empreinte de l'approbation en est tirée. */
+  detail: Record<string, unknown>
+  /** État propre à l'outil, rendu à `run` tel quel. Jamais montré ni persisté. */
+  state?: unknown
+}
+
+/**
  * Un outil exposé à un agent.
  *
  * `schema` sert deux fois : à engendrer le JSON Schema envoyé au modèle, et à
@@ -83,8 +101,23 @@ export interface Tool<T = unknown> {
    *          décision humaine, `deny` pour refuser sans demander
    */
   policy(args: T, ctx: ToolContext): { decision: ToolDecision; reason: string }
-  /** Exécute l'appel. @throws en cas d'échec ; la boucle en fait un résultat d'erreur */
-  run(args: T, ctx: ToolContext): Promise<ToolResult>
+  /**
+   * Fige l'opération **avant** toute approbation : résolution des chemins, du
+   * programme, de ce qui sera réellement exécuté. Facultatif : un outil sans
+   * préparation est décrit par ses arguments validés.
+   *
+   * @throws {ToolError} si l'opération ne peut pas avoir lieu — un programme
+   *         introuvable n'a pas à déranger un humain avant d'échouer
+   */
+  prepare?(args: T, ctx: ToolContext): Promise<PreparedOperation>
+  /**
+   * Exécute l'appel.
+   *
+   * @param prepared l'opération figée par {@link Tool.prepare}, quand l'outil en
+   *        a une : `run` doit exécuter **elle**, et vérifier qu'elle tient encore
+   * @throws en cas d'échec ; la boucle en fait un résultat d'erreur
+   */
+  run(args: T, ctx: ToolContext, prepared?: PreparedOperation): Promise<ToolResult>
 }
 
 /** Erreur d'outil destinée au modèle : lisible, actionnable, sans détail interne. */

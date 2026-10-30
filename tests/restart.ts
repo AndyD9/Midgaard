@@ -24,6 +24,7 @@ import {
   WS_SUBPROTOCOL,
   WS_TOKEN_PREFIX,
   daemonJson,
+  operationHash,
   pidAlive,
   readRuntime,
   type Approval,
@@ -266,6 +267,14 @@ await scenario(outcomes, 'R5 approbation expirée → tâche timed_out', async (
     async () => (await daemonJson<TaskView>(rt, `/api/tasks/${task.id}`)).body.task.status === 'waiting_approval',
     8_000,
   )
+  // L'empreinte servie doit se recalculer depuis le détail servi : c'est ce
+  // qui prouve que le gérant de tâches la tire bien de l'opération structurée,
+  // et pas du texte affiché (Slice 3, étape 4).
+  const paused = (await daemonJson<TaskView>(rt, `/api/tasks/${task.id}`)).body.approval
+  const hashHolds =
+    paused !== null &&
+    paused.operation_detail !== null &&
+    paused.operation_hash === operationHash(task.id, paused.seq, paused.operation_detail)
   const expired = await until(
     async () => (await daemonJson<TaskView>(rt, `/api/tasks/${task.id}`)).body.task.status === 'timed_out',
     10_000,
@@ -277,8 +286,10 @@ await scenario(outcomes, 'R5 approbation expirée → tâche timed_out', async (
   await once(child, 'exit')
   short.cleanup()
   return {
-    verdict: expired && approvals.length === 0 ? 'PASS' : 'FAIL',
-    detail: `statut final ${final.status} — « ${final.error ?? 'aucune erreur'} », ${approvals.length} demande(s) encore en attente`,
+    verdict: expired && approvals.length === 0 && hashHolds ? 'PASS' : 'FAIL',
+    detail:
+      `statut final ${final.status} — « ${final.error ?? 'aucune erreur'} », ${approvals.length} demande(s) ` +
+      `encore en attente, empreinte ${hashHolds ? 'recalculée depuis le détail' : 'NE CORRESPOND PAS au détail'}`,
   }
 })
 

@@ -116,8 +116,14 @@ réseau. La frontière est humaine — chaque commande attend une approbation, e
 l'humain lit **exactement** ce qui va tourner :
 
 ```text
-exec — exécuter npm test -- --grep 'a b' (dans packages/api)
+exec — exécuter /opt/homebrew/bin/npm test -- --grep 'a b' dans /Users/…/worktrees/app-1a2b3c4d/0b9f3c2e/packages/api (délai 120 s)
 ```
+
+Ce texte vient de `prepare`, qui fige l'opération **avant** la demande. `run`
+exécute ce qui a été figé, après avoir revérifié que le binaire est toujours le
+même fichier (périphérique, inœud, taille, date) : la demande peut attendre dix
+minutes, et le monde change pendant ce temps. L'empreinte de l'approbation est
+tirée du détail structuré (`operation_detail`), pas de ce texte.
 
 Les guillemets ne servent qu'à l'affichage : `["a;b"]` et `["a", ";", "b"]` ne
 doivent pas s'afficher pareil, sinon l'on approuve l'un en lisant l'autre.
@@ -133,7 +139,7 @@ guillemets dans cette variable : un argument contenant une espace ne peut pas
 | Garantie | Comment |
 |---|---|
 | Aucun shell | `spawn` sans `shell` : `;`, `\|`, `$()` restent des caractères |
-| Ce qu'on approuve est ce qui tourne | le binaire est **résolu par le harness** avant la demande ; les entrées **relatives** du `PATH` sont ignorées |
+| Ce qu'on approuve est ce qui tourne | le binaire est **résolu par le harness** avant la demande (`prepare`) et **revérifié** avant de lancer ; les entrées **relatives** du `PATH` sont ignorées |
 | Uniquement dans un worktree | sans `ToolContext.writable`, refus sans demande |
 | Pas de secrets du daemon | environnement reconstruit (`execEnv`) ; `CI=1`, `NO_COLOR=1` imposés |
 | **Aucun processus ne survit** | groupe de processus propre, tué à la sortie, au délai (`SIGTERM`, puis `SIGKILL` après 2 s) et à l'annulation |

@@ -21,8 +21,10 @@
  *  1. **Jamais de shell.** `spawn` sans `shell` : `;`, `|`, `$()` et `&&` d'un
  *     argument restent des caractères. `sh -c "…"` reste possible — et se voit
  *     en entier dans la demande d'approbation.
- *  2. **Le binaire est résolu par le harness**, pas par le système au moment de
- *     lancer : ce que l'humain approuve est ce qui tourne. Les entrées
+ *  2. **Le binaire est résolu par le harness, avant la demande d'approbation**
+ *     ({@link execTool}.`prepare`) : l'humain lit le chemin absolu du programme,
+ *     et `run` lance ce chemin-là après avoir vérifié que le fichier n'a pas
+ *     changé entre-temps (périphérique, inœud, taille, date). Les entrées
  *     **relatives** du `PATH` (`.`, `node_modules/.bin`) sont ignorées — elles
  *     feraient exécuter un fichier que l'agent vient d'écrire en le faisant
  *     passer pour une commande système.
@@ -48,7 +50,7 @@ import { z } from 'zod'
 import type { ToolResult } from '@midgaard/contracts'
 export { parseExecAllow } from '@midgaard/contracts'
 import { resolveUnderRoot } from './paths.ts'
-import { ToolError, type Tool, type ToolContext } from './types.ts'
+import { ToolError, type PreparedOperation, type Tool, type ToolContext } from './types.ts'
 
 /** Délai par défaut d'une commande, en secondes. Un `npm test` ordinaire tient en dessous. */
 export const EXEC_DEFAULT_TIMEOUT_S = 120
@@ -351,6 +353,27 @@ function execPolicy(args: ExecArgs, ctx: ToolContext): { decision: 'allow' | 'ap
   return { decision: 'approval', reason: `exécuter ${formatArgv(argv)}${where}` }
 }
 
+/** Ce que `prepare` fige pour `run`. */
+interface ExecState {
+  file: string
+  cwd: string
+  fingerprint: string
+}
+
+/**
+ * Identité d'un fichier exécutable : périphérique, inœud, taille, date de
+ * modification. Un binaire remplacé (`brew upgrade` pendant que la demande
+ * attend) ou réécrit (un script du worktree) en change au moins un.
+ */
+function fingerprint(st: { dev: number; ino: number; size: number; mtimeMs: number }): string {
+  return `${st.dev}:${st.ino}:${st.size}:${st.mtimeMs}`
+}
+
+/** Chemin relatif à la racine pour les résumés courts. */
+function shortCwd(root: string, cwd: string): string {
+  return relative(root, cwd).split(sep).join('/') || '.'
+}
+
 /** Lance une commande dans le worktree. */
 export const execTool: Tool<ExecArgs> = {
   name: 'exec',
@@ -363,12 +386,47 @@ export const execTool: Tool<ExecArgs> = {
   schema: execSchema,
   policy: execPolicy,
 
-  async run(args, ctx): Promise<ToolResult> {
+  /**
+   * Résout le dossier et le programme, et relève l'identité du binaire —
+   * **avant** que l'humain ne soit sollicité. Ce qu'il lira est ce qui tournera.
+   */
+  async prepare(args, ctx): Promise<PreparedOperation> {
     if (!ctx.writable) throw new ToolError('this agent has no workspace')
     const cwd = await resolveUnderRoot(ctx.root, args.cwd)
     if (!(await stat(cwd)).isDirectory()) throw new ToolError(`not a directory: ${args.cwd}`)
-    const env = execEnv()
-    const file = await resolveCommand(args.command, cwd, ctx.root, env)
+    const file = await resolveCommand(args.command, cwd, ctx.root, execEnv())
+    const id = fingerprint(await stat(file))
+    const state: ExecState = { file, cwd, fingerprint: id }
+    return {
+      summary: `exécuter ${formatArgv([file, ...args.args])} dans ${cwd} (délai ${args.timeout_s} s)`,
+      detail: {
+        tool: 'exec',
+        program: file,
+        program_fingerprint: id,
+        args: args.args,
+        cwd,
+        timeout_s: args.timeout_s,
+      },
+      state,
+    }
+  },
+
+  async run(args, ctx, prepared): Promise<ToolResult> {
+    if (!ctx.writable) throw new ToolError('this agent has no workspace')
+    // Sans préparation (commande en liste blanche, ou appel direct), on prépare
+    // ici : la vérification qui suit vaut alors pour quelques millisecondes.
+    const op = (prepared ?? (await execTool.prepare!(args, ctx))).state as ExecState
+
+    // Ce qui a été approuvé tient-il encore ? Le binaire peut avoir été
+    // remplacé pendant que la demande attendait un humain — jusqu'à dix
+    // minutes. On lance ce qui a été montré, ou rien.
+    const now = await stat(op.file).catch(() => null)
+    if (!now || fingerprint(now) !== op.fingerprint) {
+      throw new ToolError(`the program changed since the command was approved: ${op.file}. Nothing was run.`)
+    }
+    if ((await resolveUnderRoot(ctx.root, args.cwd)) !== op.cwd) {
+      throw new ToolError(`the working directory changed since the command was approved: ${args.cwd}. Nothing was run.`)
+    }
 
     // Le délai demandé ne peut pas dépasser l'échéance de la tâche : une limite
     // vérifiée après coup a déjà été dépassée.
@@ -376,7 +434,7 @@ export const execTool: Tool<ExecArgs> = {
     if (remaining <= 0) throw new ToolError('the task deadline has passed: no time left to run a command')
     const timeoutMs = Math.min(args.timeout_s * 1000, remaining)
 
-    const r = await runCommand({ file, args: args.args, cwd, env, timeoutMs, signal: ctx.signal })
+    const r = await runCommand({ file: op.file, args: args.args, cwd: op.cwd, env: execEnv(), timeoutMs, signal: ctx.signal })
     const argv = formatArgv([args.command, ...args.args])
     const ending = r.cancelled
       ? 'cancelled: the task was cancelled, the command and its subprocesses were killed'
@@ -385,16 +443,17 @@ export const execTool: Tool<ExecArgs> = {
         : r.code !== null
           ? `exit code ${r.code}`
           : `killed by ${r.signal}`
+    const where = shortCwd(ctx.root, op.cwd)
     const content =
-      `$ ${argv}${args.cwd === '.' ? '' : `   (in ${args.cwd})`}\n` +
+      `$ ${argv}${where === '.' ? '' : `   (in ${where})`}\n` +
       `${ending} · ${(r.durationMs / 1000).toFixed(1)} s\n` +
       `--- stdout (${r.stdoutBytes} bytes) ---\n${r.stdout}\n` +
       `--- stderr (${r.stderrBytes} bytes) ---\n${r.stderr}`
-    const shownCwd = relative(ctx.root, cwd).split(sep).join('/') || '.'
+    const verdict = r.timedOut ? 'délai dépassé' : r.cancelled ? 'annulée' : r.code !== null ? `code ${r.code}` : String(r.signal)
     return {
       content,
       bytes: r.stdoutBytes + r.stderrBytes,
-      summary: `${argv} → ${r.timedOut ? 'délai dépassé' : r.cancelled ? 'annulée' : r.code !== null ? `code ${r.code}` : String(r.signal)} en ${(r.durationMs / 1000).toFixed(1)} s${shownCwd === '.' ? '' : ` (${shownCwd})`}`,
+      summary: `${argv} → ${verdict} en ${(r.durationMs / 1000).toFixed(1)} s${where === '.' ? '' : ` (${where})`}`,
       // Une sortie de commande peut contenir n'importe quoi : un message de
       // paquet installé, une page téléchargée par un test. Elle est encadrée
       // comme du contenu web, pour l'agent comme pour Claude.

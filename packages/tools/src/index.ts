@@ -15,7 +15,7 @@ import { deleteFileTool, editFileTool, writeFileTool } from './write.ts'
 import { gitDiffTool } from './git.ts'
 import { execTool } from './exec.ts'
 
-export type { Tool, ToolContext, HttpPolicy } from './types.ts'
+export type { Tool, ToolContext, HttpPolicy, PreparedOperation } from './types.ts'
 export { ToolError, HTTP_POLICIES, MAX_TOOL_RESULT_BYTES, truncate } from './types.ts'
 export { canonicalRoot, isUnder, openUnderRoot, resolveUnderRoot } from './paths.ts'
 export { assertPublicHost, hostAllowed, isPrivateAddress, IMDS_ADDRESS } from './net.ts'

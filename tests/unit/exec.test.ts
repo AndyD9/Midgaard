@@ -10,7 +10,7 @@
  * suite tourne dessus, et le script se lit dans le test.
  */
 import assert from 'node:assert/strict'
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { afterEach, beforeEach, describe, it } from 'node:test'
@@ -195,6 +195,34 @@ describe('aucun processus ne survit', () => {
     assert.match(r.content, /timeout/)
     assert.ok(Date.now() - started < 5000)
     await assert.rejects(run(node('1'), ctx({ deadline: Date.now() - 1 })), /deadline has passed/)
+  })
+})
+
+describe('ce qui est approuvé est ce qui tourne', () => {
+  it('prépare le programme résolu, le dossier absolu et l\'identité du binaire', async () => {
+    const prepared = await exec.prepare!(exec.schema.parse({ command: 'node', args: ['-v'] }) as never, ctx())
+    const program = String(prepared.detail.program)
+    assert.ok(program.startsWith('/') || /^[A-Za-z]:\\/.test(program), program)
+    assert.equal(prepared.detail.cwd, root)
+    assert.match(String(prepared.detail.program_fingerprint), /^\d+:\d+:\d+:[\d.]+$/)
+    assert.equal(prepared.summary, `exécuter ${program} -v dans ${root} (délai 120 s)`)
+  })
+
+  it('refuse de lancer un programme modifié depuis l\'approbation, et ne lance rien', async () => {
+    const script = join(root, 'bin', 'deploie.sh')
+    const marker = join(home, 'dehors', 'a-tourne')
+    writeFileSync(script, '#!/bin/sh\necho approuvé\n')
+    chmodSync(script, 0o755)
+    const args = exec.schema.parse({ command: 'bin/deploie.sh' })
+    const prepared = await exec.prepare!(args as never, ctx())
+    // Pendant que la demande attend un humain, le script change.
+    writeFileSync(script, `#!/bin/sh\ntouch "${marker}"\n`)
+    await assert.rejects(exec.run(args as never, ctx(), prepared), /changed since the command was approved.*Nothing was run/)
+    assert.equal(existsSync(marker), false)
+    // Sans modification, la même opération préparée tourne.
+    writeFileSync(script, '#!/bin/sh\necho approuvé\n')
+    const fresh = await exec.prepare!(args as never, ctx())
+    assert.match((await exec.run(args as never, ctx(), fresh)).content, /approuvé/)
   })
 })
 

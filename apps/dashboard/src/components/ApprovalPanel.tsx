@@ -4,8 +4,10 @@
  *
  * Deux choses y sont explicites, et pas par hasard :
  *
- *  - **ce qui est autorisé**, en toutes lettres (`operation`). Une approbation
- *    vaut pour cette opération précise et pour elle seule ;
+ *  - **ce qui est autorisé**, en toutes lettres (`operation`), puis sous sa
+ *    forme exacte (`operation_detail`). Pour une commande, chaque argument est
+ *    affiché **séparément** : `a;b` et `a ; b` ne doivent pas se lire pareil.
+ *    Une approbation vaut pour cette opération précise et pour elle seule ;
  *  - **le délai restant**. Passé ce délai, la demande expire et la tâche
  *    s'arrête en `timed_out` — mieux vaut le voir venir que le découvrir après.
  */
@@ -66,6 +68,7 @@ export function ApprovalPanel({
           <span className="text-muted">Opération : </span>
           {approval.operation}
         </p>
+        {approval.operation_detail && <OperationDetail detail={approval.operation_detail} />}
         <p className="font-mono text-[11px] text-muted" title="Empreinte de l'opération exacte : une décision ne vaut que pour elle.">
           {approval.id} · {approval.operation_hash.slice(0, 16)}…
         </p>
@@ -86,5 +89,46 @@ export function ApprovalPanel({
         </div>
       </CardBody>
     </Card>
+  )
+}
+
+/**
+ * L'opération exacte. Une commande est détaillée champ par champ ; tout autre
+ * outil est montré en JSON, tel qu'il a été haché — rien n'est résumé.
+ */
+function OperationDetail({ detail }: { detail: Record<string, unknown> }) {
+  if (detail.tool === 'exec' && Array.isArray(detail.args)) {
+    return (
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md border border-border bg-surface p-2.5 text-xs">
+        <dt className="text-muted">Programme</dt>
+        <dd className="break-all font-mono" data-testid="approval-program">{String(detail.program)}</dd>
+        <dt className="text-muted">Arguments</dt>
+        <dd>
+          {detail.args.length === 0 ? (
+            <span className="text-muted">aucun</span>
+          ) : (
+            <ol className="space-y-0.5" data-testid="approval-args">
+              {detail.args.map((arg, i) => (
+                // Un argument par ligne, encadré : ses espaces et ses `;` se
+                // voient comme faisant partie de lui.
+                <li key={i} className="break-all font-mono">
+                  <span className="text-muted">{i + 1}. </span>
+                  <span className="rounded bg-waiting/10 px-1">{String(arg)}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </dd>
+        <dt className="text-muted">Dossier</dt>
+        <dd className="break-all font-mono">{String(detail.cwd)}</dd>
+        <dt className="text-muted">Délai</dt>
+        <dd>{String(detail.timeout_s)} s</dd>
+      </dl>
+    )
+  }
+  return (
+    <pre className="max-h-48 overflow-auto rounded-md border border-border bg-surface p-2.5 text-xs">
+      {JSON.stringify(detail, null, 2)}
+    </pre>
   )
 }

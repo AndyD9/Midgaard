@@ -287,9 +287,9 @@ export class AgentEngine implements TaskEngine {
         })
       },
 
-      requestApproval: (operation, step) =>
+      requestApproval: ({ operation, detail }, step) =>
         new Promise<ApprovalOutcome>((resolve) => {
-          const approval: Approval | null = ctx.requestApproval(taskId, operation, { step })
+          const approval: Approval | null = ctx.requestApproval(taskId, operation, detail, { step })
           if (!approval) return resolve('rejected')
           // La décision arrivera par `resume` (accordée) ou par `cancel`
           // (refusée, annulée, expirée). Résolue une seule fois : la seconde

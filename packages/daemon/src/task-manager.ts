@@ -16,7 +16,6 @@
  * dépôt directement : c'est ce qui garantit qu'aucun changement d'état n'échappe
  * aux long-polls ni aux dashboards connectés.
  */
-import { createHash } from 'node:crypto'
 import type {
   Agent,
   Approval,
@@ -26,7 +25,14 @@ import type {
   TaskEvent,
   ToolCall,
 } from '@midgaard/contracts'
-import { SIMULATED_AGENT_ID, isActionable, isTerminal, nextActionFor, tightenLimits } from '@midgaard/contracts'
+import {
+  SIMULATED_AGENT_ID,
+  isActionable,
+  isTerminal,
+  nextActionFor,
+  operationHash,
+  tightenLimits,
+} from '@midgaard/contracts'
 import type { HarnessStore } from '@midgaard/persistence'
 import type { EventBus } from './bus.ts'
 import { SimulatedEngine, STEPS_TOTAL } from './engines/simulated.ts'
@@ -99,7 +105,7 @@ export class TaskManager {
       store: this.store,
       bus: this.bus,
       log: this.log,
-      requestApproval: (taskId, operation, payload) => this.openApproval(taskId, operation, payload),
+      requestApproval: (taskId, operation, detail, payload) => this.openApproval(taskId, operation, detail, payload),
       concludeCancellation: (taskId) => {
         this.finishCancellation(taskId)
       },
@@ -224,6 +230,7 @@ export class TaskManager {
   private openApproval(
     taskId: string,
     operation: string,
+    detail: Record<string, unknown>,
     payload: Record<string, unknown> = {},
   ): Approval | null {
     const task = this.store.getTask(taskId)
@@ -233,15 +240,20 @@ export class TaskManager {
       taskId: task.id,
       seq,
       operation,
-      // L'empreinte lie la décision à cette opération précise : si l'opération
-      // change, l'approbation ne s'y applique plus.
-      operationHash: createHash('sha256').update(`${task.id}\u0000${seq}\u0000${operation}`).digest('hex'),
+      operationDetail: detail,
+      // L'empreinte lie la décision à cette opération précise, sous sa forme
+      // structurée : le texte peut afficher pareil deux opérations différentes,
+      // le détail canonique non.
+      operationHash: operationHash(task.id, seq, detail),
       ttlMs: this.config.approvalTtlMs,
     })
     this.bus.record(
       task.id,
       'waiting_approval',
-      { type: 'approval.requested', payload: { ...payload, approval_id: approval.id, operation } },
+      {
+        type: 'approval.requested',
+        payload: { ...payload, approval_id: approval.id, operation, operation_hash: approval.operation_hash },
+      },
       { approval_seq: seq, ...(typeof payload.step === 'number' ? { step: payload.step } : {}) },
     )
     this.bus.emitApproval(approval)

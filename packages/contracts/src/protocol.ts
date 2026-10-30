@@ -33,9 +33,13 @@ import { toolCallSchema } from './tools.ts'
  *  - 5 : Slice 3, premier pas — le journal gagne `workspace.created`,
  *        `workspace.kept` et `workspace.removed`. Un daemon de protocole 4
  *        n'écrirait pas ces événements, et le dashboard servi par un daemon
- *        récent les attend.
+ *        récent les attend ;
+ *  - 6 : Slice 3, étape 4 — une approbation porte `operation_detail`, l'opération
+ *        exacte sous forme structurée, et son empreinte en est tirée. Un daemon
+ *        de protocole 5 rendrait des approbations sans ce champ, que le
+ *        dashboard et le serveur MCP valident désormais.
  */
-export const PROTOCOL_VERSION = 5
+export const PROTOCOL_VERSION = 6
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({

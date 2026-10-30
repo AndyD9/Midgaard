@@ -227,6 +227,18 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX workspaces_status_idx ON workspaces(status, created_at);
     `,
   },
+  {
+    version: 5,
+    label: 'Slice 3 — opération exacte des approbations',
+    sql: `
+      -- La forme structurée de ce qu'une approbation autorise : pour 'exec', le
+      -- programme résolu, les arguments, le dossier absolu et l'empreinte du
+      -- binaire. L'empreinte 'operation_hash' est tirée de ce JSON canonique, et
+      -- non plus du texte affiché : deux opérations qui s'affichent pareil
+      -- n'ont plus la même empreinte. NULL pour les demandes plus anciennes.
+      ALTER TABLE approvals ADD COLUMN operation_json TEXT;
+    `,
+  },
 ]
 
 // Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',

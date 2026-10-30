@@ -9,6 +9,7 @@
 export { runAgent } from './loop.ts'
 export type {
   ApprovalOutcome,
+  ApprovalRequest,
   LoopHooks,
   LoopInput,
   LoopOutcome,
