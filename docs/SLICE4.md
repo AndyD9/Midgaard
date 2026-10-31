@@ -6,7 +6,7 @@ intégré. En chemin : tests de sécurité ciblés, scénarios de crash et de re
 deux tâches concurrentes sur des worktrees distincts, README et guide de
 dépannage.
 
-**État : en cours.** Décisions prises, découpage arrêté ; étapes 1 à 3 livrées.
+**État : en cours.** Décisions prises, découpage arrêté ; étapes 1 à 4 livrées.
 
 ---
 
@@ -53,7 +53,7 @@ la règle de `dashboard_available` : ne rien annoncer qu'on n'a pas constaté.
 | 1 | `doctor` en lecture seule : il diagnostique la base sans la migrer, et dit « base à migrer » | ✅ livrée |
 | 2 | Ce que le worktree ne montre pas : `edit_file` tolérant aux fins de ligne ; sous-modules absents, signalés à l'agent et au dashboard | ✅ livrée |
 | 3 | La suite de sécurité du PLAN §8.4, point par point : chaque refus prouvé par un test qui l'observe directement, les trous comblés | ✅ livrée — quatre défauts réels trouvés |
-| 4 | Crash et concurrence : daemon tué en plein Developer (tâche `interrupted`, worktree conservé, branche au commit de départ) ; deux Developer concurrents sur deux worktrees | à faire |
+| 4 | Crash et concurrence : daemon tué en plein Developer (tâche `interrupted`, worktree conservé, branche au commit de départ) ; deux Developer concurrents sur deux worktrees | ✅ livrée — une commande survivait au daemon, et le diff perdait des modifications |
 | 5 | Le daemon de bout en bout, le dashboard et la CLI en CI sur macOS, Linux et Windows | à faire |
 | 6 | Le paquet `midgaard` : tarball unique, `npm pack` installé dans un préfixe vierge puis `harness init`, `doctor` et un aller-retour MCP — sur les trois plateformes | à faire |
 | 7 | La publication : workflow sur tag, provenance ; README d'installation et guide de dépannage | à faire |
@@ -311,6 +311,81 @@ En gras, ce qui n'était prouvé par rien avant cette étape.
 
 ---
 
+## Étape 4 — crash et concurrence
+
+### Ce qui existait
+
+V6 (`test:developer`) tuait déjà le daemon par `SIGKILL` pendant une pause
+d'approbation : tâche `interrupted`, worktree conservé, fichier en vol présent.
+R1 (`test:restart`) faisait de même pour une tâche simulée.
+
+### Ce qui existe
+
+- **V6 renforcé** : la branche est restée au commit de départ ; l'approbation en
+  cours au moment du crash est close **en base** (`expired`), pas seulement
+  absente de la vue ; l'approuver ensuite rend `409` et ne lance rien.
+- **V12** — le daemon tué par `SIGKILL` **pendant** une commande approuvée : la
+  commande doit mourir avec lui, et ne rien écrire après.
+- **V13** — deux Developer délégués au même instant sur le même dépôt : deux
+  `git worktree add` et deux commits de fin simultanés. Chaque branche ne
+  contient que son propre travail, le dépôt de l'utilisateur est intact. Au
+  passage, 40 worktrees créés et commités par huit en parallèle sur un même
+  dépôt, directement avec le paquet `workspace` : 0 échec.
+- **La garde des commandes** (`packages/tools/src/guard.ts`) : un processus par
+  daemon, dans son propre groupe, à qui le daemon inscrit chaque commande sur
+  un tube. Quand le daemon meurt, le système ferme le tube ; la garde tue les
+  groupes encore inscrits.
+- Dans `exec.test.ts` : un lanceur tué par `SIGKILL`, sa commande doit mourir.
+  Ce test tourne dans `worktrees.yml`, donc sur les trois plateformes.
+- **Le diff garde la date de l'index** (`packages/workspace/src/diff.ts`), et
+  `workspace.test.ts` reproduit le cas : une réécriture de même taille dans la
+  seconde du checkout, puis une seconde d'attente.
+
+Au total : 303 tests unitaires, puis `test:lock`, `test:restart`,
+`test:developer` (13), `test:security` (4), `test:wait` (12) et `test:ui` (8),
+**0 échec**, sous macOS, et aucune garde restée vivante après les suites.
+
+### Ce que l'écriture a appris
+
+**11. Une commande survivait au daemon, et continuait d'écrire.** V12, écrit
+avant tout correctif, l'a montré : trois secondes après le `SIGKILL`, la
+commande a écrit dans le worktree. `exec` tuait le groupe à la fin, au délai et
+à l'annulation — trois moments qui supposent un daemon vivant. Le groupe est
+détaché du daemon justement pour être tué entier ; détaché, il ne meurt pas
+avec lui. Le redémarrage marquait la tâche `interrupted`, et rien ne disait
+qu'une commande tournait encore. Contre-épreuve faite : la garde neutralisée,
+le test unitaire échoue (« la commande a survécu à son lanceur »).
+
+**12. Le soupçon sur les approbations était faux.** `markInterrupted` ne touche
+pas aux approbations, et l'on pouvait craindre une pause restée `pending` après
+le redémarrage, que `harness status` aurait proposé d'approuver. Lue en base,
+elle est `expired` : l'expiration des approbations la clôt. Le test le vérifie
+désormais en base, et non dans la vue — la première version lisait la vue, où
+une pause close et une pause oubliée se ressemblent (toutes deux absentes).
+
+**13. Le diff perdait des modifications, et c'est la charge qui l'a montré.**
+La première exécution complète de l'étape a échoué sur un test que l'étape ne
+touchait pas, `dashboard-patch` : un fichier modifié manquait au diff. Seul, le
+test passait cinq fois sur cinq. Le symptôme — le fichier absent à la fois de la
+liste et du patch — désignait Git plutôt que le découpage du dashboard. La
+cause : `diffWorktree` travaille sur une **copie** de l'index, et la copie
+prenait la date du moment. Git relit le contenu de toute entrée pas plus
+ancienne que l'index (*racy git*) ; face à un index « neuf », il se fiait à la
+taille et à la date — à la seconde près — d'un fichier réécrit à taille égale
+dans la seconde du checkout. Reproduit cinq fois sur cinq en attendant une
+seconde avant le diff ; corrigé en rendant à la copie la date de l'original.
+Le défaut datait de la Slice 3 : le `git_diff` de l'agent et le diff du
+dashboard pouvaient dire « rien de changé » ; le commit de fin, qui emploie le
+vrai index, n'était pas touché.
+
+**14. Une concurrence qui passe une fois ne prouve pas grand-chose.** V13 est
+un passage ; une course se gagne souvent. D'où l'essai de charge à part
+(huit à la fois, cinq fois) avant de le dire tenu. Il n'est pas dans les
+suites : trop long pour ce qu'il ajoute une fois le résultat connu, et il ne
+dirait rien de plus sous une autre plateforme que V13 en CI.
+
+---
+
 ## Ce qui restera ouvert, déjà su
 
 - **Les sous-processus lancés hors de libuv, sous Windows** (SLICE3, leçon
@@ -329,5 +404,9 @@ En gras, ce qui n'était prouvé par rien avant cette étape.
   d'injection entre les deux, que le code n'a pas.
 - **Le *DNS rebinding*** contre `http_fetch` reste la limite annoncée dans
   `net.ts` : le nom est vérifié, puis `fetch` résout à nouveau.
+- **La garde sous Windows** : elle y tue par `taskkill /T`, qui ne retrouve plus
+  les enfants d'un parent déjà mort. Le test unitaire tournera en CI ; s'il
+  passe, ce sera vraisemblablement grâce au *Job Object* de libuv (SLICE3,
+  leçon n° 21), pas à la garde.
 - **Les deux dettes Gemini** (SLICE2) restent ouvertes tant qu'aucune clé
   Google n'est disponible.

@@ -46,7 +46,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
 | `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer compris (`npx playwright install chromium` au préalable) |
-| `npm run test:developer` | ~25 s — le Developer dans un vrai daemon, face à un faux fournisseur |
+| `npm run test:developer` | ~35 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris |
 | `npm run test:security` | ~3 s — PLAN §8.4 de bout en bout : base et journal lus octet pour octet, refus tracés, API sur la seule boucle locale |
 | `npm run test:wait` | ~3 min — 12 scénarios de bout en bout MCP |
 
@@ -142,7 +142,9 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   (`Tool.prepare`, entrées relatives du `PATH` ignorées) et **revérifié avant
   de lancer**, pour que l'humain approuve ce qui tourne ; le
   groupe de processus est tué à la sortie, au délai et à l'annulation — vérifié
-  en interrogeant les pid au système.
+  en interrogeant les pid au système. **Et si le daemon meurt net** (`SIGKILL`),
+  la garde (`packages/tools/src/guard.ts`) tue les groupes qu'il n'a pas pu
+  tuer : sans elle, une commande continuait d'écrire dans le worktree.
 - **Une approbation porte sur l'opération préparée, et son empreinte sur le
   détail structuré** (`operation_detail`, JSON canonique), jamais sur le texte
   affiché. Le détail est expurgé avant d'être persisté.

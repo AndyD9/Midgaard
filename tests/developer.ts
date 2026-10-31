@@ -31,6 +31,7 @@ import {
   type TaskWorkspaceResponse,
   type WorkspacesResponse,
 } from '@midgaard/contracts'
+import { HarnessStore } from '@midgaard/persistence'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { startFakeProvider, type Turn } from './fake-provider.ts'
@@ -276,9 +277,28 @@ await scenario(outcomes, 'V6 un redémarrage interrompt la tâche et conserve so
   if (after.task.status !== 'interrupted') problems.push(`statut ${after.task.status}`)
   if (!kept || (kept.payload as { reason?: string }).reason !== 'daemon redémarré') problems.push('worktree non marqué conservé')
   if (!existsSync(join(created.worktree_path, 'src', 'en-vol.ts'))) problems.push('travail en vol perdu')
+  // La branche ne bouge qu'à submit_result : une tâche interrompue la laisse
+  // au commit de départ, jamais avec un commit qui aurait l'air d'un résultat.
+  const branch = (created as unknown as { branch: string; base_commit: string })
+  if (git(repo, 'rev-parse', branch.branch).trim() !== branch.base_commit) problems.push('branche déplacée par une tâche interrompue')
+  // La pause en cours au moment du crash ne doit plus attendre personne : son
+  // contexte est mort avec le processus, et l'approuver ne lancerait rien.
+  // Lu en base, pas dans la vue : la vue d'une tâche interrompue ne montre plus
+  // sa pause, mais `harness status` liste les approbations en attente de la base.
+  const store = HarnessStore.openReadOnly(main.config)
+  const stillPending = store.pendingApprovals().filter((a) => a.task_id === task.id).length
+  const closed = paused.approval ? store.getApproval(paused.approval.id)?.status : undefined
+  store.close()
+  if (stillPending) problems.push('approbation encore « en attente » en base après le redémarrage')
+  const late = paused.approval
+    ? await daemonJson(rt, `/api/approvals/${paused.approval.id}/approve`, { method: 'POST', body: JSON.stringify({ by: 'test' }) })
+    : null
+  if (late && late.status === 200) problems.push('approbation acceptée sur une tâche interrompue')
   return {
     verdict: problems.length ? 'FAIL' : 'PASS',
-    detail: problems.length ? problems.join(' ; ') : 'interrupted, workspace.kept « daemon redémarré », fichier en vol présent',
+    detail: problems.length
+      ? problems.join(' ; ')
+      : `interrupted, workspace.kept « daemon redémarré », fichier en vol présent, branche au départ, approbation close (${closed}), approuver tard → ${late?.status}`,
   }
 })
 
@@ -478,6 +498,90 @@ await scenario(outcomes, 'V10 la CLI liste, retire, et n\'ajoute rien à la list
     detail: problems.length
       ? problems.join(' ; ')
       : 'liste, orphelin montré, ajout refusé sans confirmation, --yes/list/revoke, remove, clean laisse le sale',
+  }
+})
+
+/** Vrai si un processus de ce pid existe encore (signal 0 : rien n'est envoyé). */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+await scenario(outcomes, 'V12 un daemon tué en pleine commande n\'en laisse pas tourner une orpheline', async () => {
+  // La commande écrit son pid, puis, trois secondes plus tard, un fichier : si
+  // ce fichier apparaît après la mort du daemon, la commande lui a survécu et
+  // a continué d'écrire dans le worktree sans que personne le voie.
+  const repo = makeRepo('v12')
+  const script = "const fs=require('fs');fs.writeFileSync('pid',String(process.pid));setTimeout(()=>fs.writeFileSync('apres-crash','x'),3000)"
+  const task = await delegate(rt, '[V12]', repo, [
+    [{ tool: 'exec', args: { command: 'node', args: ['-e', script], timeout_s: 30 } }],
+    submit('jamais atteint'),
+  ])
+  const paused = await waitFor(rt, task.id, new Set(['waiting_approval', ...TERMINAL]))
+  if (!paused.approval) return { verdict: 'FAIL', detail: `pas de pause : ${paused.task.status}` }
+  const created = (await events(rt, task.id)).find((e) => e.type === 'workspace.created')?.payload as { worktree_path: string }
+  await daemonJson(rt, `/api/approvals/${paused.approval.id}/approve`, { method: 'POST', body: JSON.stringify({ by: 'test' }) })
+  const pidFile = join(created.worktree_path, 'pid')
+  if (!(await until(() => existsSync(pidFile), 10_000))) return { verdict: 'FAIL', detail: 'la commande n\'a pas démarré' }
+  const pid = Number(readFileSync(pidFile, 'utf8'))
+
+  child.kill('SIGKILL')
+  await new Promise((r) => child.once('exit', r))
+  ;({ child, rt } = await startDaemon(main.config, main.home))
+  await sleep(4_000)
+
+  const problems: string[] = []
+  if (alive(pid)) {
+    problems.push(`commande ${pid} encore vivante`)
+    try {
+      process.kill(pid, 'SIGKILL') // ne pas la laisser derrière le test
+    } catch {}
+  }
+  if (existsSync(join(created.worktree_path, 'apres-crash'))) problems.push('la commande a écrit dans le worktree après la mort du daemon')
+  if ((await view(rt, task.id)).task.status !== 'interrupted') problems.push('tâche non interrompue')
+  return {
+    verdict: problems.length ? 'FAIL' : 'PASS',
+    detail: problems.length ? problems.join(' ; ') : `commande ${pid} morte avec le daemon, rien écrit après`,
+  }
+})
+
+await scenario(outcomes, 'V13 deux Developer sur le même dépôt, en même temps, ne se mélangent pas', async () => {
+  const repo = makeRepo('v13')
+  const headBefore = git(repo, 'rev-parse', 'HEAD').trim()
+  const script = (name: string): Turn[] => [
+    [{ tool: 'write_file', args: { path: `src/${name}.ts`, content: `export const ${name} = 1\n` } }],
+    [{ tool: 'edit_file', args: { path: 'src/app.ts', old_string: '["/"]', new_string: `["/", "/${name}"]` } }],
+    [{ tool: 'git_diff', args: { stat_only: true } }],
+    submit(`${name} ajouté`),
+  ]
+  // Délégués ensemble : les deux `git worktree add` et les deux commits de fin
+  // visent le même dépôt au même moment.
+  const [a, b] = await Promise.all([delegate(rt, '[V13-a]', repo, script('alpha')), delegate(rt, '[V13-b]', repo, script('beta'))])
+  const [da, db] = await Promise.all([waitFor(rt, a.id, TERMINAL), waitFor(rt, b.id, TERMINAL)])
+  const problems: string[] = []
+  for (const [done, mine, theirs] of [[da, 'alpha', 'beta'], [db, 'beta', 'alpha']] as const) {
+    const w = done.task.result?.workspace
+    if (done.task.status !== 'completed' || !w?.commit) {
+      problems.push(`${mine} : ${done.task.status} — ${done.task.error}`)
+      continue
+    }
+    const files = git(repo, 'diff', '--name-only', w.base_commit, w.branch).trim().split('\n').sort()
+    if (files.join(',') !== ['src/app.ts', `src/${mine}.ts`].sort().join(',')) problems.push(`${mine} : fichiers ${files.join(',')}`)
+    if (git(repo, 'show', `${w.branch}:src/app.ts`).includes(theirs)) problems.push(`${mine} contient le travail de ${theirs}`)
+  }
+  if (da.task.result?.workspace?.branch === db.task.result?.workspace?.branch) problems.push('même branche pour les deux')
+  if (git(repo, 'rev-parse', 'HEAD').trim() !== headBefore || git(repo, 'status', '--porcelain') !== '') {
+    problems.push('dépôt de l\'utilisateur modifié')
+  }
+  return {
+    verdict: problems.length ? 'FAIL' : 'PASS',
+    detail: problems.length
+      ? problems.join(' ; ')
+      : `${da.task.result!.workspace!.branch} et ${db.task.result!.workspace!.branch}, chacune son seul travail, dépôt intact`,
   }
 })
 

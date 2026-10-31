@@ -37,7 +37,8 @@
  *     de processus ; à sa fin, à son délai ou à l'annulation de la tâche, le
  *     **groupe entier** est tué. Sans cela, `npm run dev` laisserait un serveur
  *     tourner après la tâche, et un `sleep 999 &` lancé par l'agent survivrait
- *     au harness lui-même.
+ *     au harness lui-même. Et si le daemon meurt net, la garde
+ *     ({@link guardGroup}) tue les groupes qu'il n'a pas pu tuer lui-même.
  *  6. **Délai borné par l'échéance de la tâche** : une commande ne peut pas
  *     faire durer une tâche au-delà de son `timeout_s`.
  *  7. **Sortie bornée, début et fin conservés** : la fin d'une sortie de test
@@ -49,6 +50,7 @@ import { delimiter, isAbsolute, join, relative, sep } from 'node:path'
 import { z } from 'zod'
 import type { ToolResult } from '@midgaard/contracts'
 export { parseExecAllow } from '@midgaard/contracts'
+import { guardGroup } from './guard.ts'
 import { resolveUnderRoot } from './paths.ts'
 import { ToolError, type PreparedOperation, type Tool, type ToolContext } from './types.ts'
 
@@ -267,6 +269,8 @@ export function runCommand(input: {
   env: Record<string, string>
   timeoutMs: number
   signal?: AbortSignal | undefined
+  /** Journalisation du daemon : dit une fois que la garde des commandes manque. */
+  log?: ((message: string) => void) | undefined
 }): Promise<ExecOutcome> {
   return new Promise((resolve, reject) => {
     const started = Date.now()
@@ -285,6 +289,9 @@ export function runCommand(input: {
     } catch (e) {
       return reject(new ToolError(`cannot start ${input.file}: ${(e as Error).message}`))
     }
+    // Confié à la garde dès le lancement : si le daemon meurt net pendant la
+    // commande, c'est elle qui tuera le groupe. Retiré une fois le groupe tué.
+    const release = child.pid !== undefined ? guardGroup(child.pid, input.log) : () => {}
     const out = new HeadTail(STDOUT_HEAD, STDOUT_TAIL)
     const err = new HeadTail(STDERR_HEAD, STDERR_TAIL)
     child.stdout!.on('data', (c: Buffer) => out.push(c))
@@ -315,12 +322,14 @@ export function runCommand(input: {
     child.on('exit', () => killGroup(child, 'SIGKILL'))
 
     child.on('error', (e: NodeJS.ErrnoException) => {
+      release()
       clearTimeout(timer)
       if (escalation) clearTimeout(escalation)
       input.signal?.removeEventListener('abort', onAbort)
       reject(new ToolError(`cannot start ${input.file}: ${e.code ?? e.message}`))
     })
     child.on('close', (code, signal) => {
+      release()
       clearTimeout(timer)
       if (escalation) clearTimeout(escalation)
       input.signal?.removeEventListener('abort', onAbort)
@@ -452,7 +461,15 @@ export const execTool: Tool<ExecArgs> = {
     if (remaining <= 0) throw new ToolError('the task deadline has passed: no time left to run a command')
     const timeoutMs = Math.min(args.timeout_s * 1000, remaining)
 
-    const r = await runCommand({ file: op.file, args: args.args, cwd: op.cwd, env: execEnv(), timeoutMs, signal: ctx.signal })
+    const r = await runCommand({
+      file: op.file,
+      args: args.args,
+      cwd: op.cwd,
+      env: execEnv(),
+      timeoutMs,
+      signal: ctx.signal,
+      log: (m) => ctx.log(m),
+    })
     const argv = formatArgv([args.command, ...args.args])
     const ending = r.cancelled
       ? 'cancelled: the task was cancelled, the command and its subprocesses were killed'

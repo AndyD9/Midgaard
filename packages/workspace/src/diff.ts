@@ -18,8 +18,22 @@
  * Copier l'index plutôt que repartir de zéro n'est pas un détail : l'index
  * porte les informations de `stat` qui permettent à `git add` de ne pas relire
  * les fichiers inchangés. Sans elles, chaque diff relirait tout le dépôt.
+ *
+ * ## La copie garde la date de l'index
+ *
+ * Git juge un fichier inchangé quand sa taille et sa date correspondent à
+ * l'index — à la seconde près, selon la plateforme. Un fichier réécrit dans la
+ * même seconde que l'index, à taille égale, passerait donc pour intact ; Git
+ * s'en garde en relisant le contenu de toute entrée **pas plus ancienne que
+ * l'index lui-même** (*racy git*). Une copie ordinaire prend la date du moment
+ * de la copie : les entrées paraissent alors plus anciennes qu'elle, la garde
+ * de Git ne joue plus, et la modification disparaît du diff. Constaté : un
+ * test du dashboard échouait sous charge, et le cas se reproduit cinq fois sur
+ * cinq en attendant une seconde avant le diff (docs/SLICE4.md, étape 4). La
+ * copie reçoit donc la date de l'original, arrondie **vers le passé** — dans le
+ * doute, Git relit davantage, jamais moins.
  */
-import { copyFile, mkdtemp, rm } from 'node:fs/promises'
+import { copyFile, mkdtemp, rm, stat, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { FileChange, FileChangeKind, WorkspaceDiff } from '@midgaard/contracts'
@@ -59,7 +73,11 @@ export async function diffWorktree(
       (await gitOk(['rev-parse', '--git-path', 'index'], { cwd: worktreePath }, 'lecture de l\'index')).trim(),
     )
     try {
+      const original = await stat(real)
       await copyFile(real, index)
+      // Voir l'en-tête : sans la date d'origine, Git ne relit plus les fichiers
+      // réécrits dans la même seconde que l'index.
+      await utimes(index, original.atime, Math.floor(original.mtimeMs) / 1000)
     } catch {
       // Pas d'index (worktree tout neuf, jamais touché) : on part de l'arbre du
       // commit de départ, ce qui donne le même résultat, juste plus lentement.

@@ -156,7 +156,7 @@ guillemets dans cette variable : un argument contenant une espace ne peut pas
 | Ce qu'on approuve est ce qui tourne | le binaire est **résolu par le harness** avant la demande (`prepare`) et **revérifié** avant de lancer ; les entrées **relatives** du `PATH` sont ignorées |
 | Uniquement dans un worktree | sans `ToolContext.writable`, refus sans demande |
 | Pas de secrets du daemon | environnement reconstruit (`execEnv`) ; `CI=1`, `NO_COLOR=1` imposés |
-| **Aucun processus ne survit** | groupe de processus propre, tué à la sortie, au délai (`SIGTERM`, puis `SIGKILL` après 2 s) et à l'annulation |
+| **Aucun processus ne survit** | groupe de processus propre, tué à la sortie, au délai (`SIGTERM`, puis `SIGKILL` après 2 s) et à l'annulation — et par la **garde** si le daemon meurt net |
 | Pas au-delà de la tâche | délai plafonné par l'échéance de la tâche (`ToolContext.deadline`) |
 | Sortie bornée | 8 Ko + 32 Ko de fin pour stdout, 4 Ko + 12 Ko pour stderr ; le retrait du milieu est écrit |
 | Sortie encadrée | `untrusted: true` : une sortie de commande peut contenir n'importe quoi |
@@ -187,6 +187,25 @@ CI sur macOS, Linux et Windows (`.github/workflows/worktrees.yml`).
 Un processus qui quitte volontairement son groupe (`setsid`) échappe aussi au
 nettoyage, sur toutes les plateformes : c'est la limite d'un contrôle sans
 sandbox.
+
+### La garde : quand le daemon meurt net
+
+Les trois moments où `exec` tue un groupe supposent que le daemon vit encore.
+Tué par `SIGKILL`, il ne tue plus rien, et le groupe — détaché de lui pour
+pouvoir être tué entier — continue : constaté, une commande a écrit dans le
+worktree trois secondes après la mort du daemon. `guard.ts` lance donc, à la
+première commande, **un** processus de garde dans son propre groupe. Le daemon
+lui inscrit chaque groupe lancé (`+pid`) et le retire une fois tué (`-pid`) sur
+un tube. Quand le daemon meurt, le système ferme le tube, quelle que soit la
+manière ; la garde lit la fin du flux et tue les groupes encore inscrits.
+
+Pas de `prctl(PR_SET_PDEATHSIG)` (Linux seulement, et Node ne l'expose pas), pas
+de pid persistés pour les tuer au redémarrage (un redémarrage de la machine les
+rend à d'autres processus). Si la garde ne démarre pas, le journal du daemon le
+dit une fois et `exec` fonctionne comme avant. Éprouvé par `exec.test.ts` (un
+lanceur tué par `SIGKILL`, sa commande doit mourir) et par V12 dans
+`test:developer` (un vrai daemon). Sous Windows, elle passe par `taskkill /T` :
+**pas encore constaté**, ce sera l'étape 5 de la Slice 4.
 
 ## `http_fetch`
 

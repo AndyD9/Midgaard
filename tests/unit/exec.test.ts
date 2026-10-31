@@ -10,9 +10,12 @@
  * suite tourne dessus, et le script se lit dans le test.
  */
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 import { candidateNames, execAllowed, findTool, formatArgv, parseExecAllow, type ToolContext } from '@midgaard/tools'
 
@@ -191,6 +194,43 @@ describe('aucun processus ne survit', () => {
     assert.ok(Date.now() - started < 1000 + 2000 + 1500, 'SIGTERM au délai, SIGKILL au plus tard après la grâce')
     const pid = Number(/PID=(\d+)/.exec(r.content)?.[1])
     assert.equal(await gone(pid), true, `le processus ${pid} a survécu au délai`)
+  })
+
+  it('tue la commande quand le processus qui l\'a lancée meurt net', async () => {
+    // Le daemon tué par SIGKILL ne tue plus rien lui-même : c'est la garde qui
+    // doit le faire (guard.ts). Constaté sans elle : la commande continuait.
+    // Le « daemon » est ici un processus Node qui lance une commande via
+    // `runCommand`, écrit le pid de celle-ci, puis est tué.
+    const dir = mkdtempSync(join(tmpdir(), 'midgaard-garde-'))
+    const pidFile = join(dir, 'pid')
+    try {
+      const entry = fileURLToPath(import.meta.resolve('@midgaard/tools'))
+      const parentScript =
+        `import { runCommand } from ${JSON.stringify(pathToFileURL(entry).href)};` +
+        `runCommand({ file: process.execPath, cwd: ${JSON.stringify(dir)}, env: { PATH: process.env.PATH ?? '' }, timeoutMs: 60000,` +
+        ` args: ['-e', "require('fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000)", ${JSON.stringify(pidFile)}] })`
+      const parent = spawn(
+        process.execPath,
+        [...(entry.endsWith('.ts') ? ['--conditions=midgaard-dev'] : []), '--input-type=module', '-e', parentScript],
+        { stdio: 'ignore' },
+      )
+      const deadline = Date.now() + 10_000
+      while (!existsSync(pidFile) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50))
+      assert.ok(existsSync(pidFile), 'la commande n\'a pas démarré')
+      const pid = Number(readFileSync(pidFile, 'utf8'))
+      parent.kill('SIGKILL')
+      await once(parent, 'exit')
+      // Grâce de la garde (2 s) plus une marge.
+      const dead = await gone(pid, 5000)
+      if (!dead) {
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {}
+      }
+      assert.equal(dead, true, `la commande ${pid} a survécu à son lanceur`)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('tue tout à l\'annulation de la tâche', async () => {

@@ -274,6 +274,18 @@ describe('diffWorktree', () => {
     assert.equal(diff.files[0]!.additions, 5000)
   })
 
+  it('voit une réécriture de même taille faite dans la seconde du checkout', async () => {
+    // Le cas *racy git* (diff.ts) : sans la date d'origine sur la copie de
+    // l'index, ce fichier passait pour intact dès que le diff tombait dans la
+    // seconde suivante — cinq fois sur cinq. Trouvé par un test du dashboard qui
+    // n'échouait que sous la charge de la suite complète.
+    const wt = await createWorktree({ repo: await inspectRepository(repo), worktreesDir, taskId: TASK_ID })
+    writeFileSync(join(wt.path, 'src', 'a.ts'), 'export const a = 2\n') // même taille que « = 1 »
+    await new Promise((r) => setTimeout(r, 1100))
+    const diff = await diffWorktree(wt.path, wt.baseCommit)
+    assert.deepEqual(diff.files.map((f) => f.path), ['src/a.ts'])
+  })
+
   it('rend un diff vide sur un worktree intact', async () => {
     const wt = await createWorktree({ repo: await inspectRepository(repo), worktreesDir, taskId: TASK_ID })
     const diff = await diffWorktree(wt.path, wt.baseCommit)

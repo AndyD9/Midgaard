@@ -85,6 +85,12 @@ ignorer casserait un dépôt LFS sans rien protéger.
 
 ## Le diff, et pourquoi un index temporaire
 
+> **La copie de l'index garde la date de l'original.** Sans elle, un fichier
+> réécrit à taille égale dans la seconde du checkout disparaissait du diff —
+> la garde *racy git* de Git ne jouait plus. Détail dans l'en-tête de `diff.ts`
+> et dans docs/SLICE4.md (étape 4).
+
+
 `git diff <base>` ignore les fichiers non suivis. Or l'agent qui crée
 `src/health.ts` produit précisément un fichier non suivi : un diff qui l'oublie
 ment sur l'essentiel.
