@@ -178,6 +178,12 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   C'est ce qui faisait ranger toutes les clés DPAPI dans un seul fichier, en
   silence. Même cause pour `secret-tool`, qui a besoin de
   `DBUS_SESSION_BUS_ADDRESS` et `XDG_RUNTIME_DIR` pour joindre le trousseau.
+- **Sous Windows, un même dossier a deux noms** : `os.tmpdir()` rend
+  `C:\Users\RUNNER~1\…` (nom court 8.3), le harness canonicalise en
+  `C:\Users\runneradmin\…`. Seul `realpathSync.native` (ou `fs.promises.realpath`)
+  développe le nom court ; `realpathSync` tout court non. Un test qui compare
+  à un chemin rendu par le harness emploie donc `.native` — trois scénarios
+  ont échoué en CI pour cela, le harness ayant raison.
 - **Canonicaliser la racine d'un projet avant toute vérification de chemin** :
   sous un lien symbolique (`/tmp` sur macOS, bien des dossiers personnels), un
   projet voit sinon ses propres fichiers refusés « hors du projet ».
@@ -210,7 +216,8 @@ la CI sur tag, avec provenance ; `edit_file` tolérant aux fins de ligne ;
 Windows éprouvé en CI seulement) et découpage en huit étapes :
 [docs/SLICE4.md](docs/SLICE4.md). Règle d'ordre : rien n'est distribué avant
 d'être durci. Depuis l'étape 2 : migration 7 (`workspaces.submodules_json`),
-`PROTOCOL_VERSION` 8.
+`PROTOCOL_VERSION` 8. Depuis l'étape 5, **toutes** les suites tournent en CI sur
+macOS, Linux et Windows (`.github/workflows/e2e.yml`, passage `41182184282`).
 
 ## Slice 3 terminée
 

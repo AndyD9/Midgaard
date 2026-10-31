@@ -182,7 +182,13 @@ le vérifie en interrogeant le pid du petit-enfant au système.
   libuv ;
 Le reste — chemins, liens, `.git`, `exec`, résolution par `PATHEXT`, fins de
 ligne d'`edit_file` dans un vrai dépôt en CRLF — tourne en
-CI sur macOS, Linux et Windows (`.github/workflows/worktrees.yml`).
+CI sur macOS, Linux et Windows (`.github/workflows/worktrees.yml`, et toutes
+les suites dans `e2e.yml`).
+
+**Les chemins montrés au modèle s'écrivent en `/`**, sur toutes les
+plateformes et pour tous les outils (`toolPath`). Sous Windows, les outils de
+lecture rendaient des `\` quand ceux d'écriture rendaient des `/` — constaté
+en CI.
 
 Un processus qui quitte volontairement son groupe (`setsid`) échappe aussi au
 nettoyage, sur toutes les plateformes : c'est la limite d'un contrôle sans

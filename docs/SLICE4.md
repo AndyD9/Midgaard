@@ -6,7 +6,7 @@ intégré. En chemin : tests de sécurité ciblés, scénarios de crash et de re
 deux tâches concurrentes sur des worktrees distincts, README et guide de
 dépannage.
 
-**État : en cours.** Décisions prises, découpage arrêté ; étapes 1 à 4 livrées.
+**État : en cours.** Décisions prises, découpage arrêté ; étapes 1 à 5 livrées.
 
 ---
 
@@ -54,7 +54,7 @@ la règle de `dashboard_available` : ne rien annoncer qu'on n'a pas constaté.
 | 2 | Ce que le worktree ne montre pas : `edit_file` tolérant aux fins de ligne ; sous-modules absents, signalés à l'agent et au dashboard | ✅ livrée |
 | 3 | La suite de sécurité du PLAN §8.4, point par point : chaque refus prouvé par un test qui l'observe directement, les trous comblés | ✅ livrée — quatre défauts réels trouvés |
 | 4 | Crash et concurrence : daemon tué en plein Developer (tâche `interrupted`, worktree conservé, branche au commit de départ) ; deux Developer concurrents sur deux worktrees | ✅ livrée — une commande survivait au daemon, et le diff perdait des modifications |
-| 5 | Le daemon de bout en bout, le dashboard et la CLI en CI sur macOS, Linux et Windows | à faire |
+| 5 | Le daemon de bout en bout, le dashboard et la CLI en CI sur macOS, Linux et Windows | ✅ livrée — trois postes au vert au deuxième passage |
 | 6 | Le paquet `midgaard` : tarball unique, `npm pack` installé dans un préfixe vierge puis `harness init`, `doctor` et un aller-retour MCP — sur les trois plateformes | à faire |
 | 7 | La publication : workflow sur tag, provenance ; README d'installation et guide de dépannage | à faire |
 | 8 | L'essai d'acceptation : installé depuis npm sur un `HOME` vierge, le scénario §12 rejoué depuis Claude Code sous macOS | à faire |
@@ -67,10 +67,6 @@ livrable qu'on ne peut pas reprendre.
 
 ### Ce que chaque étape doit trancher ou surveiller
 
-- **Étape 5.** Les suites de bout en bout envoient des signaux et tuent des
-  processus : c'est là que Windows a le plus de chances de différer. La leçon
-  du coffre (cinq passages pour quatre postes verts) vaut d'être retenue :
-  relire avant de pousser.
 - **Étape 6.** Deux pièges prévisibles. D'abord, les conditions d'export
   (`midgaard-dev`) ne doivent jamais servir chez un tiers : le paquet ne contient
   que `dist/`. Ensuite, un clone de développement et une installation globale
@@ -386,11 +382,77 @@ dirait rien de plus sous une autre plateforme que V13 en CI.
 
 ---
 
+## Étape 5 — trois plateformes, de bout en bout
+
+### Ce qui existe
+
+**`.github/workflows/e2e.yml`**, « Bout en bout » : sur macOS, Linux et
+Windows, sans `fail-fast`, le build, puis `test:unit`, `test:lock`,
+`test:restart`, `test:developer`, `test:security`, `test:wait` et `test:ui`,
+chacun en étape à part et tous exécutés même après un échec, et enfin la CLI
+telle qu'un tiers la lance — `init`, `doctor` (qui vérifie la déclaration que
+`init` vient d'écrire), `status`. Il ne part pas pour une retouche de
+documentation.
+
+### Ce qui le prouve
+
+| Passage | Commit | macOS | Linux | Windows |
+|---|---|---|---|---|
+| `41181339563` | `75ba381` | ✅ | ✅ | ❌ `unit`, `lock`, `developer`, `ui` |
+| `41182184282` | `370ac1b` | ✅ | ✅ | ✅ |
+
+Au second passage, sous Windows : 298 tests unitaires sur 301, et trois sauts
+**annoncés** (deux scripts `sh` lancés comme programmes, les modes de la base) ;
+`test:security` éprouve les liens symboliques — le poste sait en créer — mais
+dit qu'il ne vérifie **pas** les modes de fichiers, que Windows règle par ACL ;
+V12, la garde des commandes, passe. Sous Linux, tout, modes `0600` compris.
+Les trois postes rapportent le même `CONSTAT` S5 que macOS : un client MCP
+coupe à 60 s un appel sans notifications de progression. Git 2.56 partout.
+Le même jour, « Worktrees » et « Coffre » au vert sur leurs postes : les cas
+CRLF, sous-modules et *racy git* des étapes 2 et 4 ont donc tourné sous Windows.
+
+### Ce que le premier passage a appris
+
+Deux postes au vert du premier coup, Windows en échec sur quatre suites. Une
+seule cause était un défaut ; les autres étaient des hypothèses des tests.
+
+**15. Les outils de lecture rendaient des chemins en `\`.** Sous Windows,
+`search_files` rendait `src\a.ts:1: …`, comme `read_file` et `list_directory`,
+quand les outils d'écriture rendent `src/a.ts`. Un même dépôt avait deux
+écritures selon la machine, et selon l'outil. Tous rendent désormais `/`
+(`toolPath`).
+
+**16. Le dossier temporaire a deux noms sous Windows.** `os.tmpdir()` y rend
+`C:\Users\RUNNER~1\…` — un nom court 8.3 — et le harness, qui canonicalise
+par le `realpath` natif, rend `C:\Users\runneradmin\…`. Les tests comparaient
+au `realpathSync` JavaScript, qui ne développe pas les noms courts : trois
+scénarios (V1, V8, V9) croyaient voir un worktree hors de son dossier, un
+orphelin manqué, une liste blanche rangée ailleurs. Le harness avait raison ;
+les tests emploient désormais `realpathSync.native`.
+
+**17. Le reste : des chemins écrits à la main.** `config.test` attendait
+`/tmp/b/harness.db` ; un test de la boucle attendait le programme d'`exec` sans
+guillemets, que `formatArgv` ajoute à un chemin contenant `\` ; `test:ui`
+passait ses huit scénarios puis échouait à effacer son dossier, qu'un processus
+tout juste arrêté tenait encore (`EPERM`) — réessais à l'effacement.
+
+**18. Une manche de `test:lock` a échoué, une fois.** Un seul survivant, le bon,
+mais pas encore de fichier de découverte à 2,5 s. Lenteur de huit Node démarrant
+ensemble sur un poste à deux cœurs, ou panne ? Le test jetait la sortie des
+candidats, et ne pouvait pas le dire. Il attend désormais la publication (15 s
+au plus), dit combien de temps elle a pris, et affiche les journaux des
+candidats si une manche échoue. Au second passage : dix manches sur dix, sans
+publication tardive. **Non reproduit, donc non expliqué** ; le prochain échec,
+s'il vient, dira sa cause.
+
+---
+
 ## Ce qui restera ouvert, déjà su
 
 - **Les sous-processus lancés hors de libuv, sous Windows** (SLICE3, leçon
   n° 21) : leur nettoyage après la sortie du parent n'est pas constaté. La CI de
-  l'étape 5 ne le tranchera pas, faute d'un tel programme dans les tests.
+  l'étape 5 ne l'a pas tranché, faute d'un tel programme dans les tests.
+- **L'échec unique de `test:lock` sous Windows** (leçon n° 18), non reproduit.
 - **`write_file` sur un fichier CRLF** écrit ce qu'on lui donne : un modèle qui
   réécrit un fichier entier en `\n` change toutes ses lignes dans le worktree.
   Sous `core.autocrlf`, Git normalise au commit ; sans lui, le diff montrera
@@ -405,8 +467,9 @@ dirait rien de plus sous une autre plateforme que V13 en CI.
 - **Le *DNS rebinding*** contre `http_fetch` reste la limite annoncée dans
   `net.ts` : le nom est vérifié, puis `fetch` résout à nouveau.
 - **La garde sous Windows** : elle y tue par `taskkill /T`, qui ne retrouve plus
-  les enfants d'un parent déjà mort. Le test unitaire tournera en CI ; s'il
-  passe, ce sera vraisemblablement grâce au *Job Object* de libuv (SLICE3,
-  leçon n° 21), pas à la garde.
+  les enfants d'un parent déjà mort. Le test unitaire et V12 passent en CI,
+  mais ils ne disent pas **qui** a tué la commande : la garde, ou le *Job
+  Object* de libuv (SLICE3, leçon n° 21). Pour une commande directe, les deux
+  suffisent ; pour un petit-enfant lancé hors de libuv, rien n'est constaté.
 - **Les deux dettes Gemini** (SLICE2) restent ouvertes tant qu'aucune clé
   Google n'est disponible.
