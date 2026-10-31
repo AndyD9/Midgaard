@@ -604,7 +604,7 @@ function checkMcpDeclaration(projectDir: string): Check {
   const mcpPath = mcpConfigPath(projectDir)
   const shown = relative(process.cwd(), mcpPath) || mcpPath
   if (!existsSync(mcpPath)) {
-    return { level: 'warn', label: 'Déclaration MCP', detail: `absente de ${shown}`, fix: 'harness init' }
+    return { level: 'warn', label: 'Déclaration MCP', detail: `absente de ${shown}`, fix: cmd('init') }
   }
   let declared: McpServerEntry | undefined
   try {
@@ -615,11 +615,11 @@ function checkMcpDeclaration(projectDir: string): Check {
       level: 'fail',
       label: 'Déclaration MCP',
       detail: `${shown} n'est pas du JSON valide`,
-      fix: `Corrige ou supprime ${mcpPath}, puis relance harness init.`,
+      fix: `Corrige ou supprime ${mcpPath}, puis relance ${cmd('init')}.`,
     }
   }
   if (!declared) {
-    return { level: 'warn', label: 'Déclaration MCP', detail: `« ${SERVER_NAME} » absent de ${shown}`, fix: 'harness init' }
+    return { level: 'warn', label: 'Déclaration MCP', detail: `« ${SERVER_NAME} » absent de ${shown}`, fix: cmd('init') }
   }
   const expected = mcpServerEntry()
   const declaredEntry = declared.args[declared.args.length - 1] ?? ''
@@ -629,7 +629,7 @@ function checkMcpDeclaration(projectDir: string): Check {
       level: 'fail',
       label: 'Déclaration MCP',
       detail: `${shown} pointe vers des chemins qui n'existent plus`,
-      fix: 'harness init   # régénère les chemins absolus pour cette machine',
+      fix: `${cmd('init')}   # régénère les chemins absolus pour cette machine`,
     }
   }
   if (declaredEntry !== expectedEntry) {
@@ -637,7 +637,7 @@ function checkMcpDeclaration(projectDir: string): Check {
       level: 'warn',
       label: 'Déclaration MCP',
       detail: `${shown} pointe vers une autre installation (${declaredEntry})`,
-      fix: 'harness init   # pour utiliser celle-ci',
+      fix: `${cmd('init')}   # pour utiliser celle-ci`,
     }
   }
   return { level: 'ok', label: 'Déclaration MCP', detail: shown }

@@ -33,7 +33,10 @@
  *  - chaque dépendance externe a une version dans le `package-lock.json` ;
  *  - rien d'autre que du `.js`, les fichiers déclarés (`files`), les README et
  *    la licence : ni sources, ni `.d.ts`, ni cartes de sources qui pointeraient
- *    vers des sources absentes.
+ *    vers des sources absentes ;
+ *  - le README du paquet, `docs/INSTALLER.md`, ne renvoie ni vers le dépôt par
+ *    un lien relatif, ni vers une commande `npm run` qui n'existe que dans un
+ *    clone.
  *
  * La sortie dit le nom du tarball, sa taille et son nombre de fichiers.
  */
@@ -206,7 +209,16 @@ writeFileSync(
     2,
   ) + '\n',
 )
-cpSync(join(root, 'README.md'), join(stage, 'README.md'))
+// Le README du paquet n'est pas celui du dépôt : celui-ci s'adresse à qui
+// clone, avec ses `npm run harness -- …` et ses liens relatifs vers `docs/`.
+// Sur npmjs.com, ni les uns ni les autres ne mènent nulle part (Slice 4,
+// étape 7). `docs/INSTALLER.md` est écrit pour qui installe, et l'assemblage
+// refuse qu'il redevienne un README de clone.
+const readme = readFileSync(join(root, 'docs', 'INSTALLER.md'), 'utf8')
+const relativeLinks = [...readme.matchAll(/\]\((?!https:\/\/|#)([^)]*)\)/g)].map((m) => m[1])
+if (relativeLinks.length) throw new Error(`docs/INSTALLER.md : liens relatifs, morts sur npmjs.com : ${relativeLinks.join(', ')}`)
+if (/npm run /.test(readme)) throw new Error('docs/INSTALLER.md conseille « npm run … », qui n\'existe que dans un clone')
+writeFileSync(join(stage, 'README.md'), readme)
 cpSync(join(root, 'LICENSE'), join(stage, 'LICENSE'))
 
 // --- 5. Le tarball ----------------------------------------------------------

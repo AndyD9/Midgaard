@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import { PROTOCOL_VERSION, type Health } from '@midgaard/contracts'
-import { installation, sameInstallation } from '@midgaard/daemon'
+import { installation, keyCommand, sameInstallation } from '@midgaard/daemon'
 import { daemonCheck } from '@midgaard/cli'
 
 describe('installation', () => {
@@ -53,5 +53,22 @@ describe('daemonCheck', () => {
     const c = daemonCheck(health({ protocol: PROTOCOL_VERSION - 1 }), mine)
     assert.equal(c.level, 'warn')
     assert.match(c.fix ?? '', /remplacera automatiquement/)
+  })
+})
+
+describe('conseil de clé du daemon', () => {
+  // Il disait `harness providers set venice`, que la CLI refuse sans `--model`
+  // et que les sources ne savent pas lancer (Slice 4, étape 7). On vérifie la
+  // forme depuis les sources (c'est d'ici que tournent les tests), et que la
+  // déclaration entière est redite, `--base-url` compris quand il y en a un.
+  it('redit toute la déclaration, sous la forme que les sources savent lancer', () => {
+    assert.equal(
+      keyCommand({ id: 'venice', preset: 'venice', default_model: 'deepseek-v4-flash-0731', base_url: null }),
+      'npm run harness -- providers add venice --preset venice --model deepseek-v4-flash-0731',
+    )
+    assert.equal(
+      keyCommand({ id: 'local', preset: 'custom', default_model: 'qwen', base_url: 'http://127.0.0.1:8080/v1' }),
+      'npm run harness -- providers add local --preset custom --model qwen --base-url http://127.0.0.1:8080/v1',
+    )
   })
 })

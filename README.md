@@ -27,11 +27,19 @@ et les coûts.
 | 1 | Squelette observable : persistance SQLite, dashboard temps réel, CLI `harness` | ✅ **Terminée**, 91 vérifications + essai en session réelle |
 | 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 167 vérifications + essai en session réelle ; coût **exact au microdollar** contre le solde Venice, trois fois |
 | 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | ✅ **Terminée** : un Developer a implémenté `/health` en vraie session, dans un worktree, sous approbation, coût **exact au microdollar** ; suites vertes sur macOS, Linux et Windows |
-| 4 | Durcissement sécurité, distribution npm | 🚧 **En cours**, étapes 1 à 6 sur 8 : suite de sécurité, crash et concurrence, toutes les suites en CI sur macOS, Linux et Windows, paquet npm assemblé et éprouvé — **pas encore publié** ([docs/SLICE4.md](docs/SLICE4.md)) |
+| 4 | Durcissement sécurité, distribution npm | 🚧 **En cours**, étapes 1 à 7 sur 8 : suite de sécurité, crash et concurrence, toutes les suites en CI sur macOS, Linux et Windows, paquet npm assemblé et éprouvé, workflow de publication prêt — **pas encore publié** ([docs/SLICE4.md](docs/SLICE4.md)) |
 
 Le détail des slices est dans [docs/PLAN.md](docs/PLAN.md). Ce que chaque slice a
 prouvé et appris : [docs/SLICE0.md](docs/SLICE0.md), [docs/SLICE1.md](docs/SLICE1.md),
 [docs/SLICE2.md](docs/SLICE2.md), [docs/SLICE3.md](docs/SLICE3.md), [docs/SLICE4.md](docs/SLICE4.md).
+
+## Installer
+
+Le paquet npm `midgaard` (binaire `harness`) est **prêt, pas encore publié** :
+`npm install -g midgaard` ne trouvera rien avant la première version. Son
+README, écrit pour qui installe, est [docs/INSTALLER.md](docs/INSTALLER.md) ;
+en cas de panne, [docs/DEPANNAGE.md](docs/DEPANNAGE.md). La procédure de
+publication est dans [docs/PUBLIER.md](docs/PUBLIER.md).
 
 ## Démarrer depuis un clone
 
@@ -136,7 +144,7 @@ Depuis la racine du dépôt :
 
 | Suite | Durée | Contenu |
 |---|---|---|
-| `npm run test:unit` | ~7 s | 308 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils (écriture et `exec` compris), boucle d'agent, formatage des montants, coffres, worktrees sur de vrais dépôts Git |
+| `npm run test:unit` | ~7 s | 312 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils (écriture et `exec` compris), boucle d'agent, formatage des montants, coffres, worktrees sur de vrais dépôts Git |
 | `npm run test:worktrees` | ~5 s | Worktrees, écriture et `exec` seuls — la CI les rejoue sur macOS, Linux et Windows |
 | `npm run test:vault` | ~1 s | Les 41 cas de coffre, sur le coffre **réel de la machine** — la CI les rejoue sur macOS, Windows et Linux (avec et sans trousseau) |
 | `npm run test:lock` | ~30 s | Instance unique du daemon sous concurrence |
@@ -167,6 +175,7 @@ Midgaard/
 ├── CLAUDE.md                     consignes pour les sessions Claude Code sur ce dépôt
 ├── LICENSE                       MIT
 ├── scripts/pack.ts               assemblage du paquet npm `midgaard`
+├── scripts/release.ts            contrôles d'avant et d'après publication
 ├── docs/
 │   ├── MVP_AGENT_HARNESS_PLAN.md spécification d'origine du MVP
 │   ├── PLAN.md                   plan révisé : décisions, architecture, slices
@@ -174,7 +183,10 @@ Midgaard/
 │   ├── SLICE1.md                 résultats de la Slice 1, écarts au plan, découvertes
 │   ├── SLICE2.md                 agents réels, coûts, coffre, et les dettes soldées
 │   ├── SLICE3.md                 Developer, worktrees, approbations : décisions, essai réel
-│   └── SLICE4.md                 durcissement et distribution npm : décisions, étapes
+│   ├── SLICE4.md                 durcissement et distribution npm : décisions, étapes
+│   ├── INSTALLER.md              README du paquet npm : installer, premier essai, mettre à jour
+│   ├── DEPANNAGE.md              symptômes, causes et remèdes ; variables d'environnement
+│   └── PUBLIER.md                publier une version : environnement, jeton d'amorçage, tag
 ├── packages/
 │   ├── contracts/                schémas Zod, machine à états, protocole — aucune dépendance
 │   ├── persistence/              SQLite (node:sqlite), migrations, dépôt

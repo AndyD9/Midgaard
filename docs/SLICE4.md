@@ -6,7 +6,7 @@ intégré. En chemin : tests de sécurité ciblés, scénarios de crash et de re
 deux tâches concurrentes sur des worktrees distincts, README et guide de
 dépannage.
 
-**État : en cours.** Décisions prises, découpage arrêté ; étapes 1 à 6 livrées. Rien n'est publié.
+**État : en cours.** Décisions prises, découpage arrêté ; étapes 1 à 7 livrées. Rien n'est publié.
 
 ---
 
@@ -33,9 +33,9 @@ créer l'organisation npm.
 irréversible (une version publiée ne se republie pas sous le même numéro).
 Sur tag, depuis la CI, le tarball est construit depuis le commit taggé et
 rien d'autre, et l'attestation de provenance le prouve à qui l'installe.
-*À vérifier à l'étape 7, pas encore constaté* : la publication de confiance se
-configurerait sur la page d'un paquet **existant**, ce qui imposerait de
-publier la toute première version à la main.
+*Vérifié à l'étape 7* : la publication de confiance ne se configure que sur un
+paquet **existant** (documentation de `npm trust`). La première version passe
+donc par un jeton temporaire — mais depuis la CI, avec provenance (étape 7).
 
 **Windows en CI seulement.** Le PLAN (§8) demande l'essai d'acceptation sur
 macOS puis Windows. Faute de poste, le daemon de bout en bout, le dashboard et
@@ -56,7 +56,7 @@ la règle de `dashboard_available` : ne rien annoncer qu'on n'a pas constaté.
 | 4 | Crash et concurrence : daemon tué en plein Developer (tâche `interrupted`, worktree conservé, branche au commit de départ) ; deux Developer concurrents sur deux worktrees | ✅ livrée — une commande survivait au daemon, et le diff perdait des modifications |
 | 5 | Le daemon de bout en bout, le dashboard et la CLI en CI sur macOS, Linux et Windows | ✅ livrée — trois postes au vert au deuxième passage |
 | 6 | Le paquet `midgaard` : tarball unique, `npm pack` installé dans un préfixe vierge puis `harness init`, `doctor` et un aller-retour MCP — sur les trois plateformes | ✅ livrée — 6/6 sur les trois plateformes du premier coup |
-| 7 | La publication : workflow sur tag, provenance ; README d'installation et guide de dépannage | à faire |
+| 7 | La publication : workflow sur tag, provenance ; README d'installation et guide de dépannage | ✅ livrée — workflow éprouvé à blanc ; deux conseils faux et un crash du coffre trouvés en chemin |
 | 8 | L'essai d'acceptation : installé depuis npm sur un `HOME` vierge, le scénario §12 rejoué depuis Claude Code sous macOS | à faire |
 
 L'ordre suit une règle : **rien n'est distribué avant d'être durci.** Les
@@ -525,6 +525,95 @@ constante `'0.1.0'`, qui aurait menti dès la version suivante.
 sans borne la fin du daemon « étranger ». Le remplacement désactivé, le daemon
 ne s'arrêtait jamais, et la suite a bloqué au lieu d'échouer. Les attentes sont
 désormais bornées, et la contre-épreuve échoue comme elle le doit.
+
+---
+
+## Étape 7 — la publication
+
+### Une question posée en route
+
+La décision « la CI publie » supposait la publication de confiance (OIDC) dès
+la première version. La documentation de `npm trust` le dément : *« The
+package you're configuring must already exist on the npm registry. »* Question
+posée à l'auteur :
+
+| Option | Retenue |
+|---|---|
+| La CI publie la 0.1.0 avec un jeton granulaire temporaire (`NPM_TOKEN`) et `--provenance`, puis publication de confiance et jeton révoqué | ✅ |
+| Publier la 0.1.0 à la main, sans provenance, une fois | |
+
+La règle « la CI publie, avec provenance » tient ainsi dès la première version.
+
+### Ce qui existe
+
+- **`.github/workflows/publish.yml`**, sur tag `v…` : *Contrôles* →
+  *Bout en bout* (`e2e.yml`, rendu appelable, rejoué sur **ce** commit — un tag
+  peut viser un commit de documentation que `paths-ignore` a laissé sans
+  passage) et *Paquet* (le tarball, assemblé **une fois**) → *Éprouvé* (**ce**
+  tarball, `tests/package.ts` sur les trois plateformes) → *Publication* (**ce**
+  tarball, dans l'environnement GitHub `npm`, qui porte la relecture humaine et
+  figure dans la configuration de confiance). Lancé à la main, c'est une
+  répétition générale : `npm publish --dry-run`.
+- **`scripts/release.ts`** : `check` (le tag est `v` + la version, la version
+  est absente du registre — un 404 sur le paquet étant le cas normal avant la
+  première publication, distingué d'une panne réseau —, le commit est sur
+  `origin/main`, npm ≥ 11.5.1) ; `published` (le registre sert-il **les octets
+  éprouvés** ? `dist.integrity` comparé à l'empreinte du tarball).
+- **Le README du paquet n'est plus celui du dépôt** : `docs/INSTALLER.md`,
+  écrit pour qui installe, en `harness …` et en liens absolus. L'assemblage
+  refuse un lien relatif ou un `npm run` ; K1 vérifie que le paquet installé
+  porte bien celui-là.
+- **`docs/DEPANNAGE.md`** : les symptômes réels, chacun avec le message exact
+  du code, sa cause et son remède, et les variables d'environnement.
+  **`docs/PUBLIER.md`** : la procédure du mainteneur, de l'environnement
+  GitHub à la révocation du jeton d'amorçage.
+
+### Ce qui le prouve
+
+- `tests/unit/release.test.ts` : l'empreinte calculée est celle que `npm pack`
+  attribue au même tarball ; la comparaison de versions de npm est numérique
+  (`11.16` > `11.5`).
+- `node scripts/release.ts check` en local : vert. Contre-épreuves : un tag
+  `v0.2.0` sur une version `0.1.0`, un commit hors de `main` (`git commit-tree`)
+  et une version déjà publiée (`ws@8.18.0`) sont refusés, chacun avec son
+  motif. `published` reconnaît le tarball de `ws@8.18.0` tiré du registre, et
+  refuse le nôtre à sa place.
+- `npm publish .pack/midgaard-0.1.0.tgz --provenance --dry-run` : le tarball
+  est accepté tel quel ; à blanc, npm n'exerce ni l'authentification ni la
+  provenance. **Ces deux-là ne seront constatés qu'à la première publication.**
+- `test:package` : 6/6. Contre-épreuves : un lien relatif ou un `npm run`
+  dans `docs/INSTALLER.md` font refuser l'assemblage ; le README du dépôt
+  remis dans le paquet fait échouer K1.
+
+### Ce que l'écriture a appris
+
+**24. Une commande de vérification qui n'existe pas.** Le premier jet du README
+d'installation conseillait `npm audit signatures --global`. Lancée : `EAUDITGLOBAL`
+— npm ne vérifie pas les paquets globaux. Le README donne désormais une
+installation jetable, éprouvée sur un paquet qui porte une provenance
+(`sigstore` : « 26 packages have verified attestations »).
+
+**25. Le daemon conseillait une commande que la CLI refuse.** Clé absente :
+« dépose-la avec `harness providers set venice` ». Sans `--model`, la CLI
+refuse cette ligne ; depuis les sources, `harness` n'existe pas. `keyCommand`
+redit toute la déclaration, sous la forme qui se lance. `doctor` écrivait de
+même `harness init` en dur dans quatre conseils, au lieu de passer par `cmd()`.
+
+**26. Un appel au coffre pouvait tuer le daemon.** Au troisième passage de
+`test:unit`, un échec intermittent : « write EPIPE » après la fin d'un test de
+`secrets.test.ts`. `run()` écrit le secret sur l'entrée du fils sans écouter
+les erreurs de ce flux ; un fils qui sort sans lire en produit une, non
+rattrapée. Reproduit trois fois sur trois (un fils qui sort aussitôt, quatre
+mégaoctets à lui écrire), corrigé, et rejoué par un test qui échoue sans le
+correctif. Trois passages verts ensuite. Un échec intermittent n'est pas du
+bruit tant qu'on ne l'a pas expliqué.
+
+### Ce que l'étape 7 ne prouve pas encore
+
+Le workflow n'a tourné qu'en local, morceau par morceau : il le fera sur GitHub
+une fois poussé, d'abord en répétition générale. L'authentification par jeton,
+puis par OIDC, et l'attestation de provenance ne se constateront qu'à la
+première publication — c'est l'étape 8.
 
 ---
 

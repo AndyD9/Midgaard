@@ -25,6 +25,10 @@ on:
       - 'docs/**'
   pull_request:
   workflow_dispatch:
+  # Appelé tel quel par la publication (publish.yml), sur le commit taggé :
+  # un tag peut viser un commit de documentation, que `paths-ignore` a laissé
+  # sans passage (Slice 4, étape 7).
+  workflow_call:
 
 jobs:
   e2e:

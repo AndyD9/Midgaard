@@ -7,7 +7,8 @@
  * ensuite que de ce qui a été installé. Rien du dépôt n'est lancé, sauf à K6,
  * où un daemon des sources joue l'« autre installation ».
  *
- *  - K1 l'installation, et `harness --version` : la version publiée ;
+ *  - K1 l'installation, `harness --version` (la version publiée) et le README
+ *       d'installation, pas celui du clone ;
  *  - K2 `harness init` déclare le serveur MCP **installé**, pas celui du dépôt ;
  *  - K3 `harness doctor` sur une installation neuve : sain, dashboard et tarifs
  *       trouvés dans le paquet ;
@@ -116,9 +117,13 @@ await scenario(outcomes, 'K1 le paquet s\'installe dans un préfixe vierge, et d
   if (r.stdout.trim() !== version) problems.push(`--version → « ${r.stdout.trim()} » ${r.stderr}`)
   if (internal.length !== 10) problems.push(`${internal.length} paquets internes au lieu de 10`)
   if (existsSync(join(installed, 'node_modules', '@midgaard', 'daemon', 'src'))) problems.push('sources installées')
+  // Le README que lira un tiers est celui écrit pour lui, pas celui du clone.
+  // Fins de ligne normalisées : sous Windows, le checkout peut être en CRLF.
+  const lf = (path: string) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
+  if (lf(join(installed, 'README.md')) !== lf(join(root, 'docs', 'INSTALLER.md'))) problems.push('README.md du paquet ≠ docs/INSTALLER.md')
   return {
     verdict: problems.length ? 'FAIL' : 'PASS',
-    detail: problems.length ? problems.join(' ; ') : `harness ${version}, 10 paquets internes, aucune source`,
+    detail: problems.length ? problems.join(' ; ') : `harness ${version}, 10 paquets internes, aucune source, README d'installation`,
   }
 })
 

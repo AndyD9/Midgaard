@@ -11,7 +11,7 @@ import { fileVault, libsecret, macosKeychain, windowsDpapi } from './vaults.ts'
 import { VAULT_IDS, type SecretVault, type VaultId } from './types.ts'
 
 export { normalizeRef, VaultError, VAULT_IDS } from './types.ts'
-export { EXEC_TIMEOUT_MS, POWERSHELL_TIMEOUT_MS, minimalEnv } from './exec.ts'
+export { EXEC_TIMEOUT_MS, POWERSHELL_TIMEOUT_MS, minimalEnv, run } from './exec.ts'
 export type { SecretVault, VaultId } from './types.ts'
 export { dpapiDir, fileVault, powershellError, libsecret, macosKeychain, windowsDpapi } from './vaults.ts'
 

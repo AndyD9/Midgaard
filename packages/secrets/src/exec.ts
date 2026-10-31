@@ -101,6 +101,13 @@ export function run(
       },
     )
     child.on('error', reject)
+    // Un fils qui sort sans lire son entrée fait échouer l'écriture en `EPIPE`.
+    // L'erreur naît sur le flux `stdin`, pas sur le processus : sans écouteur,
+    // elle devenait une exception non rattrapée — un daemon tué par un appel au
+    // coffre. Constaté à la Slice 4, étape 7, d'abord en échec intermittent de
+    // `secrets.test.ts`. Rien à en faire de plus : le code de sortie et la
+    // sortie d'erreur du fils, rendus plus haut, disent pourquoi il est parti.
+    child.stdin?.on('error', () => {})
     // Toujours fermer l'entrée standard, même quand on n'a rien à écrire. Un
     // utilitaire qui se met à poser une question — PowerShell le fait dès qu'un
     // paramètre obligatoire reçoit `$null` — lit alors une fin de fichier et

@@ -124,6 +124,15 @@ sortie d'erreur vide, et une panne Windows s'affichait
 `#< CLIXML <Objs Version="1.1.0.1"…` — PowerShell, flux redirigés, sérialise des
 objets au lieu d'écrire du texte. `powershellError` en extrait le message.
 
+Un dernier défaut ne s'est montré qu'à la Slice 4, étape 7, en échec
+**intermittent** de `secrets.test.ts` (« write EPIPE » après la fin d'un test) :
+un utilitaire qui sort sans lire son entrée standard fait échouer l'écriture du
+secret, et cette erreur naît sur le flux `stdin` du fils, que `run()`
+n'écoutait pas. Exception non rattrapée : dans le daemon, un appel au coffre
+l'aurait tué. Reproduit trois fois sur trois avec un fils qui sort aussitôt et
+quatre mégaoctets à lui écrire ; le test `run` le rejoue, et échoue sans
+l'écouteur.
+
 Trois hypothèses sur la panne DPAPI ont été fausses avant qu'une **bissection**
 sur les 145 variables écartées ne nomme la bonne en sept étapes. Chercher par
 élimination coûtait un passage ; en deviner trois en a coûté trois.

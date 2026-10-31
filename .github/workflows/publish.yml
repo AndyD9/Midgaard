@@ -1,0 +1,145 @@
+# Publication du paquet npm `midgaard`, sur tag `v…`.
+#
+# Décision de la Slice 4 : **la CI publie, pas un poste.** Le tarball est
+# construit depuis le commit taggé et rien d'autre, et l'attestation de
+# provenance le prouve à qui l'installe (`npm audit signatures`).
+#
+# L'ordre suit la règle de la Slice : rien n'est distribué avant d'être durci.
+#
+#   1. contrôles  — le tag dit la version, la version n'est pas déjà publiée,
+#                   le commit est sur main (scripts/release.ts) ;
+#   2. e2e        — toutes les suites, sur les trois plateformes, sur CE commit
+#                   (le workflow « Bout en bout », appelé tel quel) ;
+#   3. paquet     — le tarball, assemblé une seule fois ;
+#   4. éprouvé    — CE tarball installé comme un tiers (tests/package.ts), sur
+#                   les trois plateformes ;
+#   5. publication — CE tarball, puis la vérification que le registre sert bien
+#                   les octets éprouvés.
+#
+# Lancé à la main (`workflow_dispatch`), c'est une **répétition générale** :
+# tout, sauf que `npm publish` reçoit `--dry-run`. C'est ainsi que le workflow
+# s'éprouve sans rien publier.
+#
+# Authentification : la **publication de confiance** (OIDC) — aucun jeton
+# stocké. Elle ne se configure que sur un paquet qui existe déjà (documentation
+# de `npm trust`) : la toute première version passe par un jeton granulaire
+# temporaire, le secret `NPM_TOKEN`, à supprimer ensuite (docs/PUBLIER.md).
+name: Publication
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Deux publications de la même référence ne se croisent jamais ; aucune n'est
+# annulée en route — une publication à moitié faite vaut moins qu'une finie.
+concurrency:
+  group: publication-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  controles:
+    name: Contrôles
+    runs-on: ubuntu-latest
+    steps:
+      # Tout l'historique : il faut origin/main pour savoir si le commit y est.
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v5
+        with: { node-version: '24' }
+      - run: node scripts/release.ts check
+
+  e2e:
+    name: Bout en bout
+    needs: controles
+    uses: ./.github/workflows/e2e.yml
+
+  paquet:
+    name: Paquet
+    needs: controles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '24', cache: npm }
+      - run: npm ci
+      - run: npm run pack:npm
+      - name: Empreinte
+        run: node scripts/release.ts integrity .pack/midgaard-*.tgz
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tarball
+          path: .pack/midgaard-*.tgz
+          if-no-files-found: error
+
+  eprouve:
+    name: Éprouvé ${{ matrix.os }}
+    needs: paquet
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      # Les sources servent à K6 (un daemon des sources joue « l'autre
+      # installation ») et au client MCP de la suite ; le paquet éprouvé, lui,
+      # est celui du job précédent, et non un second assemblage.
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '24', cache: npm }
+      - run: npm ci
+      - uses: actions/download-artifact@v8
+        with: { name: tarball, path: .pack }
+      - run: node --conditions=midgaard-dev tests/package.ts
+
+  publication:
+    name: Publication
+    needs: [e2e, eprouve]
+    runs-on: ubuntu-latest
+    # L'environnement porte la protection (relecture humaine, branches et tags
+    # admis) et figure dans la configuration de confiance côté npm : un autre
+    # environnement, ou aucun, ne pourrait pas publier.
+    environment: npm
+    permissions:
+      contents: read
+      # Le jeton OIDC : il prouve à npm quel workflow, de quel dépôt, publie.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      # Sans `registry-url` : setup-node écrirait alors un `.npmrc` dont le
+      # `_authToken=${NODE_AUTH_TOKEN}` vide fait renoncer npm à l'OIDC
+      # (npm/documentation#1960).
+      - uses: actions/setup-node@v5
+        with: { node-version: '24' }
+      - uses: actions/download-artifact@v8
+        with: { name: tarball, path: .pack }
+
+      # Amorçage seulement : la toute première version, avant que la
+      # publication de confiance puisse être configurée. Le secret n'existe
+      # plus ensuite, et npm passe par l'OIDC.
+      - name: Authentification
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+            echo "::warning::Publication par jeton (amorçage) : supprimer le secret NPM_TOKEN une fois la publication de confiance configurée."
+          else
+            echo "Publication de confiance (OIDC), aucun jeton."
+          fi
+
+      # `--provenance` : implicite avec l'OIDC, nécessaire avec le jeton. Le
+      # tarball est passé tel quel, sans réassemblage : ce sont ses octets que
+      # les trois plateformes ont éprouvés.
+      - name: npm publish
+        env:
+          DRY_RUN: ${{ github.ref_type != 'tag' && '--dry-run' || '' }}
+        run: npm publish .pack/midgaard-*.tgz --provenance --access public $DRY_RUN
+
+      - name: Le registre sert le tarball éprouvé
+        if: ${{ github.ref_type == 'tag' }}
+        run: node scripts/release.ts published .pack/midgaard-*.tgz

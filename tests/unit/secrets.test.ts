@@ -42,6 +42,7 @@ import {
   openVault,
   powershellError,
   resolveApiKey,
+  run,
   secretsDir,
   windowsDpapi,
   type SecretVault,
@@ -342,6 +343,20 @@ describe('minimalEnv', () => {
     for (const p of ['darwin', 'linux'] as const) {
       assert.equal(minimalEnv(p, complet).PSModulePath, undefined, `pas sous ${p}`)
     }
+  })
+})
+
+// --- run : un utilitaire qui part sans lire ce qu'on lui écrit --------------
+
+describe('run', () => {
+  it('rend la sortie d’un fils parti sans lire son entrée, sans exception non rattrapée', async () => {
+    // Le fils sort aussitôt ; quatre mégaoctets ne tiennent pas dans un tube,
+    // l'écriture échoue donc en EPIPE. Avant le correctif de la Slice 4,
+    // étape 7, cette erreur naissait sur `stdin`, sans écouteur, et tuait le
+    // processus — le daemon, hors des tests. Ici, le lanceur de tests l'aurait
+    // signalée comme activité après la fin du test.
+    const outcome = await run(process.execPath, ['-e', 'process.exit(3)'], 'x'.repeat(1 << 22))
+    assert.equal(outcome.code, 3)
   })
 })
 

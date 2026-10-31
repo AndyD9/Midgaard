@@ -29,7 +29,7 @@
  * tâche déjà terminée. Écrire alors ferait lever `IllegalTransitionError` et
  * remplacerait un historique juste par un historique faux.
  */
-import type { Agent, AgentKind, Approval, PricingTable, Task, TaskWorkspace, Workspace } from '@midgaard/contracts'
+import type { Agent, AgentKind, Approval, PricingTable, ProviderConfig, Task, TaskWorkspace, Workspace } from '@midgaard/contracts'
 import { createRedactor, isTerminal, type Usage } from '@midgaard/contracts'
 import { agentIdentity, commitAll, createWorktree, diffWorktree, inspectRepository, WorkspaceError } from '@midgaard/workspace'
 import { createAdapter, envVarFor } from '@midgaard/providers'
@@ -37,6 +37,25 @@ import { resolveApiKey, type SecretVault } from '@midgaard/secrets'
 import type { ToolContext } from '@midgaard/tools'
 import { runAgent, type ApprovalOutcome, type LoopHooks, type LoopOutcome } from '@midgaard/agent-runtime'
 import type { EngineContext, TaskEngine } from './types.ts'
+
+/**
+ * La commande qui redépose la clé d'un fournisseur, prête à copier.
+ *
+ * Elle disait `harness providers set <id>` : la CLI refuse cette ligne sans
+ * `--model`, et le binaire `harness` n'existe pas depuis les sources (Slice 4,
+ * étape 7). Elle redit donc toute la déclaration, pour que la redéposer ne
+ * change rien d'autre que la clé. Le daemon ne peut pas emprunter `cmd()` à la
+ * CLI, qui dépend de lui ; il se repère comme le serveur MCP, sur l'extension
+ * de son propre code.
+ *
+ * @param provider le fournisseur tel qu'il est déclaré
+ */
+export function keyCommand(provider: Pick<ProviderConfig, 'id' | 'preset' | 'default_model' | 'base_url'>): string {
+  const args =
+    `providers add ${provider.id} --preset ${provider.preset} --model ${provider.default_model}` +
+    (provider.base_url ? ` --base-url ${provider.base_url}` : '')
+  return import.meta.url.endsWith('.ts') ? `npm run harness -- ${args}` : `harness ${args}`
+}
 
 /** Ce que le moteur emprunte au daemon, en plus du contexte commun. */
 export interface AgentEngineDeps {
@@ -332,7 +351,7 @@ export class AgentEngine implements TaskEngine {
       return {
         error:
           `aucune clé d'API pour « ${provider.id} » : dépose-la avec ` +
-          `\`harness providers set ${provider.id}\`, ou définis ${envVar} dans l'environnement du daemon`,
+          `\`${keyCommand(provider)}\`, ou définis ${envVar} dans l'environnement du daemon`,
       }
     }
     if (found.source === 'env') {

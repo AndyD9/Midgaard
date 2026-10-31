@@ -36,6 +36,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run typecheck` | Vérification des types, dashboard compris |
 | `npm run build` | Compile les paquets et le dashboard |
 | `npm run pack:npm` | Assemble le paquet npm `midgaard` dans `.pack/` (build propre) |
+| `node scripts/release.ts check` | Ce que la publication vérifiera : tag, version absente du registre, commit sur `main` |
 | `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `approve`, `reject` |
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho |
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
@@ -82,8 +83,12 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   entre la lecture de son compteur et son arrêt. Une installation = dossier du
   paquet `@midgaard/daemon` + version (décision de la Slice 4, étape 6).
 - **Une commande conseillée à l'utilisateur passe par `cmd()`** (CLI) : `harness
-  …` depuis le paquet, `npm run harness -- …` depuis les sources. Le paquet ne
-  contient que `dist/` : rien n'y doit renvoyer vers le dépôt.
+  …` depuis le paquet, `npm run harness -- …` depuis les sources ; le daemon et
+  le serveur MCP, qui ne peuvent pas dépendre de la CLI, se repèrent de même
+  sur l'extension de leur propre fichier (`keyCommand`, `approvalCommand`). Le
+  paquet ne contient que `dist/` : rien n'y doit renvoyer vers le dépôt — son
+  README est `docs/INSTALLER.md`, que l'assemblage refuse avec un lien relatif
+  ou un `npm run`.
 - **La configuration est injectée**, jamais lue au chargement d'un module. Seuls
   les `main.ts` lisent `process.env`.
 - **Une migration publiée ne se modifie plus** : toute évolution ajoute une entrée
@@ -227,6 +232,12 @@ Windows éprouvé en CI seulement) et découpage en huit étapes :
 d'être durci. Depuis l'étape 2 : migration 7 (`workspaces.submodules_json`),
 `PROTOCOL_VERSION` 8, puis 9 à l'étape 6. Depuis l'étape 5, **toutes** les suites tournent en CI sur
 macOS, Linux et Windows (`.github/workflows/e2e.yml`, passage `41182184282`).
+Depuis l'étape 7 : `.github/workflows/publish.yml` publie sur tag `v…` (procédure :
+[docs/PUBLIER.md](docs/PUBLIER.md)) ; le README du paquet est
+[docs/INSTALLER.md](docs/INSTALLER.md), pas celui du dépôt ; le guide de
+dépannage est [docs/DEPANNAGE.md](docs/DEPANNAGE.md) — à tenir à jour quand un
+message d'erreur change, il les cite mot pour mot. **Ne jamais pousser un tag
+`v…` sans demande explicite** : c'est une publication, irréversible.
 
 ## Slice 3 terminée
 
