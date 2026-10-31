@@ -16,6 +16,7 @@ import { spawn } from 'node:child_process'
 import { mkdirSync, openSync } from 'node:fs'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { installation, sameInstallation, type Installation } from '@midgaard/daemon/installation'
 import {
   PROTOCOL_VERSION,
   daemonFetch,
@@ -47,23 +48,55 @@ function daemonCommand(): { args: string[] } {
   return { args: entry.endsWith('.ts') ? ['--conditions=midgaard-dev', entry] : [entry] }
 }
 
-/** État d'un daemon interrogé. */
-type Probe = 'ok' | 'outdated' | 'down'
-
 /**
- * Interroge le daemon décrit par `rt`.
- * @returns `ok` s'il répond avec notre version, `outdated` avec une autre,
- *          `down` s'il ne répond pas
+ * État d'un daemon interrogé :
+ *  - `ok` : même protocole, même installation ;
+ *  - `foreign` : même protocole, **autre installation** — un clone et le paquet
+ *    npm, ou le paquet avant et après une mise à jour (voir `installation.ts`) ;
+ *  - `outdated` : autre protocole, on ne peut pas lui parler ;
+ *  - `down` : il ne répond pas.
  */
+type Probe = 'ok' | 'foreign' | 'outdated' | 'down'
+
+/** L'installation du daemon que ce serveur lancerait lui-même. */
+const mine = installation()
+
+/** Interroge le daemon décrit par `rt`. */
 async function probe(rt: RuntimeInfo): Promise<Probe> {
   try {
     const r = await daemonFetch(rt, '/api/health', { signal: AbortSignal.timeout(PROBE_MS) })
     if (!r.ok) return 'down'
-    const body = (await r.json()) as { protocol?: number }
-    return body.protocol === PROTOCOL_VERSION ? 'ok' : 'outdated'
+    const body = (await r.json()) as { protocol?: number; install?: Installation }
+    if (body.protocol !== PROTOCOL_VERSION) return 'outdated'
+    return body.install && sameInstallation(body.install, mine) ? 'ok' : 'foreign'
   } catch {
     return 'down'
   }
+}
+
+/**
+ * Demande à un daemon d'une autre installation de s'arrêter **s'il est oisif**.
+ *
+ * C'est le daemon qui décide (`if_idle`), entre la lecture de son compteur de
+ * tâches et son arrêt : une tâche déléguée par une autre session au même
+ * instant ne peut pas être interrompue par ce remplacement.
+ *
+ * @returns vrai s'il a accepté de s'arrêter et a disparu ; faux s'il travaille
+ */
+async function retireIfIdle(rt: RuntimeInfo, log: (...a: unknown[]) => void): Promise<boolean> {
+  const r = await daemonFetch(rt, '/api/shutdown', {
+    method: 'POST',
+    body: JSON.stringify({ if_idle: true }),
+    signal: AbortSignal.timeout(PROBE_MS),
+  }).catch(() => null)
+  if (!r || r.status !== 200) {
+    log(`daemon d'une autre installation (pid ${rt.pid}) en plein travail : utilisé tel quel, remplacé quand il sera oisif`)
+    return false
+  }
+  log(`daemon d'une autre installation (pid ${rt.pid}), oisif : remplacement`)
+  const deadline = Date.now() + STOP_MS
+  while (pidAlive(rt.pid) && Date.now() < deadline) await sleep(50)
+  return true
 }
 
 /**
@@ -92,6 +125,10 @@ export async function ensureDaemon(config: HarnessConfig, log: (...a: unknown[])
   const current = readRuntime(config.runtimeFile)
   const state = current ? await probe(current) : 'down'
   if (state === 'ok') return current!
+  // Même protocole : on peut lui parler. On ne le remplace que s'il n'a rien en
+  // cours — sinon une mise à jour, ou une session sur un clone, interromprait
+  // le travail des autres sessions.
+  if (state === 'foreign' && !(await retireIfIdle(current!, log))) return current!
   if (state === 'outdated') await retire(current!, log)
 
   log('daemon absent, démarrage')
@@ -108,6 +145,8 @@ export async function ensureDaemon(config: HarnessConfig, log: (...a: unknown[])
     const rt = readRuntime(config.runtimeFile)
     // `rt.pid !== current?.pid` : ignorer un fichier de découverte périmé laissé
     // par le daemon qu'on vient de remplacer.
+    // `ok` seulement : c'est notre daemon qu'on attend, pas un autre qui aurait
+    // gagné le verrou entre-temps — auquel cas on le reprendrait au prochain appel.
     if (rt && rt.pid !== current?.pid && (await probe(rt)) === 'ok') return rt
   }
   throw new Error(`le daemon n'a pas démarré en ${BOOT_MS} ms (voir ${config.logFile})`)

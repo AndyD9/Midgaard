@@ -24,14 +24,14 @@ import {
   type TaskView,
 } from '@midgaard/contracts'
 import { HarnessStore, SCHEMA_VERSION } from '@midgaard/persistence'
-import { StaticFiles, defaultDashboardDir } from '@midgaard/daemon'
+import { StaticFiles, defaultDashboardDir, installation, sameInstallation, type Installation } from '@midgaard/daemon'
 import { loadPricing, packagedPricingPath, userPricingPath } from '@midgaard/providers'
 import { openVault, VAULT_ENV } from '@midgaard/secrets'
 import { ensureDaemon } from '@midgaard/mcp-server'
 import { inspectRepository } from '@midgaard/workspace'
 import { MIN_NODE, SERVER_NAME, mcpConfigPath, mcpServerEntry, writeMcpConfig } from './mcp-config.ts'
 import type { McpServerEntry } from './mcp-config.ts'
-import { bold, colorStatus, dim, green, humanDuration, mark, red, yellow } from './ui.ts'
+import { bold, buildAdvice, cmd, colorStatus, dim, green, humanDuration, mark, red, yellow } from './ui.ts'
 
 /** Journalisation du démarrage de daemon, discrète : la CLI a sa propre sortie. */
 const quiet = () => {}
@@ -74,7 +74,7 @@ export async function start(config: HarnessConfig): Promise<number> {
   console.log(`${green('✔')} daemon en marche (pid ${body.pid}, protocole ${body.protocol})`)
   console.log(`  API       : http://127.0.0.1:${body.port}/api`)
   console.log(
-    `  dashboard : ${body.dashboard_available ? body.dashboard_url : dim(body.dashboard_url + '  (non compilé — npm run build)')}`,
+    `  dashboard : ${body.dashboard_available ? body.dashboard_url : dim(`${body.dashboard_url}  (non compilé — ${buildAdvice})`)}`,
   )
   console.log(`  base      : ${body.db_path}`)
   return 0
@@ -274,15 +274,7 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
   const rt = readRuntime(config.runtimeFile)
   const health = await probeHealth(config)
   if (health) {
-    const sameProtocol = health.protocol === PROTOCOL_VERSION
-    checks.push({
-      level: sameProtocol ? 'ok' : 'warn',
-      label: 'Daemon',
-      detail: `en marche, pid ${health.pid}, protocole ${health.protocol} (ce code : ${PROTOCOL_VERSION})`,
-      ...(sameProtocol
-        ? {}
-        : { fix: 'Un daemon d\'une autre version tourne ; le prochain appel MCP le remplacera automatiquement.' }),
-    })
+    checks.push(daemonCheck(health, installation()))
   } else if (rt) {
     // Fichier de découverte sans daemon derrière : reste d'un arrêt brutal.
     const orphan = pidAlive(rt.pid)
@@ -311,7 +303,7 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
         ? `compilé, servi sur ${health.dashboard_url}`
         : 'compilé (servi dès que le daemon démarre)'
       : 'non compilé',
-    ...(dashboard.available ? {} : { fix: 'npm run build   # sinon les approbations passent par la CLI' }),
+    ...(dashboard.available ? {} : { fix: `${buildAdvice}   # sinon les approbations passent par la CLI` }),
   })
 
   // Coffre : on **mesure** lequel répond sur cette machine, plutôt que de le
@@ -344,7 +336,7 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
     ...(stale
       ? {
           fix:
-            `npm run harness -- pricing refresh venice   # relève les tarifs chez le fournisseur\n` +
+            `${cmd('pricing refresh venice')}   # relève les tarifs chez le fournisseur\n` +
             `  ${dim(`ou édite ${userPricingPath(config)} (copie livrée : ${relative(process.cwd(), packagedPricingPath())})`)}`,
         }
       : {}),
@@ -363,10 +355,10 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
             ? 'aucun : seul le profil « simulated » peut tourner'
             : `${declared.length} déclaré(s), ${tested} joignable(s) au dernier test`,
         ...(declared.length === 0
-          ? { fix: 'npm run harness -- providers add venice --model deepseek-v4-flash-0731' }
+          ? { fix: cmd('providers add venice --model deepseek-v4-flash-0731') }
           : tested === declared.length
             ? {}
-            : { fix: 'npm run harness -- providers test <identifiant>' }),
+            : { fix: cmd('providers test <identifiant>') }),
       })
     } catch {
       // La base a déjà été signalée plus haut ; inutile de le redire.
@@ -397,7 +389,7 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
           ? `${active} en cours, ${kept} conservé(s), ${all.length - kept - active} retiré(s) — sous ${config.worktreesDir}`
           : 'aucun pour l\'instant',
         // Conservés jusqu'au nettoyage, par décision : on rappelle comment, sans presser.
-        ...(kept > 0 ? { fix: 'npm run harness -- workspaces   # puis « workspaces clean » quand ils sont lus' } : {}),
+        ...(kept > 0 ? { fix: `${cmd('workspaces')}   # puis « workspaces clean » quand ils sont lus` } : {}),
       })
       checks.push(execAllowCheck(config.execAllow, projectAllow.map((e) => e.argv), projectRepo))
     } catch {
@@ -441,7 +433,7 @@ export function schemaCheck(version: number, counts: { total: number; active: nu
       level: 'warn',
       label: 'Base',
       detail: `schéma v${version}, ce code attend v${SCHEMA_VERSION} : à migrer (rien n'a été écrit)`,
-      fix: 'npm run harness -- start   # le daemon de cette version migre la base à son démarrage',
+      fix: `${cmd('start')}   # le daemon de cette version migre la base à son démarrage`,
     }
   }
   return {
@@ -450,6 +442,38 @@ export function schemaCheck(version: number, counts: { total: number; active: nu
     detail: `schéma v${version}, plus récent que ce code (v${SCHEMA_VERSION})`,
     fix: 'Mets Midgaard à jour, ou désigne une autre base avec MIDGAARD_HOME.',
   }
+}
+
+/**
+ * Verdict de `doctor` sur un daemon en marche : son protocole, puis son
+ * installation (voir `@midgaard/daemon/installation`).
+ *
+ * @param health ce que le daemon annonce
+ * @param mine   l'installation de ce code-ci
+ */
+export function daemonCheck(health: Health, mine: Installation): Check {
+  const detail = `en marche, pid ${health.pid}, protocole ${health.protocol}`
+  if (health.protocol !== PROTOCOL_VERSION) {
+    return {
+      level: 'warn',
+      label: 'Daemon',
+      detail: `${detail} (ce code : ${PROTOCOL_VERSION})`,
+      fix: 'Un daemon d\'une autre version tourne ; le prochain appel MCP le remplacera automatiquement.',
+    }
+  }
+  // Un daemon de protocole 8 n'annonçait pas son installation ; le protocole
+  // différait alors, et le cas est traité plus haut.
+  if (!sameInstallation(health.install, mine)) {
+    return {
+      level: 'warn',
+      label: 'Daemon',
+      detail: `${detail}, d'une autre installation : ${health.install.dir} v${health.install.version} (ce code : ${mine.dir} v${mine.version})`,
+      fix:
+        'Le prochain appel MCP de cette installation le remplacera s\'il n\'a aucune tâche active ; ' +
+        `sinon il sert tel quel jusqu'à ce qu'il le soit. ${cmd('stop')} l'arrête tout de suite.`,
+    }
+  }
+  return { level: 'ok', label: 'Daemon', detail: `${detail}, v${mine.version}` }
 }
 
 /** Version minimale de Git : `git worktree remove` date de la 2.17. */
@@ -507,7 +531,7 @@ export function execAllowCheck(global: string[][], project: string[][], projectR
     detail: `sans approbation : ${all.join(' ; ')}`,
     fix:
       'Si l\'une exécute le code du projet (tests, scripts, build), elle exécute ce que l\'agent a écrit. ' +
-      'npm run harness -- exec revoke <commande…> pour la retirer.',
+      `${cmd('exec revoke <commande…>')} pour la retirer.`,
   }
 }
 

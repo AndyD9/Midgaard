@@ -34,3 +34,31 @@ export function humanDuration(ms: number): string {
   const min = Math.floor(ms / 60_000)
   return `${min} min ${Math.round((ms % 60_000) / 1000)} s`
 }
+
+/**
+ * Vrai quand la CLI tourne depuis les sources du dépôt (`src/*.ts`), faux
+ * depuis le paquet installé (`dist/*.js`).
+ */
+const fromSources = import.meta.url.endsWith('.ts')
+
+/**
+ * Une commande `harness` telle que l'utilisateur peut la taper.
+ *
+ * Installé depuis npm, le binaire `harness` est dans le `PATH`. Depuis les
+ * sources, il ne l'est pas : la commande passe par npm. Les conseils de
+ * `doctor` disaient `npm run harness -- …` à tout le monde — une commande qui
+ * n'existe pas chez qui a installé le paquet (constaté en l'installant dans un
+ * préfixe vierge, docs/SLICE4.md, étape 6).
+ *
+ * @param args la commande, sans `harness`, par exemple `providers add venice`
+ */
+export function cmd(args: string): string {
+  return fromSources ? `npm run harness -- ${args}` : `harness ${args}`
+}
+
+/**
+ * Que faire quand le dashboard compilé manque. Depuis les sources, le compiler ;
+ * dans le paquet installé, il fait partie du paquet : son absence dit une
+ * installation abîmée.
+ */
+export const buildAdvice = fromSources ? 'npm run build' : 'npm install -g midgaard   # le paquet installé est incomplet'

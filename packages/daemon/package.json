@@ -15,11 +15,10 @@
     "./main": {
       "midgaard-dev": "./src/main.ts",
       "default": "./dist/main.js"
-    }
-  },
-  "publishConfig": {
-    "exports": {
-      ".": "./dist/index.js"
+    },
+    "./installation": {
+      "midgaard-dev": "./src/installation.ts",
+      "default": "./dist/installation.js"
     }
   },
   "dependencies": {

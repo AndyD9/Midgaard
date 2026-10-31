@@ -8,6 +8,7 @@
  * Seul endroit du paquet qui lit l'environnement ; tout le reste reçoit la
  * configuration en paramètre.
  */
+import { readFileSync } from 'node:fs'
 import { loadConfig } from '@midgaard/contracts'
 import { decide, doctor, init, start, status, stop } from './commands.ts'
 import { agents, pricing, providers } from './providers.ts'
@@ -55,8 +56,14 @@ ${dim('Environnement : MIDGAARD_HOME, MIDGAARD_PORT, MIDGAARD_IDLE_SHUTDOWN_S, M
 ${dim('               MIDGAARD_VAULT, MIDGAARD_HTTP_POLICY, MIDGAARD_HTTP_ALLOW,')}
 ${dim('               MIDGAARD_EXEC_ALLOW')}`
 
-/** Version du paquet, pour `--version`. */
-const VERSION = '0.1.0'
+/**
+ * Version du paquet, pour `--version`, lue dans le `package.json` de la CLI —
+ * une seule source. En dépôt, c'est `packages/cli/package.json` ; dans le paquet
+ * publié, l'assemblage (`scripts/pack.ts`) y écrit la version publiée. Une
+ * constante recopiée à la main aurait menti dès la première version.
+ * `src/` et `dist/` sont au même niveau, d'où le même chemin relatif.
+ */
+const VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version
 
 /**
  * Exécute la commande demandée.

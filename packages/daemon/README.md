@@ -57,6 +57,18 @@ qu'aucune autre interface que la boucle locale ne répond.
 navigateur n'en a aucun avant d'avoir chargé la page — mais restent soumis aux
 contrôles d'enveloppe, qui sont précisément ce qui arrête une page hostile.
 
+## Installation
+
+`/api/health` annonce `install` : le dossier canonique du paquet
+`@midgaard/daemon` et sa version (`installation.ts`, exporté seul par
+`@midgaard/daemon/installation` pour que le serveur MCP ne charge pas tout le
+daemon). `POST /api/shutdown` accepte `{ "if_idle": true }`, qui rend `409`
+tant qu'une tâche est active : c'est ainsi qu'un serveur MCP d'une autre
+installation remplace ce daemon sans jamais interrompre de travail.
+
+Le dashboard est cherché d'abord dans `dashboard/`, à côté de `dist/` — là où
+l'assemblage du paquet npm le range —, puis dans `apps/dashboard/dist` du dépôt.
+
 ## Instance unique
 
 Verrou créé **avec son contenu** (`link` sur un fichier temporaire portant déjà le

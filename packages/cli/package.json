@@ -17,11 +17,6 @@
       "default": "./dist/main.js"
     }
   },
-  "publishConfig": {
-    "exports": {
-      ".": "./dist/index.js"
-    }
-  },
   "dependencies": {
     "@midgaard/contracts": "*",
     "@midgaard/daemon": "*",

@@ -20,6 +20,12 @@ harness exec revoke [--] <commande…>
 ```
 
 Depuis les sources du dépôt, le binaire n'est pas installé : `npm run harness -- status`.
+**Chaque commande que la CLI conseille** passe par `cmd()` (`ui.ts`), qui l'écrit
+sous la forme que l'utilisateur peut taper : `harness …` depuis le paquet
+installé, `npm run harness -- …` depuis les sources. Elles disaient toutes la
+seconde, à tout le monde, jusqu'à ce qu'on installe le paquet dans un préfixe
+vierge (Slice 4, étape 6). `harness --version` lit la version dans le
+`package.json` de la CLI, que l'assemblage du paquet écrit.
 
 ## Pourquoi l'approbation est ici et pas dans MCP
 
@@ -85,7 +91,7 @@ Les six choses qui ont réellement cassé pendant la Slice 0 :
 | Version de Node | `node:sqlite` exige Node 24 sans drapeau expérimental |
 | Dossier runtime | Mode `0700` : il contient le jeton du daemon |
 | Base | Lue sans être écrite : à jour, à migrer (avertissement), ou plus récente que ce code (échec) |
-| Daemon | En marche, injoignable, ou version de protocole différente |
+| Daemon | En marche, injoignable, d'un autre protocole, ou **d'une autre installation** (dossier et version) — et ce que fera le prochain appel MCP |
 | Déclaration MCP | Présente **et pointant encore là où il faut** — un dépôt déplacé ou recloné laisse des chemins absolus morts, et Claude Code échoue alors sans rien dire d'utile |
 | Dashboard | Compilé ou non — pour ne jamais renvoyer vers une page vide |
 | Git | Présent et au moins 2.17 (`git worktree remove`) ; un avertissement, le Researcher s'en passe |

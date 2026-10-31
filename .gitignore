@@ -5,6 +5,9 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Paquet npm assemblé par `npm run pack:npm`
+.pack/
+
 # Déclaration MCP locale : chemins absolus propres à chaque machine,
 # régénérée par `harness init`
 .mcp.json

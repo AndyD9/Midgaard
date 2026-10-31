@@ -22,7 +22,8 @@
  *  - **la configuration est injectée**, jamais lue au chargement du module.
  */
 import { randomBytes } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { createServer, type Server } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import {
@@ -39,6 +40,7 @@ import { openVault } from '@midgaard/secrets'
 import type { PricingTable } from '@midgaard/contracts'
 import { ensureBuiltinAgents } from './agents.ts'
 import { EventBus } from './bus.ts'
+import { installation } from './installation.ts'
 import { AgentEngine } from './engines/agent.ts'
 import type { ProviderServiceDeps } from './providers.ts'
 import { createRequestHandler } from './http.ts'
@@ -63,11 +65,19 @@ const HEALTH_BROADCAST_MS = 10_000
 /**
  * Emplacement par défaut des fichiers compilés du dashboard, relatif à ce paquet.
  *
- * Le calcul vaut aussi bien depuis `src/` que depuis `dist/` : les deux sont à la
- * même profondeur sous `packages/daemon/`. Exporté pour que `harness doctor`
- * puisse constater la présence du dashboard **sans démarrer le daemon**.
+ * Deux emplacements, essayés dans l'ordre :
+ *  - **le paquet publié** : l'assemblage (`scripts/pack.ts`) range le dashboard
+ *    compilé dans `dashboard/`, à côté de `dist/` — `apps/` n'existe pas chez
+ *    qui installe depuis npm ;
+ *  - **le dépôt** : `apps/dashboard/dist/`, à trois niveaux. Le calcul vaut
+ *    aussi bien depuis `src/` que depuis `dist/`, à la même profondeur.
+ *
+ * Exporté pour que `harness doctor` puisse constater la présence du dashboard
+ * **sans démarrer le daemon**.
  */
 export function defaultDashboardDir(): string {
+  const packaged = fileURLToPath(new URL('../dashboard/', import.meta.url))
+  if (existsSync(join(packaged, 'index.html'))) return packaged
   return fileURLToPath(new URL('../../../apps/dashboard/dist/', import.meta.url))
 }
 
@@ -185,6 +195,9 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
 
   const dashboardUrl = () => (files.available ? `http://127.0.0.1:${port}/` : null)
 
+  // Calculée une fois : le dossier et la version ne changent pas pendant la vie
+  // du processus, même si `npm install -g` remplace les fichiers sous lui.
+  const install = installation()
   const health = (): Health => ({
     ok: true,
     pid: process.pid,
@@ -200,6 +213,7 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
     idle_shutdown_in_ms:
       config.idleShutdownMs === 0 ? null : Math.max(0, lastActivity + config.idleShutdownMs - Date.now()),
     db_path: config.dbPath,
+    install,
   })
 
   const stream = new EventStream({ store, bus, security: () => security, health, log, touch })

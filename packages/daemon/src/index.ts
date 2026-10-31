@@ -15,3 +15,5 @@ export { ensureBuiltinAgents, reconcileAgents, RESEARCHER_AGENT_ID, RESEARCHER_T
 export { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'
 export { WS_PATH } from './ws.ts'
 export { StaticFiles } from './static-files.ts'
+export { installation, sameInstallation } from './installation.ts'
+export type { Installation } from './installation.ts'

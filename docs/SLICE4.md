@@ -6,7 +6,7 @@ intégré. En chemin : tests de sécurité ciblés, scénarios de crash et de re
 deux tâches concurrentes sur des worktrees distincts, README et guide de
 dépannage.
 
-**État : en cours.** Décisions prises, découpage arrêté ; étapes 1 à 5 livrées.
+**État : en cours.** Décisions prises, découpage arrêté ; étapes 1 à 6 livrées. Rien n'est publié.
 
 ---
 
@@ -55,7 +55,7 @@ la règle de `dashboard_available` : ne rien annoncer qu'on n'a pas constaté.
 | 3 | La suite de sécurité du PLAN §8.4, point par point : chaque refus prouvé par un test qui l'observe directement, les trous comblés | ✅ livrée — quatre défauts réels trouvés |
 | 4 | Crash et concurrence : daemon tué en plein Developer (tâche `interrupted`, worktree conservé, branche au commit de départ) ; deux Developer concurrents sur deux worktrees | ✅ livrée — une commande survivait au daemon, et le diff perdait des modifications |
 | 5 | Le daemon de bout en bout, le dashboard et la CLI en CI sur macOS, Linux et Windows | ✅ livrée — trois postes au vert au deuxième passage |
-| 6 | Le paquet `midgaard` : tarball unique, `npm pack` installé dans un préfixe vierge puis `harness init`, `doctor` et un aller-retour MCP — sur les trois plateformes | à faire |
+| 6 | Le paquet `midgaard` : tarball unique, `npm pack` installé dans un préfixe vierge puis `harness init`, `doctor` et un aller-retour MCP — sur les trois plateformes | ✅ livrée sous macOS ; CI au prochain passage |
 | 7 | La publication : workflow sur tag, provenance ; README d'installation et guide de dépannage | à faire |
 | 8 | L'essai d'acceptation : installé depuis npm sur un `HOME` vierge, le scénario §12 rejoué depuis Claude Code sous macOS | à faire |
 
@@ -67,13 +67,6 @@ livrable qu'on ne peut pas reprendre.
 
 ### Ce que chaque étape doit trancher ou surveiller
 
-- **Étape 6.** Deux pièges prévisibles. D'abord, les conditions d'export
-  (`midgaard-dev`) ne doivent jamais servir chez un tiers : le paquet ne contient
-  que `dist/`. Ensuite, un clone de développement et une installation globale
-  partagent `~/.midgaard`, donc **le même daemon** : à `PROTOCOL_VERSION` égal,
-  le serveur MCP de l'un parlera au daemon de l'autre, avec le code de l'autre.
-  À trancher : la version du paquet dans la poignée de main, ou un `HOME`
-  distinct par installation.
 - **Étape 8.** Un `HOME` vierge, pas seulement un `MIDGAARD_HOME` : c'est la
   seule façon de voir ce que voit un tiers (aucun fournisseur, aucun coffre
   rempli, aucun `.mcp.json`).
@@ -447,6 +440,90 @@ s'il vient, dira sa cause.
 
 ---
 
+## Étape 6 — le paquet `midgaard`
+
+### Une décision prise en route
+
+Le découpage le prévoyait : un clone de développement et une installation npm
+partagent `~/.midgaard`, donc un daemon. Et une mise à jour (`npm install -g
+midgaard@0.1.1`) sans changement de protocole laissait l'ancien code tourner
+jusqu'à l'arrêt sur inactivité. Question posée à l'auteur, trois options :
+
+| Option | Retenue |
+|---|---|
+| Remplacer un daemon d'une autre installation **s'il est oisif**, s'en servir sinon | ✅ |
+| Le dire seulement (`doctor`, `status`) | |
+| Un dossier runtime par installation | |
+
+### Ce qui existe
+
+- **`scripts/pack.ts`** (`npm run pack:npm`) : build propre, puis un dossier
+  `.pack/midgaard/` construit **tel que npm l'installera** — les dix paquets
+  internes dans son `node_modules/@midgaard/`, déclarés en `bundleDependencies`,
+  leurs seuls `.js` ; le dashboard compilé à côté du daemon ; un binaire
+  `bin/harness.js` ; les trois dépendances externes (`zod`, `ws`, le SDK MCP)
+  au paquet de tête seul, **épinglées** aux versions du `package-lock.json`.
+  Aucun outil de plus, aucun code réécrit : les imports `@midgaard/…` résolvent
+  comme dans le dépôt. L'assemblage refuse un export qui désigne un fichier
+  absent, une dépendance sans version verrouillée, et toute source, `.d.ts`,
+  carte de sources ou `.mcp.json` dans le tarball. Résultat : 306 Kio, 104
+  fichiers.
+- **Le daemon annonce son installation** (`install` dans `/api/health` : dossier
+  du paquet `@midgaard/daemon` et version) ; **`/api/shutdown` accepte
+  `if_idle`**, qui rend `409` tant qu'une tâche est active ; **`ensureDaemon`**
+  remplace un daemon d'une autre installation s'il accepte de s'arrêter, s'en
+  sert sinon ; **`doctor`** le dit. `PROTOCOL_VERSION` passe à 9.
+- **Ce qu'un tiers lit** : `cmd()` écrit chaque commande conseillée sous la forme
+  qu'il peut taper ; `harness --version` lit la version dans le manifeste ; le
+  daemon trouve le dashboard dans le paquet ; un fichier `LICENSE` (MIT,
+  annoncé par `package.json` sans que le texte existe).
+
+### Ce qui le prouve
+
+**`tests/package.ts`** (`npm run test:package`, ~1 min, réseau requis) installe
+le tarball dans un préfixe vierge, avec un `HOME` vierge, et ne se sert que de
+ce qui a été installé : K1 l'installation et la version ; K2 `init` désigne le
+serveur **installé** ; K3 `doctor` sain, dashboard et tarifs trouvés dans le
+paquet, aucun conseil en `npm run harness` ; K4 un vrai client MCP sur le
+serveur déclaré : daemon du paquet, dashboard servi, tâche aboutie ; K5
+`status`, `stop` ; K6 un daemon des sources sur le même dossier runtime,
+remplacé quand il est oisif, servi tel quel quand il travaille — sa tâche
+intacte. Contre-épreuve : la comparaison d'installation retirée, K6 échoue
+(« oisif non remplacé »). `tests/unit/installation.test.ts` : l'identité, et le
+verdict de `doctor`.
+
+`test:package` est ajouté à `e2e.yml` : il tournera sur les trois plateformes au
+prochain passage — **pas encore constaté**.
+
+### Ce que l'écriture a appris
+
+**19. Les `publishConfig` mentaient.** Chaque paquet en portait un, n'exportant
+que `"."`. Or la CLI résout `@midgaard/mcp-server/main` et le serveur MCP
+`@midgaard/daemon/main` : publiés selon ces champs, les paquets n'auraient pas
+démarré. Jamais employés, jamais vérifiés ; retirés. L'assemblage dérive les
+exports des vrais, et vérifie que chaque cible existe.
+
+**20. npm tient les dépendances d'un paquet embarqué pour embarquées.** Premier
+essai : installation sans erreur, puis `Cannot find package …/zod/index.js` —
+`node_modules/zod` était **vide**. Les paquets internes déclaraient `zod` ; npm
+l'a cru dans le tarball et ne l'a pas téléchargé. Les dépendances externes ne
+sont plus déclarées que par le paquet de tête.
+
+**21. Le paquet conseillait des commandes du dépôt.** `doctor`, `providers`,
+`pricing` et `start` disaient `npm run harness -- …` à tout le monde. Seule une
+installation dans un préfixe vierge pouvait le montrer : depuis le dépôt, ces
+commandes marchent.
+
+**22. Une version recopiée à la main.** `harness --version` affichait une
+constante `'0.1.0'`, qui aurait menti dès la version suivante.
+
+**23. Une contre-épreuve qui bloque n'est pas une contre-épreuve.** K6 attendait
+sans borne la fin du daemon « étranger ». Le remplacement désactivé, le daemon
+ne s'arrêtait jamais, et la suite a bloqué au lieu d'échouer. Les attentes sont
+désormais bornées, et la contre-épreuve échoue comme elle le doit.
+
+---
+
 ## Ce qui restera ouvert, déjà su
 
 - **Les sous-processus lancés hors de libuv, sous Windows** (SLICE3, leçon
@@ -471,5 +548,7 @@ s'il vient, dira sa cause.
   mais ils ne disent pas **qui** a tué la commande : la garde, ou le *Job
   Object* de libuv (SLICE3, leçon n° 21). Pour une commande directe, les deux
   suffisent ; pour un petit-enfant lancé hors de libuv, rien n'est constaté.
+- **Le nom `midgaard` sur npm** était libre le 2026-10-30 ; rien ne le réserve
+  avant la première publication.
 - **Les deux dettes Gemini** (SLICE2) restent ouvertes tant qu'aucune clé
   Google n'est disponible.

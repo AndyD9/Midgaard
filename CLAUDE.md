@@ -35,6 +35,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run doctor` | Diagnostic de l'installation |
 | `npm run typecheck` | Vérification des types, dashboard compris |
 | `npm run build` | Compile les paquets et le dashboard |
+| `npm run pack:npm` | Assemble le paquet npm `midgaard` dans `.pack/` (build propre) |
 | `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `approve`, `reject` |
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho |
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
@@ -49,6 +50,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:developer` | ~35 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris |
 | `npm run test:security` | ~3 s — PLAN §8.4 de bout en bout : base et journal lus octet pour octet, refus tracés, API sur la seule boucle locale |
 | `npm run test:wait` | ~3 min — 12 scénarios de bout en bout MCP |
+| `npm run test:package` | ~1 min — le paquet installé dans un préfixe et un `HOME` vierges ; réseau requis |
 
 ## Invariants à ne pas casser
 
@@ -75,6 +77,13 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   changement incompatible entre serveur MCP et daemon : le daemon survit aux
   mises à jour du code, et c'est ce numéro qui le fait remplacer.
 - **Ne jamais écrire sur stdout dans le serveur MCP** : c'est le canal JSON-RPC.
+- **Un daemon d'une autre installation n'est remplacé que s'il est oisif**, et
+  c'est lui qui le décide (`POST /api/shutdown` avec `if_idle`), sans `await`
+  entre la lecture de son compteur et son arrêt. Une installation = dossier du
+  paquet `@midgaard/daemon` + version (décision de la Slice 4, étape 6).
+- **Une commande conseillée à l'utilisateur passe par `cmd()`** (CLI) : `harness
+  …` depuis le paquet, `npm run harness -- …` depuis les sources. Le paquet ne
+  contient que `dist/` : rien n'y doit renvoyer vers le dépôt.
 - **La configuration est injectée**, jamais lue au chargement d'un module. Seuls
   les `main.ts` lisent `process.env`.
 - **Une migration publiée ne se modifie plus** : toute évolution ajoute une entrée
@@ -216,7 +225,7 @@ la CI sur tag, avec provenance ; `edit_file` tolérant aux fins de ligne ;
 Windows éprouvé en CI seulement) et découpage en huit étapes :
 [docs/SLICE4.md](docs/SLICE4.md). Règle d'ordre : rien n'est distribué avant
 d'être durci. Depuis l'étape 2 : migration 7 (`workspaces.submodules_json`),
-`PROTOCOL_VERSION` 8. Depuis l'étape 5, **toutes** les suites tournent en CI sur
+`PROTOCOL_VERSION` 8, puis 9 à l'étape 6. Depuis l'étape 5, **toutes** les suites tournent en CI sur
 macOS, Linux et Windows (`.github/workflows/e2e.yml`, passage `41182184282`).
 
 ## Slice 3 terminée

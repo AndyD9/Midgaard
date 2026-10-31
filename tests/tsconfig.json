@@ -8,7 +8,7 @@
   ],
   "extends": "../tsconfig.base.json",
   "compilerOptions": { "rootDir": "..", "outDir": "dist", "noEmit": false },
-  "include": ["**/*.ts", "../apps/dashboard/src/lib/utils.ts", "../apps/dashboard/src/lib/patch.ts"],
+  "include": ["**/*.ts", "../scripts/**/*.ts", "../apps/dashboard/src/lib/utils.ts", "../apps/dashboard/src/lib/patch.ts"],
   "exclude": ["dist"],
   "references": [
     { "path": "../packages/contracts" },

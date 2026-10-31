@@ -9,10 +9,5 @@
     ".": { "midgaard-dev": "./src/index.ts", "default": "./dist/index.js" },
     "./main": { "midgaard-dev": "./src/main.ts", "default": "./dist/main.js" }
   },
-  "publishConfig": {
-    "exports": {
-      ".": "./dist/index.js"
-    }
-  },
   "dependencies": { "@midgaard/contracts": "*", "@midgaard/daemon": "*", "@modelcontextprotocol/sdk": "^1.32.2", "zod": "^4.6.7" }
 }

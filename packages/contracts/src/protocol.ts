@@ -44,9 +44,13 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *  - 8 : Slice 4, étape 2 — un worktree porte `submodules`, les sous-modules
  *        laissés vides, dans sa ligne, son `workspace.created` et le résultat.
  *        Un daemon de protocole 7 ne les détecterait pas, et le dashboard servi
- *        par un daemon récent lit le champ sur chaque worktree.
+ *        par un daemon récent lit le champ sur chaque worktree ;
+ *  - 9 : Slice 4, étape 6 — `/api/health` annonce `install` (dossier et
+ *        version de l'installation), et `/api/shutdown` accepte `if_idle`, qui
+ *        refuse l'arrêt tant qu'une tâche est active. Un daemon de protocole 8
+ *        s'arrêterait sans condition : il doit être remplacé comme avant.
  */
-export const PROTOCOL_VERSION = 8
+export const PROTOCOL_VERSION = 9
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({
@@ -80,6 +84,12 @@ export const healthSchema = z.object({
   /** Millisecondes restantes avant arrêt pour inactivité ; `null` si l'arrêt est désactivé. */
   idle_shutdown_in_ms: z.number().int().nullable(),
   db_path: z.string(),
+  /**
+   * L'installation d'où vient ce daemon (dossier du paquet `@midgaard/daemon`,
+   * version). Un serveur MCP d'une autre installation le remplace s'il est
+   * oisif, et s'en sert sinon : voir `ensureDaemon`.
+   */
+  install: z.object({ dir: z.string(), version: z.string() }),
 })
 export type Health = z.infer<typeof healthSchema>
 

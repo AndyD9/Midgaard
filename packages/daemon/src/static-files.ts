@@ -35,10 +35,12 @@ function notBuiltPage(): string {
 code{background:#eef1f6;padding:.15rem .4rem;border-radius:.25rem}
 pre{background:#1f2430;color:#eef1f6;padding:1rem;border-radius:.5rem;overflow:auto}</style></head>
 <body><h1>Dashboard non compilé</h1>
-<p>Le daemon tourne, mais les fichiers du dashboard sont absents. Compile-les :</p>
+<p>Le daemon tourne, mais les fichiers du dashboard sont absents. Depuis les sources du
+dépôt, compile-les :</p>
 <pre>npm run build</pre>
 <p>Puis recharge cette page. En développement, <code>npm run dashboard:dev</code> sert le
-dashboard avec rechargement à chaud.</p></body></html>`
+dashboard avec rechargement à chaud. Installé depuis npm, le dashboard fait partie du
+paquet : s'il manque, l'installation est incomplète — <code>npm install -g midgaard</code>.</p></body></html>`
 }
 
 /** Sert les fichiers du dashboard, ou explique comment les produire. */

@@ -23,7 +23,7 @@ import {
   type ProviderPreset,
 } from '@midgaard/contracts'
 import { ensureDaemon } from '@midgaard/mcp-server'
-import { bold, dim, green, mark, red, yellow } from './ui.ts'
+import { bold, cmd, dim, green, mark, red, yellow } from './ui.ts'
 
 /** Journalisation discrète du démarrage de daemon : la CLI a sa propre sortie. */
 const quiet = () => {}
@@ -69,7 +69,7 @@ async function listProviders(config: HarnessConfig): Promise<number> {
     console.log('Aucun fournisseur configuré.')
     console.log()
     console.log('Pour en ajouter un :')
-    console.log(dim('  npm run harness -- providers add venice --model deepseek-v4-flash-0731'))
+    console.log(dim(`  ${cmd('providers add venice --model deepseek-v4-flash-0731')}`))
     return 0
   }
 
@@ -205,7 +205,7 @@ export async function agents(config: HarnessConfig): Promise<number> {
     console.log(`  ${dim(a.description || '(sans description)')}`)
     if (!a.enabled) {
       console.log(`  ${yellow('désactivé')} ${dim('— aucun fournisseur de modèle configuré pour ce profil')}`)
-      console.log(`  ${dim('npm run harness -- providers add venice --model deepseek-v4-flash-0731')}`)
+      console.log(`  ${dim(cmd('providers add venice --model deepseek-v4-flash-0731'))}`)
     } else if (a.provider_id) {
       console.log(`  ${dim(`fournisseur ${a.provider_id} · ${a.model ?? 'modèle par défaut'} · outils : ${a.tools.join(', ') || 'aucun'}`)}`)
       console.log(
@@ -227,7 +227,7 @@ export async function pricing(config: HarnessConfig, args: string[]): Promise<nu
     console.log(`${Object.keys(table.entries).length} modèle(s) tarifés`)
     console.log(`  ${dim(`relevés le ${table.updated_at.slice(0, 10)} — ${table.source}`)}`)
     console.log()
-    console.log(dim('Pour relever les tarifs chez Venice : npm run harness -- pricing refresh venice'))
+    console.log(dim(`Pour relever les tarifs chez Venice : ${cmd('pricing refresh venice')}`))
     return 0
   }
 

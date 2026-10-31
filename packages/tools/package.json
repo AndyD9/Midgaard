@@ -8,10 +8,5 @@
   "exports": {
     ".": { "midgaard-dev": "./src/index.ts", "default": "./dist/index.js" }
   },
-  "publishConfig": {
-    "exports": {
-      ".": "./dist/index.js"
-    }
-  },
   "dependencies": { "@midgaard/contracts": "*", "@midgaard/workspace": "*", "zod": "^4.6.7" }
 }

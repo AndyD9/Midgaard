@@ -39,7 +39,7 @@
  * | GET  | `/api/approvals` | Demandes en attente | 200 |
  * | POST | `/api/approvals/:id/approve` | Décision humaine | 200, 404, 409 |
  * | POST | `/api/approvals/:id/reject` | Décision humaine | 200, 404, 409 |
- * | POST | `/api/shutdown` | Arrêt propre | 200 |
+ * | POST | `/api/shutdown` | Arrêt propre ; `{ if_idle: true }` le refuse tant qu'une tâche est active | 200, 409 |
  * | GET  | `/ui/bootstrap` | Jeton d'API pour le dashboard | 200 |
  * | GET  | `/*` | Fichiers du dashboard | 200, 404 |
  *
@@ -154,6 +154,15 @@ export function createRequestHandler(deps: HttpDeps) {
       if (section === 'health' && method === 'GET') return send(res, 200, deps.health())
 
       if (section === 'shutdown' && method === 'POST') {
+        // `if_idle` : la décision « oisif ou non » se prend ICI, entre la
+        // lecture du compteur et l'arrêt, sans `await` entre les deux. Faite par
+        // le serveur MCP sur un `/api/health` lu avant, elle laisserait une tâche
+        // déléguée entre-temps par une autre session se faire interrompre.
+        const body = await readJson(req).catch(() => ({}) as Record<string, unknown>)
+        if (body.if_idle === true) {
+          const active = deps.health().tasks.active
+          if (active > 0) return send(res, 409, { error: 'busy', active })
+        }
         send(res, 200, { ok: true })
         return deps.shutdown('requête /api/shutdown')
       }

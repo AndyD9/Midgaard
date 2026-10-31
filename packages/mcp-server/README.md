@@ -51,12 +51,23 @@ Le daemon survit aux sessions. À chaque appel, le serveur l'interroge :
 
 | Réponse | Action |
 |---|---|
-| Notre version de protocole | On l'utilise |
-| Une autre version | On l'arrête et on en démarre un neuf |
+| Notre protocole, **notre installation** | On l'utilise |
+| Notre protocole, **une autre installation** | On lui demande de s'arrêter **s'il est oisif** (`if_idle`) et on en démarre un neuf ; s'il travaille, on l'utilise tel quel |
+| Un autre protocole | On l'arrête et on en démarre un neuf |
 | Rien | On en démarre un, **détaché** |
 
-Le cas du milieu n'est pas théorique : en Slice 0, un daemon resté actif après une
+Le troisième cas n'est pas théorique : en Slice 0, un daemon resté actif après une
 mise à jour du code a fait qu'une pause d'approbation n'a jamais été signalée.
+
+Le deuxième date de la Slice 4 (étape 6, décision de l'auteur). Une installation,
+c'est le dossier du paquet `@midgaard/daemon` et sa version
+(`@midgaard/daemon/installation`) : un clone de développement et le paquet npm
+sur un même `~/.midgaard`, ou le paquet avant et après une mise à jour. À
+protocole égal, on pouvait leur parler, et on le faisait — avec le code de
+l'autre, jusqu'à son arrêt sur inactivité. C'est le daemon qui décide s'il est
+oisif, sans `await` entre la lecture de son compteur et son arrêt : une tâche
+déléguée au même instant par une autre session n'est jamais interrompue.
+Éprouvé par `tests/package.ts` (K6).
 
 ## Trace
 

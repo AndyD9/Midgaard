@@ -26,6 +26,7 @@
     "typecheck": "tsc -b && tsc -p apps/dashboard --noEmit",
     "build": "tsc -b && npm run build --workspace @midgaard/dashboard",
     "clean": "tsc -b --clean && rm -rf apps/dashboard/dist",
+    "pack:npm": "node scripts/pack.ts",
     "test": "npm run test:unit && npm run test:lock && npm run test:restart && npm run test:developer && npm run test:security && npm run test:wait",
     "test:unit": "node --conditions=midgaard-dev --test tests/unit/*.test.ts",
     "test:vault": "node --conditions=midgaard-dev --test tests/unit/secrets.test.ts",
@@ -36,6 +37,7 @@
     "test:security": "node --conditions=midgaard-dev tests/security.ts",
     "test:wait": "node --conditions=midgaard-dev tests/long-wait.ts",
     "test:ui": "node --conditions=midgaard-dev tests/dashboard.ts",
+    "test:package": "npm run pack:npm && node --conditions=midgaard-dev tests/package.ts",
     "test:live": "node --conditions=midgaard-dev tests/live-agent.ts"
   },
   "devDependencies": {
