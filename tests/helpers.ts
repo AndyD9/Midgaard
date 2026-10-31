@@ -36,7 +36,10 @@ export function tempHome(prefix: string): { home: string; config: HarnessConfig;
   // Port 0 : chaque suite prend un port libre, sans se marcher dessus ni
   // dépendre du daemon de développement.
   const config = loadConfig({ MIDGAARD_HOME: home, MIDGAARD_PORT: '0' })
-  return { home, config, cleanup: () => rmSync(home, { recursive: true, force: true }) }
+  // Réessais : sous Windows, un dossier qu'un processus tout juste arrêté tient
+  // encore ouvert refuse d'être supprimé (EPERM) pendant un instant. Constaté
+  // en CI à la fin de `test:ui`, après huit scénarios réussis.
+  return { home, config, cleanup: () => rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) }
 }
 
 /**

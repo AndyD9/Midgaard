@@ -18,10 +18,18 @@
  *    daemon mort (cas d'un `SIGKILL`), que tous les candidats tentent de
  *    récupérer en même temps. C'est la course qui échouait 4 fois sur 4 avant
  *    l'introduction du bail.
+ *
+ * Le nombre de survivants se compte à `SETTLE_MS`, strictement. La
+ * **publication** du fichier de découverte, elle, peut tarder au-delà : sous
+ * Windows en CI, huit Node démarrant ensemble sur deux cœurs, une manche a
+ * trouvé le bon survivant mais pas encore de fichier (SLICE4, étape 5). On
+ * l'attend donc jusqu'à `PUBLISH_MS` de plus, en disant combien de temps il a
+ * fallu ; et si la manche échoue, les journaux des candidats encore vivants
+ * sont affichés — sans eux, impossible de distinguer une lenteur d'une panne.
  */
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -34,10 +42,14 @@ const CONTENDERS = 8
 const SETTLE_MS = 2_500
 const COLD_ROUNDS = 6
 const STALE_ROUNDS = 4
+/** Délai supplémentaire laissé à la publication du fichier de découverte. */
+const PUBLISH_MS = 15_000
 
 // Le dossier temporaire du système, pas `/tmp` : sous Windows, `/tmp` serait
 // `C:\tmp`, hors de ce que le poste de CI nettoie.
 const home = join(tmpdir(), 'midgaard-lock-test')
+/** Journaux des candidats, hors du dossier runtime que chaque manche efface. */
+const logDir = join(tmpdir(), 'midgaard-lock-test-journaux')
 const config = (await import('@midgaard/contracts')).loadConfig({ MIDGAARD_HOME: home, MIDGAARD_PORT: '0' })
 const daemonArgs = nodeArgsFor('@midgaard/daemon/main')
 const outcomes: Outcome[] = []
@@ -48,19 +60,38 @@ const outcomes: Outcome[] = []
  * @param prepare état à installer dans le dossier runtime avant le départ
  */
 async function round(label: string, prepare?: () => Promise<void>): Promise<void> {
-  rmSync(home, { recursive: true, force: true })
+  rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   mkdirSync(home, { recursive: true, mode: 0o700 })
+  rmSync(logDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+  mkdirSync(logDir, { recursive: true })
   await prepare?.()
 
-  const kids = Array.from({ length: CONTENDERS }, () =>
-    spawn(process.execPath, daemonArgs, { env: childEnv(home), stdio: 'ignore' }),
-  )
+  const logs = Array.from({ length: CONTENDERS }, (_, i) => join(logDir, `${i}.log`))
+  const fds = logs.map((path) => openSync(path, 'a'))
+  const kids = fds.map((fd) => spawn(process.execPath, daemonArgs, { env: childEnv(home), stdio: ['ignore', fd, fd] }))
+  const started = Date.now()
   await sleep(SETTLE_MS)
 
+  // Les survivants se comptent maintenant, sans délai de grâce.
   const alive = kids.filter(running)
-  const rt = readRuntime(config.runtimeFile)
-  const healthy = rt ? await daemonFetch(rt, '/api/health').then((r) => r.ok).catch(() => false) : false
-  const ok = alive.length === 1 && rt?.pid === alive[0]!.pid && healthy
+  let rt = readRuntime(config.runtimeFile)
+  let healthy = false
+  while (alive.length === 1) {
+    healthy = rt ? await daemonFetch(rt, '/api/health').then((r) => r.ok).catch(() => false) : false
+    if ((healthy && rt?.pid === alive[0]!.pid) || Date.now() - started > SETTLE_MS + PUBLISH_MS) break
+    await sleep(200)
+    rt = readRuntime(config.runtimeFile)
+  }
+  const published = Date.now() - started
+  const stillOne = kids.filter(running).length === 1
+  const ok = alive.length === 1 && stillOne && rt?.pid === alive[0]!.pid && healthy
+  if (!ok) {
+    for (const [i, kid] of kids.entries()) {
+      if (!running(kid)) continue
+      const tail = readFileSync(logs[i]!, 'utf8').trim().split('\n').slice(-15).join('\n    ')
+      console.log(`  journal du candidat ${kid.pid} :\n    ${tail || '(vide)'}`)
+    }
+  }
 
   // Nettoyage : arrêt propre du daemon désigné, puis des survivants en trop
   // (ils n'existent qu'en cas de bug). Ce sont les propres enfants de ce test.
@@ -68,13 +99,15 @@ async function round(label: string, prepare?: () => Promise<void>): Promise<void
   await sleep(200)
   for (const k of kids.filter(running)) k.kill('SIGTERM')
   await Promise.all(kids.filter(running).map((k) => once(k, 'exit')))
+  for (const fd of fds) closeSync(fd)
 
   outcomes.push({
     name: label,
     verdict: ok ? 'PASS' : 'FAIL',
     detail:
       `${alive.length} survivant(s) sur ${CONTENDERS}, ` +
-      `découverte → ${rt?.pid ?? 'aucun'}${healthy ? '' : ' (injoignable)'}`,
+      `découverte → ${rt?.pid ?? 'aucun'}${healthy ? '' : ' (injoignable)'}` +
+      (published > SETTLE_MS + 300 ? `, publiée en ${(published / 1000).toFixed(1)} s` : ''),
   })
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${label.padEnd(20)} ${outcomes[outcomes.length - 1]!.detail}`)
 }
@@ -100,5 +133,6 @@ for (let i = 1; i <= STALE_ROUNDS; i++) {
   })
 }
 
-rmSync(home, { recursive: true, force: true })
+rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+rmSync(logDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
 process.exit(summarize(outcomes, 'Résumé — instance unique'))

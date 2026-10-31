@@ -123,7 +123,10 @@ const submit = (summary: string) => [{ tool: 'submit_result', args: { summary, d
 
 // ---------------------------------------------------------------------------
 
-const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'midgaard-dev-repos-')))
+// `.native` partout où l'on compare à un chemin rendu par le harness : sous
+// Windows, le dossier temporaire s'écrit `RUNNER~1` (nom court) et seul le
+// `realpath` natif le développe, comme le fait le harness (CI, SLICE4 étape 5).
+const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'midgaard-dev-repos-')))
 const main = tempHome('developer')
 const provider = await startFakeProvider()
 let { child, rt } = await startDaemon(main.config, main.home)
@@ -171,7 +174,7 @@ await scenario(outcomes, 'V1 le travail est commité sur la branche, le dépôt 
   if (w && git(repo, 'log', '-1', '--format=%ae', w.branch).trim() !== 'developer@midgaard.invalid') problems.push('commit à la mauvaise identité')
   if (!types.includes('workspace.created') || !types.includes('workspace.kept')) problems.push(`événements ${types.join(',')}`)
   if (w && !existsSync(w.worktree_path)) problems.push('worktree retiré')
-  if (w && !w.worktree_path.startsWith(realpathSync(main.home))) problems.push(`worktree hors de MIDGAARD_HOME : ${w.worktree_path}`)
+  if (w && !w.worktree_path.startsWith(realpathSync.native(main.home))) problems.push(`worktree hors de MIDGAARD_HOME : ${w.worktree_path}`)
   return {
     verdict: problems.length ? 'FAIL' : 'PASS',
     detail: problems.length ? problems.join(' ; ') : `${w!.branch} @ ${w!.commit!.slice(0, 8)}, 2 fichiers, dépôt intact, worktree conservé`,
@@ -371,7 +374,7 @@ await scenario(outcomes, 'V8 un retrait ne perd jamais rien sans qu\'on le deman
   const v3 = await listing(v3TaskId)
   if (!v1.entry || v1.entry.dirty !== 0 || v1.entry.task_status !== 'completed') problems.push(`V1 mal listé : ${JSON.stringify(v1.entry && { dirty: v1.entry.dirty, s: v1.entry.task_status })}`)
   if (!v3.entry || !(v3.entry.dirty! > 0)) problems.push('V3 devrait être listé avec du travail non commité')
-  if (!v1.body.orphans.includes(realpathSync(orphan))) problems.push(`orphelin non signalé : ${v1.body.orphans.join(', ')}`)
+  if (!v1.body.orphans.includes(realpathSync.native(orphan))) problems.push(`orphelin non signalé : ${v1.body.orphans.join(', ')}`)
 
   // Tâche en cours : jamais retirée sous l'agent.
   const repo = makeRepo('v8')

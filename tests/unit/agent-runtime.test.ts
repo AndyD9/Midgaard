@@ -23,7 +23,7 @@ import type { Agent, Usage } from '@midgaard/contracts'
 import { DEFAULT_RESEARCHER_LIMITS, createRedactor, emptyUsage } from '@midgaard/contracts'
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from '@midgaard/providers'
 import { buildMessages, runAgent, type ApprovalOutcome, type ApprovalRequest, type LoopHooks } from '@midgaard/agent-runtime'
-import type { ToolContext } from '@midgaard/tools'
+import { formatArgv, type ToolContext } from '@midgaard/tools'
 
 /** Racine de projet jetable, partagée par les tests qui lisent des fichiers. */
 function makeRoot(): string {
@@ -483,7 +483,9 @@ describe('exec sous approbation', () => {
       // absolu, pas un nom que le PATH résoudra plus tard.
       const program = String(request!.detail.program)
       assert.ok(isAbsolute(program), `programme résolu : ${program}`)
-      assert.ok(request!.operation.startsWith(`exec — exécuter ${program} -e 'require(`), request!.operation)
+      // `formatArgv` : sous Windows, le chemin du programme contient des `\\` et
+      // s'affiche entre guillemets.
+      assert.ok(request!.operation.startsWith(`exec — exécuter ${formatArgv([program])} -e 'require(`), request!.operation)
       assert.deepEqual(request!.detail.args, args)
       assert.equal(request!.detail.tool, 'exec')
       assert.equal(tools.find((t) => t.name === 'exec')?.status, 'rejected')

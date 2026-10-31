@@ -28,6 +28,19 @@ import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { ToolError } from './types.ts'
 
 /**
+ * Chemin relatif à la racine, séparateur `/` quelle que soit la plateforme :
+ * c'est la forme que le modèle lit, et qu'il repasse aux outils. Sous Windows,
+ * `relative` rend `src\\a.ts` ; un même dépôt aurait alors deux écritures selon
+ * la machine, et un modèle qui a vu `src/a.ts` ailleurs s'y perdrait. Constaté
+ * en CI (docs/SLICE4.md, étape 5) : `search_files` rendait des `\\`.
+ *
+ * @returns `.` pour la racine elle-même
+ */
+export function toolPath(root: string, path: string): string {
+  return relative(root, path).split(sep).join('/') || '.'
+}
+
+/**
  * Indique si `candidate` est la racine ou se trouve dessous.
  *
  * Compare des chemins **déjà canonicalisés**. Le test porte sur le chemin

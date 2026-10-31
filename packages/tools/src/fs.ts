@@ -11,10 +11,10 @@
  * ses réponses. Les lister ferait payer au modèle des jetons pour du bruit.
  */
 import { readdir, stat } from 'node:fs/promises'
-import { dirname, join, relative } from 'node:path'
+import { dirname, join } from 'node:path'
 import { z } from 'zod'
 import type { ToolResult } from '@midgaard/contracts'
-import { openUnderRoot, resolveUnderRoot } from './paths.ts'
+import { openUnderRoot, resolveUnderRoot, toolPath } from './paths.ts'
 import { MAX_TOOL_RESULT_BYTES, ToolError, truncate, type Tool, type ToolContext } from './types.ts'
 
 /** Dossiers écartés du listage et de la recherche : beaucoup de fichiers, aucune réponse. */
@@ -60,7 +60,7 @@ export const readFileTool: Tool<z.infer<typeof readSchema>> = {
       return {
         content: shown,
         bytes: size,
-        summary: `${relative(ctx.root, path) || path} · ${size} octets`,
+        summary: `${toolPath(ctx.root, path)} · ${size} octets`,
         // Le projet de l'utilisateur n'est pas plus suspect que le dépôt
         // lui-même : ce n'est pas du contenu venu du monde extérieur.
         untrusted: false,
@@ -113,7 +113,7 @@ export const listDirectoryTool: Tool<z.infer<typeof listSchema>> = {
       }
     }
 
-    const shown = relative(ctx.root, dir) || '.'
+    const shown = toolPath(ctx.root, dir)
     return {
       content: lines.length ? lines.join('\n') : '(dossier vide)',
       bytes: Buffer.byteLength(lines.join('\n')),
@@ -221,7 +221,7 @@ export const searchFilesTool: Tool<z.infer<typeof searchSchema>> = {
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i]!
           if (!regex.test(line)) continue
-          matches.push(`${relative(ctx.root, file)}:${i + 1}: ${line.trim().slice(0, 300)}`)
+          matches.push(`${toolPath(ctx.root, file)}:${i + 1}: ${line.trim().slice(0, 300)}`)
           if (matches.length >= MAX_MATCHES) {
             capped = true
             return

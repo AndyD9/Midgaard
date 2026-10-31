@@ -152,7 +152,7 @@ const submit = (summary: string, details = 'détails') => [{ tool: 'submit_resul
 
 // ---------------------------------------------------------------------------
 
-const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'midgaard-secu-')))
+const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'midgaard-secu-')))
 const outside = join(scratch, 'dehors')
 mkdirSync(outside)
 writeFileSync(join(outside, 'secret.txt'), 'hors du projet\n')

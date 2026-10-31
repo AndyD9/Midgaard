@@ -327,7 +327,7 @@ await scenario(outcomes, 'D6 un lien profond rouvre la bonne tâche après recha
 
 await scenario(outcomes, 'D8 le diff d’une tâche Developer se lit dans le dashboard', async () => {
   const provider = await startFakeProvider()
-  const repos = realpathSync(mkdtempSync(join(tmpdir(), 'midgaard-ui-repo-')))
+  const repos = realpathSync.native(mkdtempSync(join(tmpdir(), 'midgaard-ui-repo-')))
   try {
     await daemonJson(rt, '/api/providers', {
       method: 'POST',
@@ -381,7 +381,7 @@ await scenario(outcomes, 'D8 le diff d’une tâche Developer se lit dans le das
     return { verdict: 'PASS', detail: `${branch} : fichier listé, patch déplié au clic, commande de merge montrée` }
   } finally {
     provider.server.close()
-    rmSync(repos, { recursive: true, force: true })
+    rmSync(repos, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   }
 })
 

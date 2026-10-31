@@ -21,9 +21,10 @@ describe('loadConfig', () => {
   })
 
   it('dérive tous les chemins de MIDGAARD_HOME', () => {
+    // `join` : sous Windows, les chemins dérivés sont en `\\`.
     const config = loadConfig({ MIDGAARD_HOME: '/tmp/ailleurs' })
     for (const path of [config.dbPath, config.runtimeFile, config.lockFile, config.logFile, config.traceFile]) {
-      assert.ok(path.startsWith('/tmp/ailleurs/'), path)
+      assert.ok(path.startsWith(join('/tmp/ailleurs', '')), path)
     }
   })
 
@@ -46,8 +47,8 @@ describe('loadConfig', () => {
 
   it('recalcule les chemins quand une surcharge change le dossier', () => {
     const config = loadConfig({ MIDGAARD_HOME: '/tmp/a' }, { home: '/tmp/b' })
-    assert.equal(config.dbPath, '/tmp/b/harness.db')
-    assert.equal(config.lockFile, '/tmp/b/daemon.lock')
+    assert.equal(config.dbPath, join('/tmp/b', 'harness.db'))
+    assert.equal(config.lockFile, join('/tmp/b', 'daemon.lock'))
   })
 
   it('ne lit jamais l\'environnement du processus de lui-même', () => {
