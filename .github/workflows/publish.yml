@@ -69,11 +69,15 @@ jobs:
       - run: npm run pack:npm
       - name: Empreinte
         run: node scripts/release.ts integrity .pack/midgaard-*.tgz
+      # `include-hidden-files` : `.pack` commence par un point, et
+      # upload-artifact écarte les dossiers cachés par défaut — « No files were
+      # found » au premier passage. Le motif ne vise que le tarball.
       - uses: actions/upload-artifact@v7
         with:
           name: tarball
           path: .pack/midgaard-*.tgz
           if-no-files-found: error
+          include-hidden-files: true
 
   eprouve:
     name: Éprouvé ${{ matrix.os }}

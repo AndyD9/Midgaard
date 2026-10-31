@@ -608,6 +608,13 @@ mégaoctets à lui écrire), corrigé, et rejoué par un test qui échoue sans l
 correctif. Trois passages verts ensuite. Un échec intermittent n'est pas du
 bruit tant qu'on ne l'a pas expliqué.
 
+**27. Un dossier caché n'est pas un artefact.** Première répétition générale,
+passage `41189999646` : contrôles verts (version absente du registre, commit
+sur `main`, npm 11.19.1), les trois plateformes de « Bout en bout » vertes sur
+le commit, le tarball assemblé — puis « No files were found » au téléversement.
+`actions/upload-artifact` écarte les dossiers cachés par défaut, et `.pack`
+en est un. `include-hidden-files: true`, le motif ne visant que le tarball.
+
 ### Ce que l'étape 7 ne prouve pas encore
 
 Le workflow n'a tourné qu'en local, morceau par morceau : il le fera sur GitHub
