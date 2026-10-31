@@ -55,7 +55,7 @@ la règle de `dashboard_available` : ne rien annoncer qu'on n'a pas constaté.
 | 3 | La suite de sécurité du PLAN §8.4, point par point : chaque refus prouvé par un test qui l'observe directement, les trous comblés | ✅ livrée — quatre défauts réels trouvés |
 | 4 | Crash et concurrence : daemon tué en plein Developer (tâche `interrupted`, worktree conservé, branche au commit de départ) ; deux Developer concurrents sur deux worktrees | ✅ livrée — une commande survivait au daemon, et le diff perdait des modifications |
 | 5 | Le daemon de bout en bout, le dashboard et la CLI en CI sur macOS, Linux et Windows | ✅ livrée — trois postes au vert au deuxième passage |
-| 6 | Le paquet `midgaard` : tarball unique, `npm pack` installé dans un préfixe vierge puis `harness init`, `doctor` et un aller-retour MCP — sur les trois plateformes | ✅ livrée sous macOS ; CI au prochain passage |
+| 6 | Le paquet `midgaard` : tarball unique, `npm pack` installé dans un préfixe vierge puis `harness init`, `doctor` et un aller-retour MCP — sur les trois plateformes | ✅ livrée — 6/6 sur les trois plateformes du premier coup |
 | 7 | La publication : workflow sur tag, provenance ; README d'installation et guide de dépannage | à faire |
 | 8 | L'essai d'acceptation : installé depuis npm sur un `HOME` vierge, le scénario §12 rejoué depuis Claude Code sous macOS | à faire |
 
@@ -492,8 +492,12 @@ intacte. Contre-épreuve : la comparaison d'installation retirée, K6 échoue
 (« oisif non remplacé »). `tests/unit/installation.test.ts` : l'identité, et le
 verdict de `doctor`.
 
-`test:package` est ajouté à `e2e.yml` : il tournera sur les trois plateformes au
-prochain passage — **pas encore constaté**.
+`test:package` est ajouté à `e2e.yml`. Passage `41184642657` (commit
+`7abb02b`) : **6/6 sous macOS, Linux et Windows, du premier coup**, comme le
+reste de « Bout en bout », « Worktrees » et « Coffre ». Sous Windows, le binaire
+installé est `harness.cmd` et le paquet sous `<préfixe>\node_modules` ; le
+tarball y fait 104 fichiers, comme ailleurs. Ce premier coup doit beaucoup à
+l'étape 5 : les noms courts et les chemins en `\` y avaient déjà été payés.
 
 ### Ce que l'écriture a appris
 
