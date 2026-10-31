@@ -22,6 +22,8 @@
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { PROTOCOL_VERSION, daemonFetch, readRuntime } from '@midgaard/contracts'
 import { childEnv, deadPid, nodeArgsFor, running, summarize, type Outcome } from './helpers.ts'
@@ -33,7 +35,9 @@ const SETTLE_MS = 2_500
 const COLD_ROUNDS = 6
 const STALE_ROUNDS = 4
 
-const home = '/tmp/midgaard-lock-test'
+// Le dossier temporaire du système, pas `/tmp` : sous Windows, `/tmp` serait
+// `C:\tmp`, hors de ce que le poste de CI nettoie.
+const home = join(tmpdir(), 'midgaard-lock-test')
 const config = (await import('@midgaard/contracts')).loadConfig({ MIDGAARD_HOME: home, MIDGAARD_PORT: '0' })
 const daemonArgs = nodeArgsFor('@midgaard/daemon/main')
 const outcomes: Outcome[] = []

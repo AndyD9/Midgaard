@@ -263,7 +263,8 @@ await scenario(outcomes, 'X2 chaque refus de lecture, de réseau et d\'écriture
   // dire où il mène serait déjà une fuite (tools.test.ts).
   const readRefusals = await expect(reading.id, [
     /path escapes the allowed project root: \.\.\/dehors/,
-    /path escapes the allowed project root: \//,
+    // Un chemin absolu : `/…` sous POSIX, `C:\…` sous Windows.
+    /path escapes the allowed project root: (\/|[A-Za-z]:)/,
     ...(linked ? [/path escapes the allowed project root: sortie\/secret\.txt/] : []),
     /cloud metadata service \(169\.254\.169\.254\)/,
     /127\.0\.0\.1 resolves to a private or loopback address/,
