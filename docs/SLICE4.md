@@ -615,6 +615,46 @@ le commit, le tarball assemblé — puis « No files were found » au télévers
 `actions/upload-artifact` écarte les dossiers cachés par défaut, et `.pack`
 en est un. `include-hidden-files: true`, le motif ne visant que le tarball.
 
+**28. La porte a fermé, pour deux échecs intermittents sous macOS.** Seconde
+répétition, passage `41190831878` (commit `74d2fe1`) : contrôles verts, le
+tarball assemblé et **éprouvé 6/6 sur les trois plateformes** — puis
+« Publication » sautée, parce que « Bout en bout » a échoué sous macOS.
+`test:unit` : « la commande … a survécu à son lanceur » (le test de la garde,
+étape 4). Le passage de `main` sur `84e40a4`, juste avant, avait échoué sous
+macOS lui aussi, sur une autre suite : `test:lock`, « verrou périmé #3 —
+2 survivant(s) sur 8 ». Ni l'un ni l'autre ne touche le code de l'étape 7.
+C'est exactement ce pour quoi la publication rejoue tout : **aucune version ne
+part tant qu'ils ne sont pas expliqués.** Ils le sont.
+
+- **`test:lock` comptait trop tôt.** Les journaux des deux survivants le
+  disent : Node a mis 1,5 s à démarrer, le perdant s'est arrêté à son premier
+  tour de bail, comme prévu, 1 s après avoir commencé à écouter — 2,6 s après
+  son lancement. Le test comptait à 2,5 s du lancement : quelques
+  millisecondes trop tôt. « Injoignable » n'en était pas un : avec deux
+  survivants, la sonde ne tournait pas. L'invariant tenait ; le test supposait
+  un démarrage rapide. Il compte désormais deux tours de bail après la fin du
+  démarrage du **dernier** candidat (« à l'écoute sur », juste après le
+  lancement du bail), et dit quand le démarrage a été lent. Vert sous vingt
+  processus de charge (démarrages jusqu'à 1,1 s) ; contre-épreuve, bail
+  désactivé : deux survivants, la suite échoue.
+- **La garde a un intervalle, et le test tombait dedans.** Reproduit en local
+  sous forte charge : une commande sur 150 survivait, adoptée par `launchd`.
+  Armer la garde avant la commande — elle démarrait entre le lancement et
+  l'inscription — ne l'a pas fait disparaître (une sur 300). La garde,
+  instrumentée, a tranché : dans le cas perdu, elle a démarré orpheline et
+  **n'a rien reçu**. Le lanceur avait été suspendu entre la fin de `spawn` et
+  l'écriture de `+pid`, plus longtemps qu'il n'en faut à la commande pour
+  démarrer, puis tué. Le test, qui tuait dès que la commande avait écrit son
+  pid, visait cet intervalle. Il ne tue plus qu'une fois la commande
+  **inscrite** (`runCommand` inscrit avant de rendre la main) : 257 passages
+  sous charge sans échec, et la contre-épreuve sans inscription échoue.
+  L'intervalle, lui, est réel : il rejoint « Ce qui restera ouvert ».
+
+Le premier diagnostic était faux deux fois : « deux daemons vivants » pour
+le verrou, « la garde démarre trop tard » pour la garde. Chaque fois, c'est un
+journal — ceux des candidats, puis celui d'une garde instrumentée — qui a
+tranché, pas un raisonnement.
+
 ### Ce que l'étape 7 ne prouve pas encore
 
 Le workflow n'a tourné qu'en local, morceau par morceau : il le fera sur GitHub
@@ -648,6 +688,13 @@ première publication — c'est l'étape 8.
   mais ils ne disent pas **qui** a tué la commande : la garde, ou le *Job
   Object* de libuv (SLICE3, leçon n° 21). Pour une commande directe, les deux
   suffisent ; pour un petit-enfant lancé hors de libuv, rien n'est constaté.
+- **L'intervalle de la garde.** Un daemon tué net entre la fin du `spawn`
+  d'une commande et son inscription auprès de la garde laisse la commande
+  tourner. L'intervalle tient en une écriture sur un tube, mais sous forte
+  charge l'ordonnanceur peut y suspendre le daemon : une à deux commandes sur
+  300 dans ces conditions (étape 7, leçon n° 28). Le fermer exigerait que la
+  commande attende son inscription avant de s'exécuter — un changement du
+  chemin `exec`, à décider.
 - **Le nom `midgaard` sur npm** était libre le 2026-10-30 ; rien ne le réserve
   avant la première publication.
 - **Les deux dettes Gemini** (SLICE2) restent ouvertes tant qu'aucune clé

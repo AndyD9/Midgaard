@@ -19,7 +19,14 @@
  *    récupérer en même temps. C'est la course qui échouait 4 fois sur 4 avant
  *    l'introduction du bail.
  *
- * Le nombre de survivants se compte à `SETTLE_MS`, strictement. La
+ * Le nombre de survivants se compte strictement, deux tours de bail après que
+ * le **dernier** candidat a fini de démarrer — et jamais avant `SETTLE_MS`.
+ * Compter à `SETTLE_MS` du lancement supposait un démarrage rapide : sous
+ * macOS en CI, Node a mis 1,5 s à démarrer, le perdant s'est arrêté à son
+ * premier tour de bail comme prévu, 2,6 s après son lancement — quelques
+ * millisecondes après le comptage, qui a vu deux survivants (SLICE4,
+ * étape 7). Le bail démarre juste avant « à l'écoute sur » : c'est de là que
+ * se comptent ses tours. La
  * **publication** du fichier de découverte, elle, peut tarder au-delà : sous
  * Windows en CI, huit Node démarrant ensemble sur deux cœurs, une manche a
  * trouvé le bon survivant mais pas encore de fichier (SLICE4, étape 5). On
@@ -38,8 +45,17 @@ import { childEnv, deadPid, nodeArgsFor, running, summarize, type Outcome } from
 
 /** Nombre de daemons lancés simultanément à chaque manche. */
 const CONTENDERS = 8
-/** Délai laissé aux candidats pour se départager : au moins deux tours de bail. */
+/** Délai minimal avant de compter les survivants, depuis le lancement. */
 const SETTLE_MS = 2_500
+/**
+ * Délai laissé aux candidats pour se départager, depuis la fin du démarrage du
+ * dernier : deux tours de bail et une marge. Un perdant s'arrête au premier.
+ */
+const LEASE_ROUNDS_MS = 2 * 1_000 + 500
+/** Délai maximal de démarrage d'un candidat : au-delà, c'est une panne. */
+const BOOT_MS = 20_000
+/** Ce qu'un daemon écrit quand son bail tourne et qu'il écoute. */
+const LISTENING = "à l'écoute sur"
 const COLD_ROUNDS = 6
 const STALE_ROUNDS = 4
 /** Délai supplémentaire laissé à la publication du fichier de découverte. */
@@ -70,7 +86,12 @@ async function round(label: string, prepare?: () => Promise<void>): Promise<void
   const fds = logs.map((path) => openSync(path, 'a'))
   const kids = fds.map((fd) => spawn(process.execPath, daemonArgs, { env: childEnv(home), stdio: ['ignore', fd, fd] }))
   const started = Date.now()
-  await sleep(SETTLE_MS)
+  // Chaque candidat finit par sortir (verrou perdu) ou par écouter, bail lancé.
+  const booted = (i: number) => !running(kids[i]!) || readFileSync(logs[i]!, 'utf8').includes(LISTENING)
+  while (!kids.every((_, i) => booted(i)) && Date.now() - started < BOOT_MS) await sleep(50)
+  const bootMs = Date.now() - started
+  await sleep(Math.max(SETTLE_MS - bootMs, LEASE_ROUNDS_MS))
+  const counted = Date.now()
 
   // Les survivants se comptent maintenant, sans délai de grâce.
   const alive = kids.filter(running)
@@ -78,11 +99,11 @@ async function round(label: string, prepare?: () => Promise<void>): Promise<void
   let healthy = false
   while (alive.length === 1) {
     healthy = rt ? await daemonFetch(rt, '/api/health').then((r) => r.ok).catch(() => false) : false
-    if ((healthy && rt?.pid === alive[0]!.pid) || Date.now() - started > SETTLE_MS + PUBLISH_MS) break
+    if ((healthy && rt?.pid === alive[0]!.pid) || Date.now() - counted > PUBLISH_MS) break
     await sleep(200)
     rt = readRuntime(config.runtimeFile)
   }
-  const published = Date.now() - started
+  const published = Date.now() - counted
   const stillOne = kids.filter(running).length === 1
   const ok = alive.length === 1 && stillOne && rt?.pid === alive[0]!.pid && healthy
   if (!ok) {
@@ -107,7 +128,8 @@ async function round(label: string, prepare?: () => Promise<void>): Promise<void
     detail:
       `${alive.length} survivant(s) sur ${CONTENDERS}, ` +
       `découverte → ${rt?.pid ?? 'aucun'}${healthy ? '' : ' (injoignable)'}` +
-      (published > SETTLE_MS + 300 ? `, publiée en ${(published / 1000).toFixed(1)} s` : ''),
+      (bootMs > 1_000 ? `, démarrage en ${(bootMs / 1000).toFixed(1)} s` : '') +
+      (published > 300 ? `, publiée ${(published / 1000).toFixed(1)} s après le comptage` : ''),
   })
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${label.padEnd(20)} ${outcomes[outcomes.length - 1]!.detail}`)
 }

@@ -200,16 +200,27 @@ Les trois moments où `exec` tue un groupe supposent que le daemon vit encore.
 Tué par `SIGKILL`, il ne tue plus rien, et le groupe — détaché de lui pour
 pouvoir être tué entier — continue : constaté, une commande a écrit dans le
 worktree trois secondes après la mort du daemon. `guard.ts` lance donc, à la
-première commande, **un** processus de garde dans son propre groupe. Le daemon
-lui inscrit chaque groupe lancé (`+pid`) et le retire une fois tué (`-pid`) sur
-un tube. Quand le daemon meurt, le système ferme le tube, quelle que soit la
-manière ; la garde lit la fin du flux et tue les groupes encore inscrits.
+première commande — **avant** elle —, **un** processus de garde dans son propre
+groupe. Le daemon lui inscrit chaque groupe lancé (`+pid`) et le retire une fois
+tué (`-pid`) sur un tube. Quand le daemon meurt, le système ferme le tube,
+quelle que soit la manière ; la garde lit la fin du flux et tue les groupes
+encore inscrits.
+
+**Limite constatée (Slice 4, étape 7).** Entre la fin de `spawn` et
+l'inscription, il reste un intervalle : un daemon tué net exactement là laisse
+une commande que la garde ne connaît pas. Il ne tient qu'en une écriture sur un
+tube ouvert, mais l'ordonnanceur peut y suspendre le daemon : sous forte charge
+(vingt processus de charge sur dix cœurs), une à deux commandes sur 300 ont
+survécu, et la garde instrumentée d'un de ces cas n'avait rien reçu. Aucune
+sur 48 sans charge. Le fermer exigerait que la commande attende son
+inscription avant de s'exécuter.
 
 Pas de `prctl(PR_SET_PDEATHSIG)` (Linux seulement, et Node ne l'expose pas), pas
 de pid persistés pour les tuer au redémarrage (un redémarrage de la machine les
 rend à d'autres processus). Si la garde ne démarre pas, le journal du daemon le
 dit une fois et `exec` fonctionne comme avant. Éprouvé par `exec.test.ts` (un
-lanceur tué par `SIGKILL`, sa commande doit mourir) et par V12 dans
+lanceur tué par `SIGKILL` une fois sa commande inscrite, sa commande doit
+mourir ; la contre-épreuve sans inscription échoue) et par V12 dans
 `test:developer` (un vrai daemon). Sous Windows, elle passe par `taskkill /T` :
 **pas encore constaté**, ce sera l'étape 5 de la Slice 4.
 

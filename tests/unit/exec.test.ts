@@ -201,22 +201,34 @@ describe('aucun processus ne survit', () => {
     // doit le faire (guard.ts). Constaté sans elle : la commande continuait.
     // Le « daemon » est ici un processus Node qui lance une commande via
     // `runCommand`, écrit le pid de celle-ci, puis est tué.
+    //
+    // Il n'est tué qu'une fois la commande **inscrite** auprès de la garde —
+    // ce que dit le fichier `inscrite`, écrit au retour de `runCommand`, qui
+    // inscrit avant de rendre la main. Tuer dès que la commande a écrit son
+    // pid visait l'intervalle entre lancement et inscription : sous charge, en
+    // CI sous macOS, la commande y démarrait avant que son lanceur, suspendu,
+    // l'ait inscrite (Slice 4, étape 7). Cet intervalle est une limite connue,
+    // décrite dans `armGuard` ; ce test-ci prouve la garde elle-même.
     const dir = mkdtempSync(join(tmpdir(), 'midgaard-garde-'))
     const pidFile = join(dir, 'pid')
+    const registered = join(dir, 'inscrite')
     try {
       const entry = fileURLToPath(import.meta.resolve('@midgaard/tools'))
       const parentScript =
         `import { runCommand } from ${JSON.stringify(pathToFileURL(entry).href)};` +
+        `import { writeFileSync } from 'node:fs';` +
         `runCommand({ file: process.execPath, cwd: ${JSON.stringify(dir)}, env: { PATH: process.env.PATH ?? '' }, timeoutMs: 60000,` +
-        ` args: ['-e', "require('fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000)", ${JSON.stringify(pidFile)}] })`
+        ` args: ['-e', "require('fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000)", ${JSON.stringify(pidFile)}] });` +
+        `writeFileSync(${JSON.stringify(registered)}, '')`
       const parent = spawn(
         process.execPath,
         [...(entry.endsWith('.ts') ? ['--conditions=midgaard-dev'] : []), '--input-type=module', '-e', parentScript],
         { stdio: 'ignore' },
       )
       const deadline = Date.now() + 10_000
-      while (!existsSync(pidFile) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50))
+      while (!(existsSync(pidFile) && existsSync(registered)) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50))
       assert.ok(existsSync(pidFile), 'la commande n\'a pas démarré')
+      assert.ok(existsSync(registered), 'la commande n\'a pas été inscrite')
       const pid = Number(readFileSync(pidFile, 'utf8'))
       parent.kill('SIGKILL')
       await once(parent, 'exit')

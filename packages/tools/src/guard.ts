@@ -132,7 +132,31 @@ function ensureGuard(log: (message: string) => void): ChildProcess | null {
 }
 
 /**
+ * Lance la garde **avant** la commande qu'elle surveillera.
+ *
+ * Lancée après, à la première commande d'un daemon, la garde démarrait
+ * **entre** le lancement de la commande et son inscription, et allongeait
+ * d'autant l'intervalle où un daemon tué net abandonne une commande que
+ * personne ne connaît. Armée d'abord, il ne reste entre les deux que la fin de
+ * `spawn` et une écriture sur un tube déjà ouvert.
+ *
+ * **Cet intervalle ne se ferme pas ici.** Instrumentée sous forte charge
+ * (Slice 4, étape 7), la garde d'un cas perdu a démarré orpheline et n'a rien
+ * reçu : le lanceur avait été suspendu par l'ordonnanceur entre `spawn` et
+ * l'inscription, plus longtemps qu'il n'en faut à la commande pour démarrer,
+ * puis tué. Une à deux fois sur 300 avec vingt processus de charge sur dix
+ * cœurs ; aucune sur 48 sans charge. Le fermer exigerait que la commande attende
+ * d'être inscrite avant de s'exécuter.
+ *
+ * @param log journalisation, pour dire une fois que la garde manque
+ */
+export function armGuard(log: (message: string) => void = () => {}): void {
+  ensureGuard(log)
+}
+
+/**
  * Confie un groupe de processus à la garde, pour qu'il meure avec le daemon.
+ * La garde doit avoir été armée avant le lancement ({@link armGuard}).
  *
  * @param pid pid du chef de groupe (POSIX) ou du processus (Windows)
  * @param log journalisation, pour dire une fois que la garde manque

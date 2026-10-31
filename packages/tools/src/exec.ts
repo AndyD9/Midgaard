@@ -50,7 +50,7 @@ import { delimiter, isAbsolute, join, relative, sep } from 'node:path'
 import { z } from 'zod'
 import type { ToolResult } from '@midgaard/contracts'
 export { parseExecAllow } from '@midgaard/contracts'
-import { guardGroup } from './guard.ts'
+import { armGuard, guardGroup } from './guard.ts'
 import { resolveUnderRoot } from './paths.ts'
 import { ToolError, type PreparedOperation, type Tool, type ToolContext } from './types.ts'
 
@@ -274,6 +274,10 @@ export function runCommand(input: {
 }): Promise<ExecOutcome> {
   return new Promise((resolve, reject) => {
     const started = Date.now()
+    // La garde d'abord : démarrée après la commande, elle laissait un
+    // intervalle où un daemon tué net abandonnait une commande inscrite nulle
+    // part (voir `armGuard`).
+    armGuard(input.log)
     let child: ChildProcess
     try {
       child = spawn(input.file, [...input.args], {
