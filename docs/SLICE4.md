@@ -56,7 +56,7 @@ la règle de `dashboard_available` : ne rien annoncer qu'on n'a pas constaté.
 | 4 | Crash et concurrence : daemon tué en plein Developer (tâche `interrupted`, worktree conservé, branche au commit de départ) ; deux Developer concurrents sur deux worktrees | ✅ livrée — une commande survivait au daemon, et le diff perdait des modifications |
 | 5 | Le daemon de bout en bout, le dashboard et la CLI en CI sur macOS, Linux et Windows | ✅ livrée — trois postes au vert au deuxième passage |
 | 6 | Le paquet `midgaard` : tarball unique, `npm pack` installé dans un préfixe vierge puis `harness init`, `doctor` et un aller-retour MCP — sur les trois plateformes | ✅ livrée — 6/6 sur les trois plateformes du premier coup |
-| 7 | La publication : workflow sur tag, provenance ; README d'installation et guide de dépannage | ✅ livrée — workflow éprouvé à blanc ; deux conseils faux et un crash du coffre trouvés en chemin |
+| 7 | La publication : workflow sur tag, provenance ; README d'installation et guide de dépannage | ✅ livrée — répétition générale au vert sur GitHub au troisième passage ; deux conseils faux, un crash du coffre et deux échecs macOS expliqués en chemin |
 | 8 | L'essai d'acceptation : installé depuis npm sur un `HOME` vierge, le scénario §12 rejoué depuis Claude Code sous macOS | à faire |
 
 L'ordre suit une règle : **rien n'est distribué avant d'être durci.** Les
@@ -657,10 +657,17 @@ tranché, pas un raisonnement.
 
 ### Ce que l'étape 7 ne prouve pas encore
 
-Le workflow n'a tourné qu'en local, morceau par morceau : il le fera sur GitHub
-une fois poussé, d'abord en répétition générale. L'authentification par jeton,
-puis par OIDC, et l'attestation de provenance ne se constateront qu'à la
-première publication — c'est l'étape 8.
+**Troisième répétition, passage `41196280166` (commit `3c5f68e`) : les neuf
+jobs au vert.** Contrôles ; « Bout en bout » sur les trois plateformes ; le
+tarball assemblé, puis éprouvé 6/6 sur les trois ; et `npm publish --dry-run`
+qui accepte `midgaard@0.1.0`, 104 fichiers — sans jeton, le job a annoncé la
+voie OIDC. L'environnement `npm`, créé par la première répétition, n'a encore
+aucune protection : la relecture humaine n'a donc pas été exercée.
+
+Ce qui ne se constatera qu'à la première publication — l'étape 8 :
+l'authentification par jeton, puis par OIDC ; l'attestation de provenance ; la
+relecture humaine dans l'environnement ; et la comparaison d'après
+publication, qu'une répétition saute.
 
 ---
 
