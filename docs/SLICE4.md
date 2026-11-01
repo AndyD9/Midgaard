@@ -956,6 +956,17 @@ L'en-tête du dashboard affiche le dossier runtime du daemon qu'il sert. Le
 jeton de l'autre daemon n'étant pas lisible, rien ne prétend savoir ce qui
 tient le port.
 
+**En CI, trois plateformes.** Au passage `41289241137`, le poste Windows a
+échoué sur un attendu du test de `--home` : un chemin sans lecteur y prend
+celui du dossier courant, `D:\w\rt` et non `\w\rt` — le code avait raison,
+le test supposait POSIX. L'échec de `test:unit` ayant privé ce poste des
+suites de bout en bout, l'attendu corrigé, tout a été rejoué : passage
+`41289888211` de `e2e.yml`, trois postes au vert, et `41289241176`
+(`vault.yml`, quatre postes) et `41289241134` (`worktrees.yml`, trois) sur le
+commit des correctifs. Sous Windows, **S8 lance la commande d'approbation par
+`cmd.exe`**, `npm --prefix` et `--home` compris, depuis un autre dossier, et la
+tâche repart ; le test de `--home` y démarre et arrête son daemon.
+
 **Ce qui reste.** La carte « Exécutants » du dashboard écrit encore en dur
 `npm run harness -- providers add venice …`, sans `--prefix` ni `--home` : le
 dashboard ne connaît pas la racine du clone. Sans conséquence avec une seule
