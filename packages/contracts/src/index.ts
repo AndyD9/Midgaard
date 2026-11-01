@@ -8,6 +8,7 @@
  * JSON Schemas des outils envoyés aux fournisseurs, et à typer le dashboard.
  */
 export * from './config.ts'
+export * from './advice.ts'
 export * from './task.ts'
 export * from './events.ts'
 export * from './approvals.ts'

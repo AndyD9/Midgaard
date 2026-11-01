@@ -13,7 +13,8 @@ import { loadConfig } from '@midgaard/contracts'
 import { decide, doctor, init, start, status, stop } from './commands.ts'
 import { agents, pricing, providers } from './providers.ts'
 import { exec, workspaces } from './workspaces.ts'
-import { bold, dim } from './ui.ts'
+import { extractHome } from './args.ts'
+import { bold, dim, setAdviceHome } from './ui.ts'
 
 const USAGE = `${bold('harness')} — harness local d'agents pour Claude Code
 
@@ -49,6 +50,7 @@ ${bold('Worktrees et commandes des agents écrivants')}
                         Le retire : la commande attendra de nouveau un humain
 
 ${bold('Options')}
+  --home <dossier>      Dossier runtime visé, au lieu de ~/.midgaard (vaut MIDGAARD_HOME) ; avant la commande
   -h, --help            Cette aide
   -v, --version         Version du harness
 
@@ -70,7 +72,8 @@ const VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.meta.
  * @returns le code de sortie du processus
  */
 export async function run(argv: string[]): Promise<number> {
-  const [command, ...rest] = argv
+  const { home, rest: args } = extractHome(argv, process.env.INIT_CWD ?? process.cwd())
+  const [command, ...rest] = args
   if (!command || command === '-h' || command === '--help' || command === 'help') {
     console.log(USAGE)
     return 0
@@ -80,7 +83,8 @@ export async function run(argv: string[]): Promise<number> {
     return 0
   }
 
-  const config = loadConfig(process.env)
+  const config = loadConfig(home ? { ...process.env, MIDGAARD_HOME: home } : process.env)
+  setAdviceHome(config.homeIsExplicit ? config.home : null)
 
   switch (command) {
     case 'init':

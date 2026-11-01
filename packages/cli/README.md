@@ -27,6 +27,15 @@ chaque ligne ci-dessus se lance à la racine du dépôt sous la forme
 conseils citaient un `harness` que personne ne pouvait lancer — le dernier,
 l'indice d'approbation de `status`, a été trouvé en retirant le paquet.
 
+**`--home <dossier>`**, avant la commande, vaut `MIDGAARD_HOME` et s'écrit pareil
+sous zsh, PowerShell et cmd (`args.ts`). Un chemin relatif se lit depuis le
+dossier d'où l'on a lancé npm (`INIT_CWD`), et rien n'est lu après `--`. Quand
+la CLI vise un dossier runtime désigné, `cmd()` le redit dans chaque conseil :
+sans lui, `providers add` aurait déclaré la clé dans une autre installation
+(Slice 4, étape 8). `start` et `status` disent aussi quand le daemon s'est
+rabattu sur un autre port que 7777 — le plus souvent parce qu'une autre
+installation le tient.
+
 ## Pourquoi l'approbation est ici et pas dans MCP
 
 Parce que **Claude ne doit pas pouvoir s'auto-approuver**. Aucun outil

@@ -77,7 +77,30 @@ export async function start(config: HarnessConfig): Promise<number> {
     `  dashboard : ${body.dashboard_available ? body.dashboard_url : dim(`${body.dashboard_url}  (non compilé — ${buildAdvice})`)}`,
   )
   console.log(`  base      : ${body.db_path}`)
+  const fallback = portFallbackNote(config, body.port)
+  if (fallback) console.log(`  ${yellow('!')} ${fallback}`)
   return 0
+}
+
+/**
+ * Dit pourquoi le dashboard n'est pas sur le port attendu, ou `null` s'il y est.
+ *
+ * Le daemon se rabat en silence sur un port libre quand 7777 est pris ; le
+ * cas le plus courant est un daemon d'une **autre installation**, qui a son
+ * propre dashboard sur 7777. À l'essai de la Slice 4 (étape 8, leçon n° 33),
+ * l'auteur y a cherché une approbation qui était sur l'autre port : la page
+ * était vide, et rien ne disait pourquoi. Le jeton de l'autre daemon n'étant
+ * pas lisible d'ici, on ne prétend pas savoir ce qui tient le port.
+ *
+ * @param config configuration de cette installation
+ * @param port   port où ce daemon écoute réellement
+ */
+export function portFallbackNote(config: Pick<HarnessConfig, 'port' | 'portIsExplicit'>, port: number): string | null {
+  if (config.portIsExplicit || port === config.port) return null
+  return (
+    `port ${config.port} occupé — sans doute le daemon d'une autre installation, dont le dashboard ` +
+    `n'est pas celui-ci : ce daemon écoute sur ${port}`
+  )
 }
 
 /** Arrête le daemon. Ne le démarre pas pour l'arrêter. */
@@ -110,6 +133,8 @@ export async function status(config: HarnessConfig, limit: number): Promise<numb
         `protocole ${health.protocol}`,
     )
     console.log(`  dashboard : ${health.dashboard_available ? health.dashboard_url : dim('non compilé')}`)
+    const fallback = portFallbackNote(config, health.port)
+    if (fallback) console.log(`  ${yellow('!')} ${fallback}`)
     if (health.idle_shutdown_in_ms !== null) {
       console.log(`  inactivité : arrêt dans ${humanDuration(health.idle_shutdown_in_ms)} si rien ne se passe`)
     }

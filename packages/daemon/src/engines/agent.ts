@@ -30,7 +30,9 @@
  * remplacerait un historique juste par un historique faux.
  */
 import type { Agent, AgentKind, Approval, PricingTable, ProviderConfig, Task, TaskWorkspace, Workspace } from '@midgaard/contracts'
-import { createRedactor, isTerminal, type Usage } from '@midgaard/contracts'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { createRedactor, harnessCommand, isTerminal, type Usage } from '@midgaard/contracts'
 import { agentIdentity, commitAll, createWorktree, diffWorktree, inspectRepository, WorkspaceError } from '@midgaard/workspace'
 import { createAdapter, envVarFor } from '@midgaard/providers'
 import { resolveApiKey, type SecretVault } from '@midgaard/secrets'
@@ -45,16 +47,24 @@ import type { EngineContext, TaskEngine } from './types.ts'
  * `--model`, et le binaire `harness` n'existe pas depuis les sources (Slice 4,
  * étape 7). Elle redit donc toute la déclaration, pour que la redéposer ne
  * change rien d'autre que la clé. Le daemon ne peut pas emprunter `cmd()` à la
- * CLI, qui dépend de lui : il en redit la forme, `npm run harness -- …`, la
- * seule qui existe depuis que Midgaard ne s'installe que depuis un clone.
+ * CLI, qui dépend de lui : il emploie `harnessCommand`, commun aux trois. Lue au
+ * dashboard ou relayée par Claude, donc hors du clone, elle porte la racine du
+ * clone (`npm --prefix`) et, s'il est désigné, le dossier runtime.
  *
  * @param provider le fournisseur tel qu'il est déclaré
+ * @param home     dossier runtime si désigné (`config.homeIsExplicit`), sinon `null`
  */
-export function keyCommand(provider: Pick<ProviderConfig, 'id' | 'preset' | 'default_model' | 'base_url'>): string {
+export function keyCommand(
+  provider: Pick<ProviderConfig, 'id' | 'preset' | 'default_model' | 'base_url'>,
+  home: string | null = null,
+): string {
   const args =
     `providers add ${provider.id} --preset ${provider.preset} --model ${provider.default_model}` +
     (provider.base_url ? ` --base-url ${provider.base_url}` : '')
-  return `npm run harness -- ${args}`
+  // packages/daemon/{src,dist}/engines/agent.* → racine du clone : même
+  // profondeur depuis les sources et depuis le build.
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..')
+  return harnessCommand(args, { repoRoot, home })
 }
 
 /** Ce que le moteur emprunte au daemon, en plus du contexte commun. */
@@ -351,7 +361,8 @@ export class AgentEngine implements TaskEngine {
       return {
         error:
           `aucune clé d'API pour « ${provider.id} » : dépose-la avec ` +
-          `\`${keyCommand(provider)}\`, ou définis ${envVar} dans l'environnement du daemon`,
+          `\`${keyCommand(provider, ctx.config.homeIsExplicit ? ctx.config.home : null)}\`, ` +
+          `ou définis ${envVar} dans l'environnement du daemon`,
       }
     }
     if (found.source === 'env') {

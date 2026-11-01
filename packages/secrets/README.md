@@ -2,7 +2,7 @@
 
 Coffre système pour les clés d'API des fournisseurs de modèles, **sans
 dépendance native**. La base du harness ne contient que des références
-(`provider.venice`) ; les clés vivent ici.
+(`provider.3f9a0c21.venice`) ; les clés vivent ici.
 
 ## Ce que chaque plateforme offre réellement
 
@@ -31,15 +31,19 @@ permettrait, mais il n'est pas installé par défaut.
 
 ## Le coffre est par utilisateur, pas par dossier runtime
 
-Le trousseau ne connaît qu'un **service** `midgaard` et un **compte**
-`provider.<id>`. `MIDGAARD_HOME` déplace la base, le journal et le verrou ; il
-ne déplace **pas** les clés. Deux installations qui emploient le même compte
-utilisateur partagent donc leurs secrets — ce qui est voulu pour un humain, et
-dangereux pour une suite de tests : écrire `provider.venice` depuis un test
-écraserait la vraie clé, sous la même référence, sans rien dire.
+Le trousseau ne connaît qu'un **service** `midgaard` et des **comptes**.
+`MIDGAARD_HOME` déplace la base, le journal et le verrou ; il ne déplace
+**pas** le coffre. La référence d'une clé porte donc l'empreinte du dossier
+runtime : `provider.<8 hex>.<id>`, calculée par `secretRefFor` dans le daemon.
+Jusqu'à la Slice 4, elle valait `provider.<id>`, et deux installations d'une
+même session partageaient leurs clés : déclarer `venice` dans l'une écrasait
+celle de l'autre, et la retirer la supprimait pour les deux (docs/SLICE4.md,
+leçon n° 30). Les références déjà en base gardent leur forme : c'est la base
+qui dit où chercher.
 
-Les tests forcent donc `MIDGAARD_VAULT=file` (voir `tests/helpers.ts`), ce qui
-les cantonne à leur dossier jetable.
+Les tests forcent en plus `MIDGAARD_VAULT=file` (voir `tests/helpers.ts`), ce
+qui les cantonne à leur dossier jetable, sans rien écrire dans le coffre de la
+machine.
 
 ## Limites connues, et assumées
 

@@ -47,6 +47,12 @@ export interface HarnessConfig {
   /** Vrai si {@link port} vient de l'environnement : interdit alors le repli sur un port libre. */
   portIsExplicit: boolean
   /**
+   * Vrai si {@link home} a été désigné (`MIDGAARD_HOME`, `--home` de la CLI),
+   * faux pour `~/.midgaard`. Une commande conseillée doit alors le redire
+   * (`harnessCommand`) : sans lui, elle viserait une autre installation.
+   */
+  homeIsExplicit: boolean
+  /**
    * Délai d'inactivité avant arrêt automatique du daemon. `0` désactive l'arrêt.
    *
    * Le daemon de la Slice 0 ne s'arrêtait jamais : il survivait à toutes les
@@ -160,6 +166,7 @@ export function loadConfig(env: ConfigEnv = {}, overrides: Partial<HarnessConfig
   // Dossier utilisateur et non dossier de projet : le daemon est partagé par
   // toutes les sessions Claude Code, quel que soit le dépôt ouvert.
   const home = overrides.home ?? env.MIDGAARD_HOME ?? join(homedir(), '.midgaard')
+  const homeIsExplicit = overrides.home !== undefined || env.MIDGAARD_HOME !== undefined
   const rawPort = env.MIDGAARD_PORT?.trim()
   const portIsExplicit = rawPort !== undefined && rawPort !== ''
   const idleS = Number(env.MIDGAARD_IDLE_SHUTDOWN_S ?? 1800)
@@ -175,6 +182,7 @@ export function loadConfig(env: ConfigEnv = {}, overrides: Partial<HarnessConfig
     worktreesDir: join(home, 'worktrees'),
     port: portIsExplicit ? Number(rawPort) : DEFAULT_PORT,
     portIsExplicit,
+    homeIsExplicit,
     idleShutdownMs: Number.isFinite(idleS) && idleS >= 0 ? idleS * 1000 : 1_800_000,
     approvalTtlMs: Number.isFinite(ttlS) && ttlS > 0 ? ttlS * 1000 : 600_000,
     maxWaitMs: 60_000,

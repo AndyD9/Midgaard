@@ -5,8 +5,10 @@
  * aux tests, qui appellent les commandes dans le processus plutôt que d'en
  * lancer un.
  */
-export { daemonCheck, decide, doctor, execAllowCheck, gitCheck, init, schemaCheck, start, status, stop, vaultAdvice, MIN_GIT } from './commands.ts'
+export { daemonCheck, decide, doctor, execAllowCheck, gitCheck, init, portFallbackNote, schemaCheck, start, status, stop, vaultAdvice, MIN_GIT } from './commands.ts'
 export type { Check } from './commands.ts'
 export { SERVER_NAME, findNode, mcpConfigPath, mcpServerEntry, writeMcpConfig } from './mcp-config.ts'
 export type { McpServerEntry } from './mcp-config.ts'
 export { exec, parseExecArgs, workspaces } from './workspaces.ts'
+export { extractHome } from './args.ts'
+export { cmd, setAdviceHome } from './ui.ts'

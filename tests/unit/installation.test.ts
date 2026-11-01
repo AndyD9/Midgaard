@@ -8,6 +8,7 @@
  * paquet npm : il ne l'est plus (docs/SLICE4.md, « Ce qui restera ouvert »).
  */
 import assert from 'node:assert/strict'
+import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
@@ -61,14 +62,25 @@ describe('conseil de clé du daemon', () => {
   // et que les sources ne savent pas lancer (Slice 4, étape 7). On vérifie la
   // forme depuis les sources (c'est d'ici que tournent les tests), et que la
   // déclaration entière est redite, `--base-url` compris quand il y en a un.
+  // Depuis l'étape 8, elle se lance hors du clone (`npm --prefix`) et redit le
+  // dossier runtime quand il n'est pas celui par défaut.
+  const root = fileURLToPath(new URL('../..', import.meta.url)).replace(/[\\/]$/, '')
+
   it('redit toute la déclaration, sous la forme que les sources savent lancer', () => {
     assert.equal(
       keyCommand({ id: 'venice', preset: 'venice', default_model: 'deepseek-v4-flash-0731', base_url: null }),
-      'npm run harness -- providers add venice --preset venice --model deepseek-v4-flash-0731',
+      `npm --prefix "${root}" run harness -- providers add venice --preset venice --model deepseek-v4-flash-0731`,
     )
     assert.equal(
       keyCommand({ id: 'local', preset: 'custom', default_model: 'qwen', base_url: 'http://127.0.0.1:8080/v1' }),
-      'npm run harness -- providers add local --preset custom --model qwen --base-url http://127.0.0.1:8080/v1',
+      `npm --prefix "${root}" run harness -- providers add local --preset custom --model qwen --base-url http://127.0.0.1:8080/v1`,
+    )
+  })
+
+  it('redit le dossier runtime quand il est désigné', () => {
+    assert.equal(
+      keyCommand({ id: 'v', preset: 'venice', default_model: 'm', base_url: null }, '/x/runtime'),
+      `npm --prefix "${root}" run harness -- --home "/x/runtime" providers add v --preset venice --model m`,
     )
   })
 })

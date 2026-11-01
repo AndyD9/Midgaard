@@ -89,7 +89,7 @@ interface VeniceModelList {
   data?: {
     id?: string
     model_spec?: {
-      pricing?: { input?: { usd?: number }; output?: { usd?: number } }
+      pricing?: { input?: { usd?: number }; output?: { usd?: number }; cache_input?: { usd?: number } }
       capabilities?: { supportsFunctionCalling?: boolean; supportsWebSearch?: boolean }
     }
   }[]
@@ -145,10 +145,18 @@ export async function fetchVenicePricing(
       skipped++
       continue
     }
+    // Le tarif des jetons lus en cache, quand Venice le publie. Le relevé le
+    // laissait à `null`, et l'estimation comptait alors tout au plein tarif :
+    // 77 % de trop à l'essai de la Slice 4 (étape 8, leçon n° 32), où 60 % des
+    // jetons d'entrée venaient du cache. Avec ce tarif, l'estimation retombe
+    // sur le montant facturé. `cache_write` (écriture en cache, plus chère
+    // que l'entrée chez certains modèles) n'a pas d'équivalent dans le
+    // décompte d'usage : il n'est pas relevé.
+    const cached = spec?.pricing?.cache_input?.usd
     entries[priceKey('venice', model.id)] = {
       input_usd_per_mtok: input,
       output_usd_per_mtok: output,
-      cached_input_usd_per_mtok: null,
+      cached_input_usd_per_mtok: typeof cached === 'number' ? cached : null,
       web_search_usd_per_call: spec?.capabilities?.supportsWebSearch ? VENICE_WEB_SEARCH_USD : null,
     }
     models++

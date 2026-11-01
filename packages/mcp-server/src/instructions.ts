@@ -14,6 +14,7 @@
  */
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
+import { harnessCommand } from '@midgaard/contracts'
 
 /**
  * Commande d'approbation à donner à l'utilisateur.
@@ -21,8 +22,14 @@ import { dirname, resolve } from 'node:path'
  * Midgaard ne s'installe que depuis un clone : aucun binaire `harness` n'est
  * dans le `PATH`, la commande passe par npm, avec le chemin absolu du dépôt —
  * l'utilisateur la lance depuis le dossier où il travaille, pas depuis le clone.
+ * Elle porte aussi le dossier runtime quand il n'est pas celui par défaut :
+ * sans lui, elle cherchait la demande dans `~/.midgaard`, sur le daemon d'une
+ * autre installation (Slice 4, étape 8).
+ *
+ * @param approvalId identifiant de la demande
+ * @param home       dossier runtime si désigné (`config.homeIsExplicit`), sinon `null`
  */
-export function approvalCommand(approvalId: string): string {
+export function approvalCommand(approvalId: string, home: string | null = null): string {
   // On se repère sur ce fichier-ci plutôt que sur le paquet `cli` : celui-ci
   // dépend du serveur MCP (il déclare son point d'entrée dans `.mcp.json`), et
   // l'inverse créerait un cycle entre les deux paquets.
@@ -30,7 +37,7 @@ export function approvalCommand(approvalId: string): string {
   // packages/mcp-server/{src,dist}/instructions.* → racine du dépôt : même
   // profondeur depuis les sources et depuis le build.
   const repoRoot = resolve(dirname(self), '..', '..', '..')
-  return `cd ${JSON.stringify(repoRoot)} && npm run harness -- approve ${approvalId}`
+  return harnessCommand(`approve ${approvalId}`, { repoRoot, home })
 }
 
 /**
@@ -40,13 +47,15 @@ export function approvalCommand(approvalId: string): string {
  *                     décision porte sur une opération précise
  * @param operation    ce que l'humain autorise, en clair
  * @param dashboardUrl URL du dashboard, ou `null` s'il n'est pas servi
+ * @param home         dossier runtime si désigné, sinon `null` ; voir {@link approvalCommand}
  */
 export function approvalInstructions(
   approvalId: string,
   operation: string,
   dashboardUrl: string | null,
+  home: string | null = null,
 ): string {
-  const command = approvalCommand(approvalId)
+  const command = approvalCommand(approvalId, home)
   if (dashboardUrl) {
     return (
       `A human must approve: ${operation}. ` +

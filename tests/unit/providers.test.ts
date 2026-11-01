@@ -18,8 +18,8 @@ import { readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { after, before, describe, it } from 'node:test'
 import type { PricingTable } from '@midgaard/contracts'
-import { addUsage, emptyUsage, pricingTableSchema } from '@midgaard/contracts'
-import { createGeminiAdapter, createOpenAiAdapter, packagedPricingPath, priceFor } from '@midgaard/providers'
+import { addUsage, costFromTable, emptyUsage, pricingTableSchema } from '@midgaard/contracts'
+import { createGeminiAdapter, createOpenAiAdapter, fetchVenicePricing, packagedPricingPath, priceFor } from '@midgaard/providers'
 
 /** Dernière requête reçue, pour vérifier ce qu'on envoie et pas seulement ce qu'on lit. */
 let lastRequest: { path: string; body: Record<string, unknown>; auth: string | undefined }
@@ -373,5 +373,55 @@ describe('table de tarifs livrée', () => {
     const table = pricingTableSchema.parse(JSON.parse(readFileSync(packagedPricingPath(), 'utf8')))
     const foreign = Object.keys(table.entries).filter((k) => !k.startsWith('venice:'))
     assert.deepEqual(foreign, [], 'seuls les tarifs relevés chez un fournisseur sont livrés')
+  })
+})
+
+describe('relevé des tarifs Venice', () => {
+  // Extrait de `GET /models?type=text`, relevé le 2026-11-01 : un modèle avec
+  // tarif caché, un sans. C'est la forme réelle de l'API, pas une supposition.
+  const models = {
+    data: [
+      {
+        id: 'deepseek-v4-flash-0731',
+        model_spec: {
+          pricing: { input: { usd: 0.13 }, cache_input: { usd: 0.028 }, output: { usd: 0.26 } },
+          capabilities: { supportsFunctionCalling: true, supportsWebSearch: true },
+        },
+      },
+      {
+        id: 'qwen3-6-27b',
+        model_spec: {
+          pricing: { input: { usd: 0.325 }, output: { usd: 3.25 } },
+          capabilities: { supportsFunctionCalling: true },
+        },
+      },
+    ],
+  }
+
+  it('relève le tarif des jetons en cache quand Venice le publie, et seulement alors', async () => {
+    getRoutes.set('/models', [200, models])
+    const { table } = await fetchVenicePricing(PRICING, { baseUrl: base, apiKey: 'k', redact: (t) => t })
+    getRoutes.delete('/models')
+    assert.equal(table.entries['venice:deepseek-v4-flash-0731']?.cached_input_usd_per_mtok, 0.028)
+    // Absent n'est pas zéro : sans tarif caché publié, les jetons en cache se
+    // comptent au tarif plein, ce qui surestime plutôt que d'inventer.
+    assert.equal(table.entries['venice:qwen3-6-27b']?.cached_input_usd_per_mtok, null)
+  })
+
+  it('retombe sur la facture de l’essai de la Slice 4, étape 8', async () => {
+    // Consommation et montant facturés de la tâche `1481b002` (leçon n° 32).
+    // Sans le tarif caché, l'estimation donnait 0,00386581 $ : 124 % de trop.
+    getRoutes.set('/models', [200, models])
+    const { table } = await fetchVenicePricing(PRICING, { baseUrl: base, apiKey: 'k', redact: (t) => t })
+    getRoutes.delete('/models')
+    const usage = {
+      ...emptyUsage(),
+      input_tokens: 27703,
+      output_tokens: 1017,
+      reasoning_tokens: 16,
+      cached_tokens: 20992,
+    }
+    const estimated = costFromTable(usage, table.entries['venice:deepseek-v4-flash-0731'])
+    assert.ok(estimated !== null && Math.abs(estimated - 0.001724626) < 1e-8, `estimé ${estimated}`)
   })
 })

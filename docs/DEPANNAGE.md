@@ -237,6 +237,15 @@ Venice, relève-les :
 npm run harness -- pricing refresh venice
 ```
 
+### Le dashboard ne montre pas la demande d'approbation
+
+Deux installations ont chacune leur daemon, et le premier lancé tient le port
+7777. L'en-tête du dashboard affiche le dossier runtime du daemon qu'il sert :
+s'il n'est pas celui de la tâche, ouvre l'URL donnée par la consigne
+d'approbation. `npm run harness -- status` le dit aussi : « port 7777 occupé —
+sans doute le daemon d'une autre installation, dont le dashboard n'est pas
+celui-ci : ce daemon écoute sur … ».
+
 ### `timed_out` : « aucune décision humaine en 10 minutes »
 
 Une demande d'approbation expire au bout de 10 minutes
@@ -246,6 +255,9 @@ indéfiniment. Une approbation arrivée après : `approval_already_resolved`.
 ### `npm run harness -- approve` ne fait rien
 
 - « Aucune demande d'approbation en attente. » — elle a été décidée, ou a expiré.
+  Ou bien la commande vise un autre dossier runtime : celle de la consigne
+  porte `--home "…"` quand le daemon n'est pas sur `~/.midgaard`, et se lance
+  telle quelle, d'où qu'on soit.
 - « Plusieurs demandes attendent, précise laquelle : » — chaque ligne qui suit
   est une commande complète, prête à copier. L'identifiant attendu est celui
   de la **demande**, pas celui de la tâche.
@@ -310,7 +322,7 @@ changée sous un daemon déjà lancé n'a d'effet qu'après `npm run harness -- 
 
 | Variable | Effet | Défaut |
 |---|---|---|
-| `MIDGAARD_HOME` | Dossier runtime : base, journal, jeton, worktrees | `~/.midgaard` |
+| `MIDGAARD_HOME` | Dossier runtime : base, journal, jeton, worktrees ; pour la CLI, `--home <dossier>` avant la commande fait de même | `~/.midgaard` |
 | `MIDGAARD_PORT` | Port d'écoute sur `127.0.0.1` ; fixé, il interdit le repli | `7777`, repli sur un port libre |
 | `MIDGAARD_IDLE_SHUTDOWN_S` | Arrêt après inactivité ; `0` le désactive | `1800` |
 | `MIDGAARD_APPROVAL_TTL_S` | Validité d'une demande d'approbation | `600` |

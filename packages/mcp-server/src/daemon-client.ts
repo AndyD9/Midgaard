@@ -137,7 +137,15 @@ export async function ensureDaemon(config: HarnessConfig, log: (...a: unknown[])
   const { args } = daemonCommand()
   // stdin ignoré, sorties vers le journal : surtout pas notre stdout, qui est le
   // canal JSON-RPC avec Claude Code.
-  spawn(process.execPath, args, { detached: true, stdio: ['ignore', out, out], env: process.env }).unref()
+  // Le dossier runtime voyage explicitement : désigné par `--home`, la CLI ne
+  // l'a pas dans son environnement, et le daemon lancé retombait sur
+  // `~/.midgaard` — il y trouvait le verrou d'un autre daemon et sortait, son
+  // journal écrit ici, dans le dossier demandé. Constaté en vérifiant à la main
+  // la leçon n° 33 de la Slice 4. Seulement s'il est désigné : posé toujours,
+  // il rendrait `homeIsExplicit` vrai dans le daemon, et chaque conseil
+  // redirait `--home` pour le dossier par défaut.
+  const env = config.homeIsExplicit ? { ...process.env, MIDGAARD_HOME: config.home } : process.env
+  spawn(process.execPath, args, { detached: true, stdio: ['ignore', out, out], env }).unref()
 
   const deadline = Date.now() + BOOT_MS
   while (Date.now() < deadline) {

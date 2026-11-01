@@ -12,6 +12,8 @@
  * configuration qui promet une clé inexistante — et l'erreur ne se verrait qu'à
  * la première tâche, loin de sa cause.
  */
+import { createHash } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import type {
   ConnectionTest,
   HarnessConfig,
@@ -44,9 +46,37 @@ export interface ProviderServiceDeps {
   log: (...a: unknown[]) => void
 }
 
-/** Référence d'une clé dans le coffre. Dérivée de l'identifiant, jamais fournie de l'extérieur. */
-export function secretRefFor(providerId: string): string {
-  return `provider.${providerId}`
+/**
+ * Référence d'une clé dans le coffre. Dérivée de l'identifiant et du dossier
+ * runtime, jamais fournie de l'extérieur.
+ *
+ * **Pourquoi le dossier runtime.** Les coffres système sont par utilisateur,
+ * pas par installation : sous `provider.<id>` seul, deux `MIDGAARD_HOME` d'une
+ * même session voyaient la même entrée — déclarer `venice` dans l'un écrasait
+ * la clé de l'autre, et `providers remove` dans l'un **supprimait** celle dont
+ * l'autre se servait (Slice 4, étape 8, leçon n° 30). Huit caractères
+ * hexadécimaux de l'empreinte du chemin canonique suffisent à séparer les
+ * installations d'une machine, et restent dans l'alphabet de `normalizeRef`.
+ *
+ * Les références déjà en base ne sont pas recalculées : c'est la base qui dit
+ * où est une clé, et `upsertProvider` réutilise celle qu'elle connaît.
+ *
+ * @param home       dossier runtime de cette installation (`config.home`)
+ * @param providerId identifiant du fournisseur
+ * @returns par exemple `provider.3f9a0c21.venice`
+ */
+export function secretRefFor(home: string, providerId: string): string {
+  let canonical = home
+  try {
+    // `.native` : sous Windows, seul lui développe les noms courts 8.3 — sans
+    // quoi un même dossier aurait deux empreintes (voir CLAUDE.md).
+    canonical = realpathSync.native(home)
+  } catch {
+    // Dossier pas encore créé : le daemon le crée avant d'écrire quoi que ce
+    // soit, donc ce cas ne sert qu'aux tests qui appellent la fonction seule.
+  }
+  const scope = createHash('sha256').update(canonical).digest('hex').slice(0, 8)
+  return `provider.${scope}.${providerId}`
 }
 
 /** Déclare ou met à jour un fournisseur, et dépose sa clé. */
@@ -70,7 +100,9 @@ export async function upsertProvider(
   // précédente — si elle existait — reste valide.
   let secretRef = existing?.secret_ref ?? null
   if (input.api_key) {
-    secretRef = secretRefFor(input.id)
+    // Une clé remplacée reprend la référence connue : en changer laisserait
+    // l'ancienne entrée orpheline dans le coffre, hors de portée de `remove`.
+    secretRef ??= secretRefFor(deps.config.home, input.id)
     try {
       await deps.vault.set(secretRef, input.api_key)
     } catch (e) {

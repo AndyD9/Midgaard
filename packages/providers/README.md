@@ -55,6 +55,11 @@ jamais « 0 $ ».
 
 `fetchVenicePricing` reconstruit la table depuis `GET /models`, qui publie
 `model_spec.pricing`. Un tarif relevé chez le fournisseur ne peut pas dériver.
+Il relève aussi `cache_input`, le tarif des jetons lus en cache : sans lui,
+tout était compté au plein tarif, et l'estimation de l'essai de la Slice 4
+(étape 8) dépassait la facture de 124 % ; avec lui, elle tombe dessus au
+microdollar. `cache_write` n'est pas relevé : l'usage ne compte pas les
+écritures en cache.
 
 ## Test de connexion
 

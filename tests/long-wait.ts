@@ -28,7 +28,9 @@
  * Verdicts : `PASS`/`FAIL` pour les comportements garantis ; `CONSTAT` pour une
  * mesure d'environnement qui n'engage pas notre code.
  */
+import { spawnSync } from 'node:child_process'
 import { createServer } from 'node:http'
+import { tmpdir } from 'node:os'
 import { once } from 'node:events'
 import { writeFileSync } from 'node:fs'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -207,7 +209,7 @@ await scenario(outcomes, "S8 consignes d'approbation exactes et vérifiables", a
   // Aucun `<placeholder>` : zsh lirait `<` et `>` comme des redirections.
   if (/[<>]/.test(instructions)) problems.push('contient un placeholder')
   if (!instructions.includes(paused.approval_id)) problems.push("ne porte pas l'identifiant de la demande")
-  if (!/harness (approve|run harness)|npm run harness/.test(instructions)) problems.push('aucune commande exacte')
+  if (!/npm (--prefix "[^"]+" )?run harness -- /.test(instructions)) problems.push('aucune commande exacte')
 
   // L'invariant du défaut n° 1 : si une URL de dashboard est annoncée, elle doit
   // vraiment servir le dashboard — pas la page « non compilé ».
@@ -217,10 +219,28 @@ await scenario(outcomes, "S8 consignes d'approbation exactes et vérifiables", a
     if (/non compilé/.test(page)) problems.push("l'URL annoncée ne sert pas le dashboard")
   }
 
+  // La commande elle-même, lancée comme l'utilisateur la lancerait : depuis un
+  // autre dossier que le clone, et sans `MIDGAARD_HOME` dans l'environnement.
+  // Elle disait `cd <clone> && npm run harness -- approve …`, sans le dossier
+  // runtime : lancée telle quelle, elle cherchait la demande dans
+  // `~/.midgaard` (Slice 4, étape 8). Le seul moyen de prouver qu'elle marche
+  // est de la lancer, puis de constater que la tâche repart.
+  const command = /(?:run this command in a terminal|Run this command exactly as written): (.+)$/.exec(instructions)?.[1]
+  if (!command) problems.push('commande introuvable dans la consigne')
+  else {
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('MIDGAARD_')))
+    const ran = spawnSync(command, { shell: true, cwd: tmpdir(), env, encoding: 'utf8' })
+    if (ran.status !== 0) problems.push(`commande en échec (${ran.status}) : ${(ran.stderr || ran.stdout).trim().slice(0, 300)}`)
+    const after = payload(await a.callTool({ name: 'harness_get_task_status', arguments: { task_id: id } }))
+    if (after.status === 'waiting_approval') problems.push("la commande a réussi mais la tâche attend toujours")
+  }
+
   await a.callTool({ name: 'harness_cancel_task', arguments: { task_id: id } }).catch(() => {})
   return {
     verdict: problems.length ? 'FAIL' : 'PASS',
-    detail: problems.length ? problems.join(' ; ') : `consigne vérifiée${url ? `, dashboard servi à ${url}` : ', sans dashboard'}`,
+    detail: problems.length
+      ? problems.join(' ; ')
+      : `consigne vérifiée et commande lancée hors du clone${url ? `, dashboard servi à ${url}` : ', sans dashboard'}`,
   }
 })
 

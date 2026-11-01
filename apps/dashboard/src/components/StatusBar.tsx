@@ -5,7 +5,7 @@
  * dashboard temps réel qui a perdu sa WebSocket continue d'afficher des données
  * d'apparence normale. Sans ce témoin, on croirait qu'il ne se passe rien.
  */
-import { Activity, CircleAlert, Database, Plug, PlugZap, Timer } from 'lucide-react'
+import { Activity, CircleAlert, Database, FolderOpen, Plug, PlugZap, Timer } from 'lucide-react'
 import type { Health } from '@midgaard/contracts'
 import type { ConnectionStatus } from '@/lib/useHarness'
 import { Badge } from './ui/badge'
@@ -14,6 +14,19 @@ const CONNECTION: Record<ConnectionStatus, { label: string; tone: 'running' | 'd
   connecting: { label: 'connexion…', tone: 'running' },
   open: { label: 'en direct', tone: 'done' },
   closed: { label: 'déconnecté', tone: 'danger' },
+}
+
+/**
+ * Dossier runtime du daemon, tiré du chemin de sa base.
+ *
+ * Affiché en clair, pas seulement au survol : deux installations sur une même
+ * machine ont deux daemons et deux dashboards, et rien d'autre ne les
+ * distinguait. À l'essai de la Slice 4 (étape 8, leçon n° 33), l'auteur a
+ * cherché une approbation sur `127.0.0.1:7777`, le dashboard de l'autre
+ * installation : la page était vide et rien ne disait pourquoi.
+ */
+function runtimeDir(dbPath: string): string {
+  return dbPath.replace(/[\\/][^\\/]+$/, '')
 }
 
 /** Millisecondes en texte court, pour le compte à rebours d'inactivité. */
@@ -55,6 +68,14 @@ export function StatusBar({
             <span className="flex items-center gap-1.5 text-xs text-muted" title={health.db_path}>
               <Database className="size-3.5" />
               {health.tasks.total} tâche(s), {health.tasks.active} active(s)
+            </span>
+            <span
+              className="flex min-w-0 items-center gap-1.5 text-xs text-muted"
+              title={`Dossier runtime de ce daemon : ${runtimeDir(health.db_path)}`}
+              data-testid="runtime-dir"
+            >
+              <FolderOpen className="size-3.5 shrink-0" />
+              <span className="truncate font-mono">{runtimeDir(health.db_path)}</span>
             </span>
             {health.idle_shutdown_in_ms !== null && (
               <span

@@ -753,7 +753,7 @@ déclarer `venice` dans l'un écrase la clé de l'autre, et `providers remove`
 dans l'un **supprime** la clé dont l'autre se sert. Sans conséquence pour une
 installation unique — et les suites de tests posent `MIDGAARD_VAULT=file` —,
 mais c'est le cas de cet essai. Il emploie donc un autre identifiant
-(`essai-venice`). Non corrigé : à décider.
+(`essai-venice`). *Réglé après l'essai* (§ « Les constats, réglés »).
 
 ### Le terrain de la session
 
@@ -846,13 +846,15 @@ depuis le dépôt de démo, `npm run harness -- approve …` ne trouve pas de sc
 `harness`. La consigne envoyée par le serveur était juste et complète, et son
 `hint` disait « verbatim ». C'est le client qui n'obéit pas, et rien côté
 serveur ne peut l'y forcer. Mais la consigne peut se rendre plus robuste : une
-commande qui marche d'où qu'on la lance, sans `cd`. À décider.
+commande qui marche d'où qu'on la lance, sans `cd`. *Réglé après l'essai*, et
+pire qu'il n'y paraissait (§ « Les constats, réglés »).
 
 **32. L'estimation surévalue de 77 %.** Elle donne 0,00365 $ pour 0,00206 $
 facturés : 15 616 des 26 206 jetons d'entrée étaient en cache, et
 `pricing.json` n'a pas de tarif caché pour ce modèle
 (`cached_input_usd_per_mtok: null`), donc tout est compté au plein tarif.
 C'est exactement la dérive que la double provenance devait rendre visible.
+*Réglé après l'essai* (§ « Les constats, réglés »).
 
 Hors protocole : vérifier le runtime de l'essai avec `harness agents` y a
 **démarré un daemon**, qui a créé le dossier et la base. Il reste vierge
@@ -891,7 +893,8 @@ aucune demande : c'était le dashboard de l'installation de travail. La
 consigne relayée portait pourtant la bonne URL. Rien n'y est faux — le repli
 est documenté, et l'URL annoncée est celle qui sert — mais rien n'avertit non
 plus qu'un autre daemon tient 7777. Un tiers n'a qu'une installation ; le cas
-ne naît que d'un essai comme celui-ci.
+ne naît que d'un essai comme celui-ci. *Réglé après l'essai* (§ « Les
+constats, réglés »).
 
 **Ce que l'essai établit.** Depuis un clone frais, avec les seules commandes du
 README, un runtime vierge et un fournisseur déclaré par la CLI, le scénario du
@@ -900,23 +903,70 @@ récupéré par Claude, coût exact. La leçon n° 31 était propre à la premi�
 session : la seconde a transmis la consigne telle quelle. L'essai sous Windows
 et Linux reste ce que la décision du 2026-10-30 en a fait : la CI seulement.
 
+### Les constats, réglés — 2026-11-01
+
+L'auteur a tranché les quatre points le jour même, chacun pour l'option
+recommandée.
+
+**N° 30 — une référence de clé par installation.** `secretRefFor(home, id)`
+rend `provider.<8 hex>.<id>`, l'empreinte étant celle du chemin canonique du
+dossier runtime (`realpathSync.native`, pour les noms courts de Windows). Les
+références déjà en base ne bougent pas, sans migration : `upsertProvider`
+réutilise celle qu'il connaît quand une clé change, plutôt que d'en calculer
+une nouvelle et de laisser l'ancienne orpheline. `provider-refs.test.ts` : deux
+dossiers, deux références ; un lien, la même ; une base d'avant garde la
+sienne.
+
+**N° 31 — des commandes qui se lancent d'où qu'on soit, sur le bon runtime.**
+En y regardant, le défaut était plus grave que le `cd` perdu : même intacte, la
+consigne de l'essai cherchait la demande dans `~/.midgaard`, faute de redire
+`MIDGAARD_HOME` — l'approbation aurait échoué sur le daemon de l'autre
+installation. Même cause pour la commande de clé du daemon et pour les
+conseils de la CLI. La forme vit désormais dans `contracts`
+(`harnessCommand`) : `npm --prefix "<clone>"` hors du clone, et `--home
+"<runtime>"` — nouvelle option de la CLI, qui s'écrit pareil sous zsh,
+PowerShell et cmd — dès que le dossier est désigné (`homeIsExplicit`).
+`--home` passe **avant** la commande, parce qu'après `--` la CLI ne lit plus
+d'option et `exec allow -- …` l'aurait mis en liste blanche. Les chemins ne
+passent plus par `JSON.stringify`, qui doublait les `\` des chemins Windows.
+`advice.test.ts` fixe la forme ; surtout, **S8 lance la commande** de la
+consigne depuis un autre dossier, sans aucune variable `MIDGAARD_*`, et
+vérifie que la tâche repart.
+
+**34. `--home` démarrait le daemon d'un autre dossier.** Tous les tests
+verts, la vérification à la main du n° 33 a échoué : `--home x start` restait
+huit secondes sans daemon. `ensureDaemon` lançait le daemon avec
+`process.env`, où `--home` ne figure pas ; le daemon retombait sur
+`~/.midgaard`, y trouvait le verrou de l'installation de travail et sortait
+— en écrivant son journal dans `x`, où on le cherchait. Le dossier voyage
+désormais dans l'environnement du fils, quand il est désigné. Les suites ne
+pouvaient pas le voir : elles posent toutes `MIDGAARD_HOME`. Le test lance la
+vraie CLI avec `--home` seul, et échoue sans le correctif.
+
+**N° 32 — le tarif caché, relevé.** `fetchVenicePricing` lit
+`model_spec.pricing.cache_input`. La table livrée a été régénérée depuis
+l'endpoint public : 135 modèles, dont 116 avec tarif caché. Rejouée avec ce
+tarif, la consommation de la tâche `1481b002` donne 0,001724626 $ — le montant
+facturé, au microdollar (`providers.test.ts`).
+
+**N° 33 — le port de repli dit, l'installation visible.** `start` et `status`
+préviennent : « port 7777 occupé — sans doute le daemon d'une autre
+installation, dont le dashboard n'est pas celui-ci : ce daemon écoute sur … ».
+L'en-tête du dashboard affiche le dossier runtime du daemon qu'il sert. Le
+jeton de l'autre daemon n'étant pas lisible, rien ne prétend savoir ce qui
+tient le port.
+
+**Ce qui reste.** La carte « Exécutants » du dashboard écrit encore en dur
+`npm run harness -- providers add venice …`, sans `--prefix` ni `--home` : le
+dashboard ne connaît pas la racine du clone. Sans conséquence avec une seule
+installation.
+
 ---
 
 ## Ce qui restera ouvert, déjà su
 
-Nés de l'étape 8, à décider avant ou pendant la Slice 5 :
-
-- **Deux installations partagent le trousseau** (leçon n° 30) : la référence
-  `provider.<id>` ne dépend pas du dossier runtime.
-- **Une consigne d'approbation lançable d'où qu'on soit** (leçon n° 31) : la
-  commande commence par un `cd`, qu'un client qui reformule peut perdre.
-- **L'estimation ignore le tarif caché** (leçon n° 32) : 77 % de trop sur
-  l'essai, `cached_input_usd_per_mtok` étant `null`.
-- **Deux dashboards sur deux ports** (leçon n° 33) : rien n'avertit qu'un autre
-  daemon tient 7777.
-
-Connus avant l'étape 8 :
-
+- **La carte « Exécutants » du dashboard** conseille une commande sans
+  `--prefix` ni `--home` (étape 8, § « Les constats, réglés »).
 - **Les sous-processus lancés hors de libuv, sous Windows** (SLICE3, leçon
   n° 21) : leur nettoyage après la sortie du parent n'est pas constaté. La CI de
   l'étape 5 ne l'a pas tranché, faute d'un tel programme dans les tests.

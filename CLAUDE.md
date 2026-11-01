@@ -36,7 +36,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run doctor` | Diagnostic de l'installation |
 | `npm run typecheck` | Vérification des types, dashboard compris |
 | `npm run build` | Compile les paquets et le dashboard |
-| `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `approve`, `reject` |
+| `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `approve`, `reject` ; `--home <dossier>` avant la commande vise un autre runtime |
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho |
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
 | `npm run harness -- workspaces` | Worktrees : `remove`, `clean` — la branche reste toujours |
@@ -81,12 +81,16 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   entre la lecture de son compteur et son arrêt. Une installation = dossier du
   paquet `@midgaard/daemon` + version (décision de la Slice 4, étape 6) : deux
   clones sur un même `~/.midgaard` sont deux installations.
-- **Une commande conseillée à l'utilisateur passe par `cmd()`** (CLI), qui
-  rend `npm run harness -- …` : Midgaard ne s'installe que depuis un clone,
-  aucun binaire `harness` n'est dans le `PATH`. Le daemon et le serveur MCP, qui
-  ne peuvent pas dépendre de la CLI, en redisent la forme (`keyCommand`,
-  `approvalCommand`). Un `harness …` écrit en dur est un conseil que personne
-  ne peut lancer — `status` en affichait un, trouvé le 2026-11-01.
+- **Une commande conseillée à l'utilisateur passe par `harnessCommand`**
+  (`contracts`), que la CLI emploie par `cmd()`, le daemon par `keyCommand` et
+  le serveur MCP par `approvalCommand` : Midgaard ne s'installe que depuis un
+  clone, aucun binaire `harness` n'est dans le `PATH`. Lue **hors du clone**
+  (consigne relayée, erreur au dashboard), elle porte `npm --prefix "<clone>"`,
+  jamais `cd … &&` — un client qui reformule perd le `cd`. Elle redit
+  `--home "<runtime>"`, **avant** la commande, dès que le dossier runtime est
+  désigné (`homeIsExplicit`) : sans lui, elle visait `~/.midgaard`, donc une
+  autre installation (Slice 4, étape 8). Un `harness …` écrit en dur est un
+  conseil que personne ne peut lancer — `status` en affichait un.
 - **La configuration est injectée**, jamais lue au chargement d'un module. Seuls
   les `main.ts` lisent `process.env`.
 - **Une migration publiée ne se modifie plus** : toute évolution ajoute une entrée
@@ -240,11 +244,11 @@ L'essai d'acceptation (étape 8) : depuis un clone GitHub frais, avec les
 seules commandes du README et un runtime vierge, un Developer a implémenté
 `/health` en vraie session sous approbation, coût **exact** contre le solde
 Venice. Il a trouvé un défaut réel : le trousseau macOS se déclarait
-disponible sans trousseau par défaut (leçon n° 29, corrigée). Quatre points
-restent à trancher (leçons n° 30 à 33, § « Ce qui restera ouvert » de
-`docs/SLICE4.md`) : trousseau partagé entre installations, consigne
-d'approbation qui dépend d'un `cd`, estimation sans tarif caché, deux
-dashboards sur deux ports.
+disponible sans trousseau par défaut (leçon n° 29). Ses quatre autres
+constats sont réglés : référence de clé par installation
+(`provider.<empreinte>.<id>`), commandes conseillées sans `cd` et avec
+`--home`, tarif caché relevé chez Venice, port de repli signalé et dossier
+runtime affiché au dashboard (leçons n° 30 à 33, `docs/SLICE4.md`).
 
 **Pas de distribution** (décision du 2026-11-01, définitive) : le paquet npm et
 sa publication (étapes 6 et 7) ont été livrés puis retirés ; Midgaard

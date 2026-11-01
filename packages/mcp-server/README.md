@@ -23,7 +23,12 @@ exactement l'erreur que ce paquet existe pour ne plus commettre.
 **Aucun outil d'approbation.** Si Claude pouvait approuver, le contrôle humain
 n'aurait plus de sens. Chaque réponse qui signale une pause porte
 `approval_instructions` : une consigne complète, destinée à l'humain, que Claude
-n'a qu'à transmettre.
+n'a qu'à transmettre. Sa commande (`approvalCommand`) se lance d'où qu'on soit —
+`npm --prefix "<clone>" run harness -- …`, jamais `cd … &&`, qu'un client qui
+reformule peut perdre — et redit `--home` quand le dossier runtime n'est pas
+`~/.midgaard`. Le scénario S8 de `test:wait` la **lance**, depuis un autre
+dossier et sans `MIDGAARD_HOME`, et vérifie que la tâche repart (Slice 4,
+étape 8).
 
 **Une pause n'est annoncée qu'une fois par client.** La première annonce rend
 `human_approval_pending` ; ensuite l'attente **bloque** jusqu'à la décision. Sans

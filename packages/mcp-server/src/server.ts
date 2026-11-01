@@ -214,6 +214,7 @@ export function createMcpServer(config: HarnessConfig, log: (...a: unknown[]) =>
             view.approval.id,
             view.approval.operation,
             await dashboardUrl(),
+            config.homeIsExplicit ? config.home : null,
           ),
           approval_expires_at: view.approval.expires_at,
         }
