@@ -6,11 +6,14 @@ Code : un profil `orchestrator` qui tourne dans le daemon, sur le fournisseur et
 le modèle choisis (Venice, OpenAI, Gemini, compatible OpenAI), et qui délègue
 lui-même aux autres profils.
 
-**État : planifiée.** Décisions prises, découpage arrêté, aucune ligne de code.
-Elle démarre **après l'étape 8 de la Slice 4** (l'essai d'acceptation depuis
-un clone frais) : ce qui existe doit avoir fait ses preuves avant qu'on y
-ajoute un orchestrateur. *Révisé le 2026-11-01 :* l'étape 8 n'est plus une
-publication, la distribution npm ayant été abandonnée ([SLICE4.md](SLICE4.md)).
+**État : planifiée, prête à démarrer.** Décisions prises, découpage arrêté,
+aucune ligne de code. Elle attendait l'étape 8 de la Slice 4 — ce qui existe
+devait avoir fait ses preuves avant qu'on y ajoute un orchestrateur : c'est
+fait le 2026-11-01, depuis un clone frais ([SLICE4.md](SLICE4.md)). La Slice 4
+lui laisse quatre points à trancher (leçons n° 30 à 33), dont deux la
+touchent : un orchestrateur lancé du dashboard rendra plus fréquent le cas de
+deux daemons, et ses sous-tâches demanderont des approbations dont la consigne
+doit marcher d'où qu'on la lise.
 
 ---
 

@@ -3,8 +3,9 @@
 Harness local qui laisse Claude Code déléguer des tâches à des agents exécutants,
 les observer et les soumettre à approbation humaine. **Lire d'abord** :
 [README.md](README.md) (état, commandes), [docs/PLAN.md](docs/PLAN.md) (décisions
-et slices), [docs/SLICE4.md](docs/SLICE4.md) (durcissement, distribution
-abandonnée : décisions, étapes — la slice en cours), [docs/SLICE3.md](docs/SLICE3.md) (Developer, worktrees,
+et slices), [docs/SLICE5.md](docs/SLICE5.md) (orchestrateur intégré — la
+prochaine slice, planifiée), [docs/SLICE4.md](docs/SLICE4.md) (durcissement,
+distribution abandonnée, essai depuis un clone), [docs/SLICE3.md](docs/SLICE3.md) (Developer, worktrees,
 approbations : décisions, étapes, essai réel, CI), [docs/SLICE2.md](docs/SLICE2.md),
 [docs/SLICE1.md](docs/SLICE1.md) et [docs/SLICE0.md](docs/SLICE0.md) (d'où
 viennent les invariants).
@@ -221,19 +222,33 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
 
-## Slice 4 en cours — durcissement
+## Slice 5 — planifiée, prête à démarrer
 
-Démarrée le 2026-10-30. Décisions (`edit_file` tolérant aux fins de ligne ;
-Windows éprouvé en CI seulement) et découpage en huit étapes :
-[docs/SLICE4.md](docs/SLICE4.md). Depuis l'étape 2 : migration 7
-(`workspaces.submodules_json`), `PROTOCOL_VERSION` 8, puis 9 à l'étape 6.
-Depuis l'étape 5, **toutes** les suites tournent en CI sur macOS, Linux et
-Windows (`.github/workflows/e2e.yml`, passage `41182184282`).
+Un orchestrateur intégré au daemon, sur n'importe quel modèle, lancé du
+dashboard : décisions et découpage en sept étapes dans
+[docs/SLICE5.md](docs/SLICE5.md). Aucune ligne de code encore.
+
+## Slice 4 terminée — durcissement
+
+Démarrée le 2026-10-30, terminée le 2026-11-01. Décisions (`edit_file`
+tolérant aux fins de ligne ; Windows éprouvé en CI seulement) et découpage :
+[docs/SLICE4.md](docs/SLICE4.md). Migration 7 (`workspaces.submodules_json`),
+`PROTOCOL_VERSION` 9. **Toutes** les suites tournent en CI sur macOS, Linux
+et Windows (`.github/workflows/e2e.yml`, passage `41182184282`).
+
+L'essai d'acceptation (étape 8) : depuis un clone GitHub frais, avec les
+seules commandes du README et un runtime vierge, un Developer a implémenté
+`/health` en vraie session sous approbation, coût **exact** contre le solde
+Venice. Il a trouvé un défaut réel : le trousseau macOS se déclarait
+disponible sans trousseau par défaut (leçon n° 29, corrigée). Quatre points
+restent à trancher (leçons n° 30 à 33, § « Ce qui restera ouvert » de
+`docs/SLICE4.md`) : trousseau partagé entre installations, consigne
+d'approbation qui dépend d'un `cd`, estimation sans tarif caché, deux
+dashboards sur deux ports.
 
 **Pas de distribution** (décision du 2026-11-01, définitive) : le paquet npm et
 sa publication (étapes 6 et 7) ont été livrés puis retirés ; Midgaard
-s'installe depuis un clone. Ne pas les réintroduire sans demande. Reste
-l'étape 8 : le scénario §12 depuis un clone frais, sur un `HOME` vierge. Le
+s'installe depuis un clone. Ne pas les réintroduire sans demande. Le
 guide de dépannage est [docs/DEPANNAGE.md](docs/DEPANNAGE.md) — à tenir à jour
 quand un message d'erreur change, il les cite mot pour mot.
 
@@ -257,7 +272,8 @@ lui laisse, au § « Ce qui reste ouvert » de `docs/SLICE3.md` :
 
 - ~~`doctor` migre la base qu'il diagnostique~~ — réglé (Slice 4, étape 1) ;
 - ~~`edit_file` dans un dépôt CRLF~~ — réglé (Slice 4, étape 2) ;
-- le daemon de bout en bout, le dashboard et la CLI n'ont tourné que sous macOS ;
+- ~~le daemon de bout en bout, le dashboard et la CLI n'ont tourné que sous
+  macOS~~ — réglé (Slice 4, étape 5) : en CI sur les trois plateformes ;
 - ~~les sous-modules sont absents des worktrees, sans que rien le dise~~ — réglé
   (Slice 4, étape 2) : nommés, et l'écriture y est refusée.
 

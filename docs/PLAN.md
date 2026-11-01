@@ -199,7 +199,7 @@ Prouver de bout en bout : un serveur MCP minimal enregistré via `claude mcp add
 `workspace` (création/nettoyage/diff des worktrees), outils écriture + git + exec contrôlé, ApprovalBroker et UI d'approbation bloquante, onglet Files/Diff.
 **Livrable :** un Developer implémente un changement dans un worktree isolé, une commande sensible suspend la tâche jusqu'à décision humaine, le diff est consultable, Claude récupère le résultat.
 
-### Slice 4 — Durcissement et distribution (4–6 j) — distribution abandonnée le 2026-11-01
+### Slice 4 — Durcissement et distribution (4–6 j) — distribution abandonnée, terminée le 2026-11-01
 Tests de sécurité ciblés (traversée de chemins, symlinks, injection shell, IMDS, origines WS), scénarios de crash et reprise, deux tâches concurrentes sur worktrees distincts, publication npm, README et guide de dépannage.
 **Livrable :** installable par un tiers en une commande, scénario de démo du document §12 rejoué sans terminal intégré.
 *Révisé le 2026-11-01 :* pas de publication npm — Midgaard s'installe depuis un clone (`npm ci`, `npm run build`, `npm run init`), et l'essai §12 se joue depuis un clone frais ([SLICE4.md](SLICE4.md)).

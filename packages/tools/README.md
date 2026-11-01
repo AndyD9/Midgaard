@@ -222,7 +222,8 @@ dit une fois et `exec` fonctionne comme avant. Éprouvé par `exec.test.ts` (un
 lanceur tué par `SIGKILL` une fois sa commande inscrite, sa commande doit
 mourir ; la contre-épreuve sans inscription échoue) et par V12 dans
 `test:developer` (un vrai daemon). Sous Windows, elle passe par `taskkill /T` :
-**pas encore constaté**, ce sera l'étape 5 de la Slice 4.
+le test et V12 y passent en CI depuis la Slice 4 (étape 5), sans dire **qui** a
+tué la commande — la garde ou le *Job Object* de libuv (docs/SLICE4.md).
 
 ## `http_fetch`
 

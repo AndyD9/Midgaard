@@ -7,9 +7,10 @@ s'installe depuis un clone (§ « La distribution, abandonnée »). En chemin : 
 deux tâches concurrentes sur des worktrees distincts, README et guide de
 dépannage.
 
-**État : étapes livrées.** Étapes 1 à 5 et 8 livrées ; les étapes 6 et 7 (le
-paquet, la publication) livrées puis **retirées** le 2026-11-01. Rien n'a été
-publié.
+**État : terminée le 2026-11-01.** Étapes 1 à 5 et 8 livrées ; les étapes 6
+et 7 (le paquet, la publication) livrées puis **retirées** le 2026-11-01. Rien
+n'a été publié. Le livrable révisé est atteint : depuis un clone frais, le
+scénario §12 tient sous macOS en vraie session (étape 8).
 
 ---
 
@@ -901,6 +902,21 @@ et Linux reste ce que la décision du 2026-10-30 en a fait : la CI seulement.
 ---
 
 ## Ce qui restera ouvert, déjà su
+
+Nés de l'étape 8, à décider avant ou pendant la Slice 5 :
+
+- **Deux installations partagent le trousseau** (leçon n° 30) : la référence
+  `provider.<id>` ne dépend pas du dossier runtime.
+- **Une consigne d'approbation lançable d'où qu'on soit** (leçon n° 31) : la
+  commande commence par un `cd`, qu'un client qui reformule peut perdre.
+- **L'estimation ignore le tarif caché** (leçon n° 32) : 77 % de trop sur
+  l'essai, `cached_input_usd_per_mtok` étant `null`.
+- **Deux dashboards sur deux ports** (leçon n° 33) : rien n'avertit qu'un autre
+  daemon tient 7777.
+- **La nouvelle sonde du trousseau en CI** (leçon n° 29) : le poste macOS de
+  `vault.yml` doit avoir un trousseau par défaut ; pas encore constaté.
+
+Connus avant l'étape 8 :
 
 - **Les sous-processus lancés hors de libuv, sous Windows** (SLICE3, leçon
   n° 21) : leur nettoyage après la sortie du parent n'est pas constaté. La CI de
