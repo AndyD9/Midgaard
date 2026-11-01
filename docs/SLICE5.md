@@ -483,7 +483,8 @@ terminal et relit toute la sortie : l'invite et le retour à la ligne, rien
 d'autre. Le test a été vu échouer avec l'ancienne `readline` remise en place,
 sur exactement ce que l'auteur avait vu (`> abc…`). Puis la saisie a tourné
 dans un vrai pseudo-terminal (`script`) : l'invite seule, et les 13
-caractères lus.
+caractères lus. *Constaté en CI au passage `41330726373` : le test de la
+saisie passe sous macOS, Linux et Windows, avec toutes les autres suites.*
 
 C'est l'invariant « une phrase de documentation est une affirmation à
 prouver » (Slice 3, leçon n° 10) : « sans écho » était écrit, jamais vérifié.
