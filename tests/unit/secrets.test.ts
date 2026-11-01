@@ -26,9 +26,11 @@
  * en particulier : elle ne parle qu'à l'interface `SecretVault`.
  */
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { after, describe, it } from 'node:test'
 import {
   VAULT_ENV,
@@ -184,6 +186,37 @@ describe(
     })
   },
 )
+
+// --- le trousseau macOS sans trousseau par défaut ---------------------------
+
+describe('trousseau macOS sur un HOME sans trousseau', () => {
+  // Constaté à la Slice 4, étape 8 : sur un `HOME` vierge, `security help`
+  // répond, mais aucun trousseau par défaut n'existe ; l'ancienne sonde
+  // annonçait le trousseau, `doctor` affichait « ✔ », et la première écriture
+  // restait bloquée derrière une fenêtre système. Le sous-processus porte le
+  // `HOME` vide : `run` le reprend dans l'environnement de `security`, et le
+  // changer dans ce processus-ci exposerait les autres cas au même `HOME`.
+  it('ne se déclare pas disponible', (t) => {
+    if (process.platform !== 'darwin') return t.skip('le trousseau macOS n’existe que sous macOS')
+    const emptyHome = mkdtempSync(join(tmpdir(), 'midgaard-nokeychain-'))
+    try {
+      const probe = spawnSync(
+        process.execPath,
+        [
+          '--conditions=midgaard-dev',
+          '--input-type=module',
+          '-e',
+          "import { macosKeychain } from '@midgaard/secrets'; console.log(await macosKeychain.available())",
+        ],
+        { cwd: fileURLToPath(new URL('../..', import.meta.url)), env: { ...process.env, HOME: emptyHome }, encoding: 'utf8' },
+      )
+      assert.equal(probe.status, 0, probe.stderr)
+      assert.equal(probe.stdout.trim(), 'false')
+    } finally {
+      rmSync(emptyHome, { recursive: true, force: true })
+    }
+  })
+})
 
 // --- ce que la CI exige d’avoir réellement exercé ---------------------------
 

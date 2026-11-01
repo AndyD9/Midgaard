@@ -561,7 +561,7 @@ export function execAllowCheck(global: string[][], project: string[][], projectR
  *
  * @example
  * vaultAdvice('linux', {})         // → « … Installe libsecret (« secret-tool ») … »
- * vaultAdvice('darwin', {})        // → « … vérifie que « security help » répond … »
+ * vaultAdvice('darwin', {})        // → « … vérifie que « security default-keychain » nomme un trousseau … »
  */
 export function vaultAdvice(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string {
   // La première phrase ne dépend de rien : elle dit ce qui est vrai dans tous
@@ -573,8 +573,9 @@ export function vaultAdvice(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): 
   }
   if (platform === 'darwin') {
     return (
-      `${exposed}Le trousseau est pourtant livré avec macOS : vérifie que « security help » répond. ` +
-      `Un environnement restreint ou une session sans trousseau déverrouillé peut le refuser.`
+      `${exposed}Le trousseau est pourtant livré avec macOS : vérifie que « security default-keychain » ` +
+      `nomme un trousseau. Un HOME qui n'est pas celui de ta session n'en a pas, et un environnement ` +
+      `restreint peut refuser « security ».`
     )
   }
   if (platform === 'win32') {

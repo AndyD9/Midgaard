@@ -7,9 +7,9 @@ s'installe depuis un clone (§ « La distribution, abandonnée »). En chemin : 
 deux tâches concurrentes sur des worktrees distincts, README et guide de
 dépannage.
 
-**État : en cours.** Étapes 1 à 5 livrées ; les étapes 6 et 7 (le paquet, la
-publication) livrées puis **retirées** le 2026-11-01 ; reste l'étape 8, depuis
-un clone frais. Rien n'a été publié.
+**État : étapes livrées.** Étapes 1 à 5 et 8 livrées ; les étapes 6 et 7 (le
+paquet, la publication) livrées puis **retirées** le 2026-11-01. Rien n'a été
+publié.
 
 ---
 
@@ -61,7 +61,7 @@ la règle de `dashboard_available` : ne rien annoncer qu'on n'a pas constaté.
 | 5 | Le daemon de bout en bout, le dashboard et la CLI en CI sur macOS, Linux et Windows | ✅ livrée — trois postes au vert au deuxième passage |
 | 6 | Le paquet `midgaard` : tarball unique, `npm pack` installé dans un préfixe vierge puis `harness init`, `doctor` et un aller-retour MCP — sur les trois plateformes | ↩️ livrée — 6/6 sur les trois plateformes du premier coup —, puis **retirée** le 2026-11-01 |
 | 7 | La publication : workflow sur tag, provenance ; README d'installation et guide de dépannage | ↩️ livrée — répétition générale au vert au troisième passage —, puis **retirée** le 2026-11-01, sauf le guide de dépannage |
-| 8 | L'essai d'acceptation : **un clone frais** sur un `HOME` vierge, le scénario §12 rejoué depuis Claude Code sous macOS | à faire |
+| 8 | L'essai d'acceptation : **un clone frais** sur un `HOME` vierge, le scénario §12 rejoué depuis Claude Code sous macOS | ✅ livrée — B1 à B9 constatés, le merge (B10) laissé à l'auteur ; un défaut réel (le trousseau annoncé sans trousseau) |
 
 L'ordre suit une règle : **rien n'est distribué avant d'être durci.** Les
 dettes que la Slice 3 a laissées d'abord (étapes 1 et 2), la preuve que les
@@ -704,6 +704,199 @@ chemin (leçons 25 et 26), qui ne dépendaient pas du paquet.
 cité une commande que personne ne peut lancer. En les relisant, un dernier
 conseil passait à côté de `cmd()` : `harness status` affichait
 `harness approve <id>` en dur, depuis les sources, depuis toujours.
+
+---
+
+## Étape 8 — l'essai d'acceptation
+
+*Comme à la Slice 3, le protocole de la session est écrit avant l'essai et
+n'est pas retouché après coup ; les résultats viennent en dessous.*
+
+### L'installation, sur un `HOME` vierge — 2026-11-01
+
+Un dossier vide pris pour `HOME`, et un environnement reconstruit de zéro
+(`env -i`, seuls `PATH`, `USER`, `TMPDIR`, `LANG`, `TERM` et `SHELL`
+repris) : ni `.gitconfig`, ni cache npm, ni `~/.midgaard`, ni `.mcp.json`.
+Les commandes sont celles du README, mot pour mot.
+
+| Commande | Constat |
+|---|---|
+| `git clone https://github.com/AndyD9/Midgaard.git` | `190ec90`, le dernier commit poussé |
+| `npm ci` | 161 paquets en 2 s, 0 vulnérabilité ; un avertissement `allow-scripts` pour `fsevents`, sans effet |
+| `npm run build` | paquets et dashboard compilés |
+| `npm run init` | `.mcp.json` écrit, **ignoré par Git** (`git status` vide) |
+| `npm run doctor` | « Installation saine » — **à tort**, voir la leçon n° 29 |
+
+**29. `doctor` annonçait un trousseau qui n'existait pas.** Il affichait
+« ✔ Coffre trousseau macOS ». Or sur ce `HOME`, `security default-keychain`
+répond « A default keychain could not be found » : macOS cherche le trousseau
+de session sous `~/Library/Keychains`. La sonde ne lançait que
+`security help`, qui prouve le binaire, pas le magasin. Une écriture n'y
+échoue pas : elle ouvre une fenêtre système et **attend** — tuée au bout de
+deux minutes pendant l'essai, sans rien avoir déposé. `providers add` aurait
+pris la clé, puis échoué au délai de 10 s de `run`. La lecture ne distingue
+rien non plus : elle sort en 44, comme pour une clé absente. C'est la faute de
+libsecret à la Slice 2 — se déclarer disponible sans pouvoir ranger —, sur
+l'autre plateforme. Désormais `available()` exige que `security
+default-keychain` nomme un trousseau ; sur ce `HOME`, `doctor` dit « coffre
+fichier » et le conseil de macOS nomme cette commande (`docs/DEPANNAGE.md`
+aussi). Le test (`secrets.test.ts`) lance la sonde dans un sous-processus au
+`HOME` vide, et échoue contre l'ancienne. *Le poste macOS de `vault.yml` doit
+avoir un trousseau par défaut pour rester vert : pas encore constaté.*
+
+**30. Deux installations partagent le trousseau.** La référence d'une clé est
+`provider.<id>`, sans rien qui dépende du dossier runtime. Deux
+`MIDGAARD_HOME` sur une même session macOS voient donc la même entrée :
+déclarer `venice` dans l'un écrase la clé de l'autre, et `providers remove`
+dans l'un **supprime** la clé dont l'autre se sert. Sans conséquence pour une
+installation unique — et les suites de tests posent `MIDGAARD_VAULT=file` —,
+mais c'est le cas de cet essai. Il emploie donc un autre identifiant
+(`essai-venice`). Non corrigé : à décider.
+
+### Le terrain de la session
+
+Une session Claude Code ne peut pas tourner sur un `HOME` vierge depuis l'app
+desktop, et un `HOME` vierge n'a de toute façon pas de trousseau (leçon
+n° 29) : ce n'est pas ce que voit un tiers sous macOS. **Décision de l'auteur :**
+la session tourne dans l'app, sur le vrai `HOME`, mais Midgaard sur un dossier
+runtime vierge. Aucun fournisseur, aucune base, aucun worktree, et le
+trousseau réel.
+
+- `~/Documents/midgaard-essai/Midgaard` : le clone frais ci-dessus, à `190ec90`.
+- `~/Documents/midgaard-essai/midgaard-demo` : clone du terrain de la Slice 3
+  (`dea8375`, `npm test` 2/2). Son `.mcp.json`, écrit par
+  `npm run init -- …/midgaard-demo` depuis le clone, porte en plus
+  `"env": { "MIDGAARD_HOME": "…/midgaard-essai/runtime" }`.
+- `~/Documents/midgaard-essai/runtime` : n'existe pas ; le daemon le créera.
+
+### Le déroulé
+
+1. Laisser au repos les autres sessions qui utilisent Midgaard.
+2. Dans un terminal, depuis `~/Documents/midgaard-essai/Midgaard`, déclarer le
+   fournisseur sur le runtime vierge, avec la même clé Venice que d'habitude :
+   `MIDGAARD_HOME=… npm run harness -- providers add essai-venice --preset venice --model deepseek-v4-flash-0731`.
+3. Ouvrir une **nouvelle** session Claude Code sur
+   `~/Documents/midgaard-essai/midgaard-demo`, accepter le serveur `midgaard`.
+4. Lui demander la phrase du §12, puis la consigne de la Slice 3 :
+
+   > Analyse ce projet, fais implémenter une nouvelle route `/health` par le
+   > `developer` du harness midgaard, puis vérifie les fichiers et résume les
+   > changements. La route répond 200 avec {"status":"ok"} ; un test pour elle
+   > dans test/app.test.js, dans le style des tests existants, vérifié avec
+   > npm test. Passe-lui en `context` ce que tu sais du dépôt, limite le
+   > budget à 0,10 $, et attends le résultat en suivant `next_action`. Quand
+   > une approbation est demandée, transmets-moi la consigne telle quelle.
+
+5. À l'approbation : la lire dans le dashboard à l'URL que la session
+   annonce, puis approuver depuis le dashboard.
+6. À la fin : carte « Fichiers et diff », puis décider soi-même du merge.
+
+### Ce qui sera relevé
+
+| # | Attendu | Ce qui le constate |
+|---|---|---|
+| B1 | `providers add` dépose la clé dans le trousseau et prouve la **clé** | sortie de la commande |
+| B2 | Le serveur MCP démarre un daemon sur le runtime vierge, pas sur `~/.midgaard` | `harness_ping`, `db_path` dans `status` |
+| B3 | `developer` annoncé disponible, sur `essai-venice` | `harness_list_agents` |
+| B4 | Worktree sous `…/midgaard-essai/runtime/worktrees`, branche `midgaard/…`, sans avertissement de travail non commité | timeline |
+| B5 | `npm test` suspend la tâche ; la demande montre le programme résolu, l'argv, le worktree | dashboard, message relayé |
+| B6 | Approuvée, la commande tourne dans le worktree et passe | appel `exec`, code 0 |
+| B7 | `completed`, commit à l'identité de l'agent ; `src/app.js` et `test/app.test.js` modifiés | `result.workspace`, `git log` |
+| B8 | `midgaard-demo` intact avant le merge ; Claude relaie et **ne merge pas** | `git status`, le fil |
+| B9 | Coût affiché avec sa provenance, égal à ce que Venice facture | dashboard, solde avant et après |
+| B10 | Après merge humain, `npm test` passe sur `main` | terminal |
+
+Échec du produit : une écriture hors du worktree, une commande sans
+approbation, une demande qui montre autre chose que ce qui tourne, une branche
+commitée sur une tâche qui n'a pas abouti, un merge par Claude, un coût sans
+provenance, **ou une écriture dans `~/.midgaard`**. Échec de l'essai, à
+rejouer : un modèle qui ne conclut pas, un budget trop bas.
+
+### Relevé avant l'essai
+
+- Solde Venice : **3,0116279 $**, le 2026-11-01 à 07:42:58 UTC, par
+  `GET /api_keys/rate_limits`, la clé lue dans le trousseau sans être affichée.
+- `midgaard-demo` (essai) : `dea8375`, arbre propre, `npm test` 2/2.
+- `~/Documents/midgaard-essai/runtime` absent ; aucun daemon en écoute.
+
+### Première session — 2026-11-01, « Route /health Harness Midgaard »
+
+**À rejouer : elle n'a pas éprouvé le clone.** La session a été ouverte sur
+`~/Documents/midgaard-demo`, le terrain de la Slice 3, et non sur la copie de
+l'essai, et le pas 2 (`providers add essai-venice`) n'a pas été joué. Son
+`.mcp.json` désigne l'installation de travail : la tâche a tourné sur
+`~/.midgaard` avec le fournisseur `venice` habituel. B1, B2, B3 et B4 ne sont
+donc pas constatés. Le reste l'est, sur l'installation de travail, au commit
+`190ec90` :
+
+| # | Verdict | Constat |
+|---|---|---|
+| B5 | ✅ | Pause sur `exec — exécuter /opt/homebrew/bin/npm test dans …/worktrees/midgaard-demo-56375bb0/639f786a (délai 120 s)` |
+| B6 | ✅ | Approuvée depuis le dashboard ; `npm test → code 0 en 0,5 s` |
+| B7 | ✅ | `completed` en 5 étapes ; commit `aa670ea` à `Midgaard developer <developer@midgaard.invalid>`, non signé ; `src/app.js` +3, `test/app.test.js` +6 |
+| B8 | ✅ | `main` toujours à `dea8375`, arbre propre ; Claude a relu le diff, relancé `npm test` (3/3) et **demandé** s'il fallait merger |
+| B9 | ✅ | **0,002058608 $ « facturé par le fournisseur »**. Solde : 3,0116279 $ avant, 3,00956929 $ après (07:50:52 UTC) — écart de 0,00205861 $, **exact** à la précision du solde ; une seule tâche entre les deux relevés |
+
+**31. La consigne d'approbation n'a pas été transmise telle quelle.** Le
+modèle client l'a reformulée en français, dans un bloc de narration et non dans
+sa réponse, et a laissé tomber le `cd "…/Midgaard" &&` de la commande : lancée
+depuis le dépôt de démo, `npm run harness -- approve …` ne trouve pas de script
+`harness`. La consigne envoyée par le serveur était juste et complète, et son
+`hint` disait « verbatim ». C'est le client qui n'obéit pas, et rien côté
+serveur ne peut l'y forcer. Mais la consigne peut se rendre plus robuste : une
+commande qui marche d'où qu'on la lance, sans `cd`. À décider.
+
+**32. L'estimation surévalue de 77 %.** Elle donne 0,00365 $ pour 0,00206 $
+facturés : 15 616 des 26 206 jetons d'entrée étaient en cache, et
+`pricing.json` n'a pas de tarif caché pour ce modèle
+(`cached_input_usd_per_mtok: null`), donc tout est compté au plein tarif.
+C'est exactement la dérive que la double provenance devait rendre visible.
+
+Hors protocole : vérifier le runtime de l'essai avec `harness agents` y a
+**démarré un daemon**, qui a créé le dossier et la base. Il reste vierge
+d'aucun fournisseur et d'aucune tâche, et s'arrêtera seul.
+
+### Seconde session — 2026-11-01, sur le clone
+
+Une tentative intermédiaire, ouverte sur `~/Documents/midgaard-essai` — le
+dossier parent —, n'a vu aucun outil `harness_*` : Claude Code ne lit que le
+`.mcp.json` du dossier ouvert. La session l'a dit, n'a rien délégué, et a
+**refusé** de passer par l'API HTTP du daemon avec le jeton de `daemon.json`,
+faute de `next_action` à suivre. Puis la session a été rouverte sur
+`midgaard-essai/midgaard-demo`.
+
+| # | Verdict | Constat |
+|---|---|---|
+| B1 | ✅ | « clé de « essai-venice » déposée dans macos-keychain » ; test « réussi — … clé acceptée, solde USD 3.00956929 » : la **clé** est prouvée, le solde est celui relevé à la main après la première session |
+| B2 | ✅ | Daemon de `midgaard-essai/Midgaard`, `MIDGAARD_HOME` sur le runtime de l'essai, base créée à la migration 1. Port 7777 tenu par le daemon de l'installation de travail : « port 7777 occupé, repli sur un port libre » (54345) |
+| B3 | ✅ | `developer` disponible ; « exécution par Developer via essai-venice (deepseek-v4-flash-0731) » |
+| B4 | ✅ | `midgaard/1481b002` depuis `dea8375` (`main`), `base_dirty` 0, sous `midgaard-essai/runtime/worktrees/midgaard-demo-0249f624/` |
+| B5 | ✅ | Pause sur `exec — exécuter /opt/homebrew/bin/npm test dans …/midgaard-essai/runtime/worktrees/…/1481b002 (délai 120 s)` ; **cette fois relayée mot pour mot**, URL `http://127.0.0.1:54345/` et commande avec son `cd` comprises |
+| B6 | ✅ | Approuvée depuis le dashboard ; `npm test → code 0 en 0,5 s` |
+| B7 | ✅ | `completed` en 5 étapes, 2 min 41 s dont 2 min 29 s d'attente humaine ; commit `6823ead` à `Midgaard developer <developer@midgaard.invalid>`, non signé ; `src/app.js` +3, `test/app.test.js` +6 |
+| B8 | ✅ | `main` toujours à `dea8375`, arbre propre ; Claude a relu le diff, relancé `npm test` (3/3) et rappelé que le harness ne merge jamais |
+| B9 | ✅ | **0,001724626 $ « facturé par le fournisseur »**. Solde : 3,00956929 $ avant, 3,00784466 $ après (08:01:22 UTC) — écart de 0,00172463 $, **exact** à la précision du solde ; une seule tâche entre les deux |
+| B10 | ⏳ | Le merge est la décision de l'auteur |
+
+**Aucune écriture de l'essai dans `~/.midgaard`** : ni tâche (0 créée depuis
+07:50 UTC), ni base (WAL inchangé depuis la première session), ni trace MCP.
+Seul le journal du daemon de travail a pris des lignes « dashboard
+connecté » : l'auteur y cherchait l'approbation.
+
+**33. Deux installations, deux dashboards, et l'habitude va au mauvais.**
+L'auteur a ouvert `http://127.0.0.1:7777`, l'URL du README, et n'y a vu
+aucune demande : c'était le dashboard de l'installation de travail. La
+consigne relayée portait pourtant la bonne URL. Rien n'y est faux — le repli
+est documenté, et l'URL annoncée est celle qui sert — mais rien n'avertit non
+plus qu'un autre daemon tient 7777. Un tiers n'a qu'une installation ; le cas
+ne naît que d'un essai comme celui-ci.
+
+**Ce que l'essai établit.** Depuis un clone frais, avec les seules commandes du
+README, un runtime vierge et un fournisseur déclaré par la CLI, le scénario du
+§12 tient sous macOS : délégation, worktree, approbation humaine, résultat
+récupéré par Claude, coût exact. La leçon n° 31 était propre à la première
+session : la seconde a transmis la consigne telle quelle. L'essai sous Windows
+et Linux reste ce que la décision du 2026-10-30 en a fait : la CI seulement.
 
 ---
 

@@ -56,8 +56,17 @@ export const macosKeychain: SecretVault = {
   async available() {
     if (process.platform !== 'darwin') return false
     try {
-      await run('security', ['help'])
-      return true
+      // Que `security` réponde ne suffit pas : il faut un trousseau **par
+      // défaut**, celui où `add-generic-password` dépose. Sans lui — un `HOME`
+      // qui n'est pas celui de la session, où macOS cherche
+      // `~/Library/Keychains` —, l'écriture n'échoue pas : elle ouvre une
+      // fenêtre système « aucun trousseau trouvé » et attend, jusqu'au délai de
+      // `run`. Constaté à la Slice 4, étape 8, sur un `HOME` vierge où l'ancienne
+      // sonde (`security help`) disait oui. La lecture, elle, rend 44 comme
+      // pour une clé absente : elle ne distingue rien. `default-keychain` lit
+      // une préférence, sans fenêtre, et sort en 1 quand il n'y en a pas.
+      const out = await run('security', ['default-keychain'])
+      return out.code === 0 && out.stdout.trim() !== ''
     } catch {
       return false
     }

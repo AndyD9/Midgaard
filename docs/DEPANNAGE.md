@@ -159,7 +159,10 @@ Aucun coffre système n'a répondu, et les clés iront **en clair** sous
   conteneur), libsecret est écarté. Sur un serveur sans trousseau, il n'y a
   rien à installer : le repli fichier est la bonne réponse.
 - **macOS** : le trousseau est livré avec le système ; vérifie que
-  `security help` répond, et que la session a un trousseau déverrouillé.
+  `security default-keychain` nomme un trousseau. Un `HOME` qui n'est pas
+  celui de ta session (`HOME=… npm run …`) n'en a pas : macOS le cherche sous
+  `~/Library/Keychains`, et Midgaard se rabat alors sur le fichier plutôt que
+  de rester bloqué derrière une fenêtre « aucun trousseau trouvé ».
 - **Windows** : DPAPI passe par `powershell.exe` — Windows PowerShell 5.1,
   livré avec le système —, qui doit être dans le `PATH` ; `pwsh` seul ne
   suffit pas.
