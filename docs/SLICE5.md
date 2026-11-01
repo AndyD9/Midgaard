@@ -6,7 +6,7 @@ Code : un profil `orchestrator` qui tourne dans le daemon, sur le fournisseur et
 le modèle choisis (Venice, OpenAI, Gemini, compatible OpenAI), et qui délègue
 lui-même aux autres profils.
 
-**État : en cours** (démarrée le 2026-11-01 ; étapes 1 à 5 faites, 6 faite en local et à constater en CI). Avant elle :
+**État : en cours** (démarrée le 2026-11-01 ; étapes 1 à 6 faites). Avant elle :
 décisions prises, découpage arrêté, aucune ligne de code. Elle attendait l'étape 8 de la Slice 4 — ce qui existe
 devait avoir fait ses preuves avant qu'on y ajoute un orchestrateur : c'est
 fait le 2026-11-01, depuis un clone frais ([SLICE4.md](SLICE4.md)). Les
@@ -92,7 +92,7 @@ l'arbre** ; le total porte la plus faible des provenances de ses tâches
 | 3 | Les outils de délégation : `list_agents`, `delegate_task`, `wait_for_task`, `cancel_task` derrière un `DelegationPort` du `ToolContext` — sans lui, ils refusent ; cascade d'annulation | **fait** |
 | 4 | Le profil `orchestrator` : consigne, outils en lecture plus délégation, ni écriture, ni `exec`, ni web ; désactivé sans fournisseur, avec son motif | **fait** |
 | 5 | Le dashboard : formulaire « Nouvelle tâche », tâches en arbre, carte « Sous-tâches » (total et plafond théorique), choix du modèle par profil | **fait** |
-| 6 | Preuves : `test:orchestrator` (vrai daemon, faux fournisseur : délégation parallèle, approbation d'un enfant, annulation en cascade, `SIGKILL`), ajouts à `test:security` et `test:ui`, CI sur trois plateformes | **fait en local** — CI à constater |
+| 6 | Preuves : `test:orchestrator` (vrai daemon, faux fournisseur : délégation parallèle, approbation d'un enfant, annulation en cascade, `SIGKILL`), ajouts à `test:security` et `test:ui`, CI sur trois plateformes | **fait** — CI constatée au passage `41307159340` |
 | 7 | L'essai réel : un orchestrateur non-Claude lancé du dashboard, un Developer enfant sous approbation, chaque coût comparé à la facture | à faire |
 
 ### Ce que chaque étape doit surveiller
@@ -361,8 +361,10 @@ rien.
 **`test:ui`** avait reçu ses trois scénarios à l'étape 5 (D9 à D11).
 
 **La CI** gagne l'étape `test:orchestrator` dans `.github/workflows/e2e.yml`,
-sur macOS, Linux et Windows. **Pas encore constatée** : elle ne tourne qu'après
-un push.
+sur macOS, Linux et Windows. **Constatée** au passage `41307159340` (le
+2026-11-01) : sur les trois postes, `test:orchestrator` 4/4, `test:security`
+5/5 (X5 compris), `test:ui` 11/11, et toutes les autres suites au vert ;
+`worktrees.yml` vert aussi (passage `41307159277`).
 
 #### Leçon n° 35 — une annulation pendant la préparation finissait `failed`
 

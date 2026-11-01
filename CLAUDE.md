@@ -253,8 +253,8 @@ de Claude par MCP ; un résultat est non fiable dès que la tâche a reçu un
 contenu encadré, cité ou non. Étape 5 faite : le dashboard lance une tâche
 (`#/new`), règle fournisseur et modèle (`#/agents`), montre l'arbre et la
 carte « Sous-tâches » ; le daemon vérifie tout `project_dir` (`checkProjectDir`).
-Étape 6 faite en local : `test:orchestrator` (4 scénarios), X5 dans
-`test:security`, étape ajoutée à la CI — **pas encore constatée en CI**. Elle a
+Étape 6 faite : `test:orchestrator` (4 scénarios), X5 dans `test:security`,
+vertes en CI sur les trois plateformes (passage `41307159340`). Elle a
 trouvé un défaut ancien : une annulation pendant la préparation finissait
 `failed` (leçon n° 35).
 
