@@ -28,7 +28,7 @@ et les coûts.
 | 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 167 vérifications + essai en session réelle ; coût **exact au microdollar** contre le solde Venice, trois fois |
 | 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | ✅ **Terminée** : un Developer a implémenté `/health` en vraie session, dans un worktree, sous approbation, coût **exact au microdollar** ; suites vertes sur macOS, Linux et Windows |
 | 4 | Durcissement sécurité, installation depuis un clone | ✅ **Terminée** : suite de sécurité, crash et concurrence, toutes les suites en CI sur macOS, Linux et Windows ; depuis un clone frais, le scénario §12 rejoué en vraie session sous macOS, coût **exact** contre le solde Venice. La distribution npm a été **abandonnée** : Midgaard s'installe depuis un clone ([docs/SLICE4.md](docs/SLICE4.md)) |
-| 5 | Orchestrateur intégré sur n'importe quel modèle, lancé du dashboard | 🚧 **En cours** — étapes 1 à 3 faites sur 7 ([docs/SLICE5.md](docs/SLICE5.md)) |
+| 5 | Orchestrateur intégré sur n'importe quel modèle, lancé du dashboard | 🚧 **En cours** — étapes 1 à 4 faites sur 7 ([docs/SLICE5.md](docs/SLICE5.md)) |
 
 Le détail des slices est dans [docs/PLAN.md](docs/PLAN.md). Ce que chaque slice a
 prouvé et appris : [docs/SLICE0.md](docs/SLICE0.md), [docs/SLICE1.md](docs/SLICE1.md),

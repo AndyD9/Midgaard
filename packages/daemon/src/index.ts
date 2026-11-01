@@ -20,6 +20,9 @@ export {
   RESEARCHER_TOOLS,
   RESEARCHER_SYSTEM_PROMPT,
   DEVELOPER_SYSTEM_PROMPT,
+  ORCHESTRATOR_AGENT_ID,
+  ORCHESTRATOR_SYSTEM_PROMPT,
+  ORCHESTRATOR_TOOLS,
   updateAgentModel,
 } from './agents.ts'
 export { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'

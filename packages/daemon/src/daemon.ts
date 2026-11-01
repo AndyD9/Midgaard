@@ -159,9 +159,10 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
     log,
   }
 
-  // Researcher et Developer partagent la boucle : deux instances du même
-  // moteur, une par type de profil. Seul le Developer crée un worktree.
-  for (const kind of ['researcher', 'developer'] as const) {
+  // Researcher, Developer et Orchestrator partagent la boucle : une instance du
+  // même moteur par type de profil. Seul le Developer crée un worktree ; seul
+  // l'Orchestrator reçoit le port de délégation.
+  for (const kind of ['researcher', 'developer', 'orchestrator'] as const) {
     tasks.register(
       new AgentEngine({
         kind,

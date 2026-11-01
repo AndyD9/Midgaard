@@ -6,7 +6,7 @@ Code : un profil `orchestrator` qui tourne dans le daemon, sur le fournisseur et
 le modèle choisis (Venice, OpenAI, Gemini, compatible OpenAI), et qui délègue
 lui-même aux autres profils.
 
-**État : en cours** (démarrée le 2026-11-01 ; étapes 1 à 3 faites). Avant elle :
+**État : en cours** (démarrée le 2026-11-01 ; étapes 1 à 4 faites). Avant elle :
 décisions prises, découpage arrêté, aucune ligne de code. Elle attendait l'étape 8 de la Slice 4 — ce qui existe
 devait avoir fait ses preuves avant qu'on y ajoute un orchestrateur : c'est
 fait le 2026-11-01, depuis un clone frais ([SLICE4.md](SLICE4.md)). Les
@@ -90,7 +90,7 @@ l'arbre** ; le total porte la plus faible des provenances de ses tâches
 | 1 | Neutraliser « Claude Code » dans ce que lisent les modèles : consignes du Researcher et du Developer, contexte assemblé, message d'erreur | **fait** |
 | 2 | Contrats et persistance : `kind` `orchestrator`, `parent_task_id` (migration 8), `PATCH /api/agents/:id` pour choisir fournisseur et modèle, `PROTOCOL_VERSION` 10 | **fait** |
 | 3 | Les outils de délégation : `list_agents`, `delegate_task`, `wait_for_task`, `cancel_task` derrière un `DelegationPort` du `ToolContext` — sans lui, ils refusent ; cascade d'annulation | **fait** |
-| 4 | Le profil `orchestrator` : consigne, outils en lecture plus délégation, ni écriture, ni `exec`, ni web ; désactivé sans fournisseur, avec son motif | à faire |
+| 4 | Le profil `orchestrator` : consigne, outils en lecture plus délégation, ni écriture, ni `exec`, ni web ; désactivé sans fournisseur, avec son motif | **fait** |
 | 5 | Le dashboard : formulaire « Nouvelle tâche », tâches en arbre, carte « Sous-tâches » (total et plafond théorique), choix du modèle par profil | à faire |
 | 6 | Preuves : `test:orchestrator` (vrai daemon, faux fournisseur : délégation parallèle, approbation d'un enfant, annulation en cascade, `SIGKILL`), ajouts à `test:security` et `test:ui`, CI sur trois plateformes | à faire |
 | 7 | L'essai réel : un orchestrateur non-Claude lancé du dashboard, un Developer enfant sous approbation, chaque coût comparé à la facture | à faire |
@@ -235,3 +235,49 @@ interrompre l'attente (un échec chacun).
 - Le scénario de bout en bout (vrai daemon, faux fournisseur, `SIGKILL`) est
   l'étape 6 ; la suite de sécurité y gagnera un orchestrateur qui recopie une
   clé tierce dans une délégation.
+
+### Étape 4 — le profil `orchestrator` (2026-11-01)
+
+**Ce qui existe.** Le profil livré d'office (`daemon/src/agents.ts`) :
+consigne neutre, outils `read_file`, `list_directory`, `search_files` et les
+quatre de délégation, ni écriture, ni `exec`, ni web. Désactivé sans
+fournisseur, avec son motif, comme les autres. Il tourne sur le moteur
+d'agent commun, troisième instance après le Researcher et le Developer, et
+seul à recevoir le port de délégation.
+
+**Ses limites par défaut** (`DEFAULT_ORCHESTRATOR_LIMITS`) ne comptent que ses
+propres appels : 16 étapes, 4 appels d'outils par étape, 0,50 $, une heure.
+Le délai est le maximum permis, parce qu'il attend ses sous-tâches,
+approbations comprises ; étapes et appels par étape restent modestes parce
+que leur produit — **64** — est le plafond théorique de sous-tâches de
+l'arbre, celui que le dashboard affichera.
+
+**Deux décisions prises avec l'auteur en cours d'étape.**
+
+1. **Claude ne délègue pas à un orchestrateur.** Le serveur MCP ne le montre
+   pas dans `harness_list_agents` et refuse `harness_delegate_task` vers lui,
+   avant toute création. Fidèle à « lancé du dashboard seulement », et
+   cohérent avec la profondeur 1 vue de Claude. Le refus vit dans le serveur
+   MCP parce que le daemon ne distingue pas ses clients. Scénario S13 de
+   `test:wait`.
+2. **Un résultat est non fiable dès que la tâche a reçu un contenu encadré**,
+   cité ou non — page, sortie de commande, résultat d'une sous-tâche,
+   recherche web native. C'est la question laissée ouverte par l'étape 3, et
+   la règle générale comble aussi un trou plus ancien : un Researcher qui
+   lisait une page sans la citer rendait un résultat « fiable ». Coût assumé :
+   tout Developer qui lance une commande rend un résultat non fiable, encadré
+   avant de remonter à Claude. Le badge du dashboard dit désormais « contenu
+   extérieur », et la note jointe par le serveur MCP nomme les trois sources.
+
+**Preuves.** `tests/unit/orchestrator-engine.test.ts`, nouveau : un vrai
+daemon, le vrai moteur et un faux fournisseur ; l'orchestrateur appelle
+`list_agents` et `delegate_task` (prouvant que le moteur pose le port — le
+test a été vu échouer sans), la sous-tâche est rattachée sur le dossier du
+parent, et la cascade l'emporte quand le parent rend son résultat : aucune
+tâche active en base ensuite. `http-agents.test.ts` remplace le test de
+l'étape 2 (« type sans moteur ») par ce que promet le profil : désactivé avec
+son motif, actif avec un fournisseur, sans écriture ni `exec` ni web, seul à
+porter les outils de délégation. `agent-runtime.test.ts` : la consigne de
+l'orchestrateur rejoint le test de neutralité, et deux tests fixent la règle
+du non-fiable (sortie de commande sans citation → non fiable ; lecture du
+projet seule → fiable).

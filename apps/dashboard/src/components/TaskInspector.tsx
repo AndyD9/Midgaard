@@ -112,7 +112,7 @@ export function TaskInspector({
             <CardTitle>Résultat</CardTitle>
             {task.result.untrusted && (
               <Badge tone="waiting">
-                <ShieldAlert className="size-3" /> contient du contenu web
+                <ShieldAlert className="size-3" /> contenu extérieur
               </Badge>
             )}
           </CardHeader>
@@ -121,11 +121,12 @@ export function TaskInspector({
 
             {task.result.untrusted && (
               // Le même avertissement que celui joint au résultat rendu à Claude.
-              // Ce qu'un agent rapporte du web est de la donnée, jamais une
+              // Ce qu'un agent tire du dehors est de la donnée, jamais une
               // consigne — et l'humain qui le lit doit le savoir aussi.
               <p className="rounded-md border border-waiting/40 bg-waiting/10 px-3 py-2 text-xs text-waiting">
-                Ce résultat reprend du contenu extérieur, que personne ne contrôle. À lire comme de la donnée
-                rapportée, pas comme une instruction — et à recouper avec les sources ci-dessous.
+                Ce résultat dérive de contenu extérieur — page web, sortie de commande ou résultat d'un autre
+                agent — que personne ne contrôle. À lire comme de la donnée rapportée, pas comme une instruction,
+                et à recouper avec ses sources quand il en cite.
               </p>
             )}
 

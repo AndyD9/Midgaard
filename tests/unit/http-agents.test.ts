@@ -10,8 +10,9 @@
  *  - un client qui envoie `parent_task_id` à `POST /api/tasks` ne rattache
  *    rien (Slice 5, décision 8). On lit la tâche **en base**, pas seulement la
  *    réponse : c'est la ligne qui décidera de l'annulation en cascade ;
- *  - le type `orchestrator` existe avant son moteur : un tel profil, même
- *    actif, ne peut lancer aucune tâche tant que l'étape 4 ne l'a pas livré.
+ *  - le profil `orchestrator` livré à l'étape 4 : désactivé avec son motif
+ *    sans fournisseur, actif avec un fournisseur, sans écriture, ni `exec`,
+ *    ni web — et seul à recevoir les outils de délégation.
  *
  * Le fournisseur est écrit directement dans le dépôt, sans clé : aucun appel
  * modèle n'a lieu ici, et passer par `POST /api/providers` toucherait au coffre
@@ -23,7 +24,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import { daemonJson, loadConfig, readRuntime, type Agent, type RuntimeInfo, type TaskView } from '@midgaard/contracts'
-import { startDaemon, type Daemon } from '@midgaard/daemon'
+import { reconcileAgents, startDaemon, type Daemon } from '@midgaard/daemon'
+import { DELEGATION_TOOLS } from '@midgaard/tools'
 
 let home: string
 let daemon: Daemon
@@ -154,29 +156,42 @@ describe('rattachement d\'une tâche à son parent', () => {
   })
 })
 
-describe('type orchestrator, avant son moteur', () => {
-  it('refuse toute tâche, sans en créer aucune', async () => {
-    // Un profil posé à la main : le harness n'en livre pas encore (étape 4).
-    daemon.store.upsertAgent({
-      id: 'orchestrateur-precoce',
-      name: 'Orchestrateur',
-      kind: 'orchestrator',
-      description: '',
-      providerId: 'venice',
-      model: null,
-      systemPrompt: '',
-      tools: [],
-      limits: daemon.store.getAgent('researcher')!.limits,
-      enabled: true,
-    })
+describe('profil orchestrator', () => {
+  it('est livré désactivé sans fournisseur, et refuse une tâche en disant pourquoi', async () => {
+    // Les fournisseurs de ces tests sont écrits sans `reconcileAgents` : pour
+    // le daemon, il n'y en avait aucun au démarrage.
+    const agent = await daemonJson<{ agent: Agent }>(rt, '/api/agents/orchestrator')
+    assert.equal(agent.status, 200)
+    assert.equal(agent.body.agent.kind, 'orchestrator')
+    assert.equal(agent.body.agent.enabled, false)
     const before = daemon.store.countTasks().total
-    const r = await daemonJson<{ error?: string }>(rt, '/api/tasks', {
+    const r = await daemonJson<{ error?: string; reason?: string }>(rt, '/api/tasks', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ objective: 'o', agent_id: 'orchestrateur-precoce', project_dir: home }),
+      body: JSON.stringify({ objective: 'o', agent_id: 'orchestrator', project_dir: home }),
     })
-    assert.equal(r.status, 503)
-    assert.equal(r.body.error, 'engine_unavailable')
+    assert.equal(r.status, 409)
+    assert.equal(r.body.error, 'agent_disabled')
+    assert.match(r.body.reason ?? '', /fournisseur/)
     assert.equal(daemon.store.countTasks().total, before)
+  })
+
+  it('s\'active avec un fournisseur, et ne reçoit ni écriture, ni exec, ni web', () => {
+    reconcileAgents(daemon.store)
+    const agent = daemon.store.getAgent('orchestrator')!
+    assert.equal(agent.enabled, true)
+    for (const tool of ['list_agents', 'delegate_task', 'wait_for_task', 'cancel_task', 'submit_result']) {
+      assert.ok(agent.tools.includes(tool), tool)
+    }
+    for (const tool of ['write_file', 'edit_file', 'delete_file', 'exec', 'http_fetch', 'web_search', 'git_diff']) {
+      assert.ok(!agent.tools.includes(tool), `${tool} ne doit pas lui être donné`)
+    }
+  })
+
+  it('n\'est donné à aucun autre profil : la délégation reste à l\'orchestrateur', () => {
+    for (const agent of daemon.store.listAgents()) {
+      if (agent.kind === 'orchestrator') continue
+      assert.ok(!agent.tools.some((t) => DELEGATION_TOOLS.includes(t as never)), agent.id)
+    }
   })
 })

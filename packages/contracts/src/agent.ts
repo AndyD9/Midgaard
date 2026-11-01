@@ -21,10 +21,8 @@ import { z } from 'zod'
  * worktree Git créé pour la tâche, jamais dans le dépôt de l'utilisateur.
  *
  * `orchestrator` (Slice 5) délègue aux autres profils depuis le daemon, sur
- * n'importe quel modèle. Le type existe dès l'étape 2 pour que la base et le
- * protocole le connaissent ; le profil lui-même n'est livré qu'à l'étape 4.
- * D'ici là, aucune tâche ne peut en naître : aucun moteur ne le sert, et
- * `TaskManager.create` le refuse (`engine_unavailable`).
+ * n'importe quel modèle. Il ne lit que le projet, n'écrit rien, ne lance rien,
+ * et ne se lance que du dashboard : le serveur MCP ne le montre pas à Claude.
  */
 export const AGENT_KINDS = ['simulated', 'researcher', 'developer', 'orchestrator'] as const
 export type AgentKind = (typeof AGENT_KINDS)[number]
@@ -81,6 +79,29 @@ export const DEFAULT_DEVELOPER_LIMITS: AgentLimits = Object.freeze({
   timeout_s: 1800,
   max_output_tokens: 8192,
   max_tool_calls_per_step: 5,
+})
+
+/**
+ * Limites par défaut d'un orchestrateur. Elles ne comptent que **ses propres**
+ * appels : chaque sous-tâche a le budget de son profil (Slice 5, budgets
+ * séparés).
+ *
+ *  - **le délai est le maximum permis** : l'orchestrateur attend ses
+ *    sous-tâches, approbations humaines comprises, et un seul Developer a
+ *    trente minutes ;
+ *  - **étapes et appels par étape restent modestes**, parce que leur produit
+ *    est le plafond théorique de l'arbre : un orchestrateur ne peut pas lancer
+ *    plus de `max_steps × max_tool_calls_per_step` sous-tâches. 16 × 4 = 64,
+ *    affiché comme tel au dashboard ;
+ *  - **le budget est bas** : planifier, déléguer et synthétiser demande peu de
+ *    jetons. Ce qui coûte, ce sont les sous-tâches, qui ont chacune le leur.
+ */
+export const DEFAULT_ORCHESTRATOR_LIMITS: AgentLimits = Object.freeze({
+  max_steps: 16,
+  max_cost_usd: 0.5,
+  timeout_s: 3600,
+  max_output_tokens: 4096,
+  max_tool_calls_per_step: 4,
 })
 
 /** Un profil d'agent, tel que le daemon le stocke et l'expose à Claude. */

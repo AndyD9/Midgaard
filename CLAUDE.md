@@ -131,7 +131,9 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   aléatoire, avant d'être réinjecté dans la conversation de l'agent **et** avant
   de remonter à Claude. Sans nonce, il suffit qu'une page contienne la balise de
   fin pour sortir du cadre. L'étiquette se désamorce comme le contenu : pour
-  `exec`, c'est la commande écrite par le modèle.
+  `exec`, c'est la commande écrite par le modèle. Le résultat d'une sous-tâche
+  l'est aussi. Et **le résultat d'une tâche qui a reçu un contenu encadré est
+  `untrusted`**, cité ou non (Slice 5).
 - **Aucune clé d'API en base.** La base ne garde qu'une référence vers le coffre.
   Et tout ce qui est journalisé ou persisté passe par `createRedactor` —
   **y compris le message d'un refus**, qui cite ce que le modèle a demandé.
@@ -244,7 +246,10 @@ faite : migration 8 (`tasks.parent_task_id`, posé par le daemon seul),
 `PATCH /api/agents/:id` (fournisseur et modèle, jamais les limites), type
 `orchestrator` sans moteur encore, `PROTOCOL_VERSION` 10. Étape 3 faite : les
 outils `list_agents`, `delegate_task`, `wait_for_task`, `cancel_task` derrière
-`ToolContext.delegation`, la cascade d'annulation et `subtask.waiting`.
+`ToolContext.delegation`, la cascade d'annulation et `subtask.waiting`. Étape 4
+faite : le profil `orchestrator` (lecture et délégation seulement), invisible
+de Claude par MCP ; un résultat est non fiable dès que la tâche a reçu un
+contenu encadré, cité ou non.
 
 ## Slice 4 terminée — durcissement
 

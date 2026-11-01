@@ -71,10 +71,10 @@ export function keyCommand(
 export interface AgentEngineDeps {
   /**
    * Profil exécuté par cette instance. Le gérant range ses moteurs par type de
-   * profil ; Researcher et Developer partagent la même boucle, avec deux
-   * instances de ce moteur.
+   * profil ; Researcher, Developer et Orchestrator partagent la même boucle,
+   * avec une instance de ce moteur chacun.
    */
-  kind: Extract<AgentKind, 'researcher' | 'developer'>
+  kind: Extract<AgentKind, 'researcher' | 'developer' | 'orchestrator'>
   ctx: EngineContext
   vault: SecretVault
   /** Lue à chaque tâche : un rafraîchissement des tarifs profite à la suivante. */

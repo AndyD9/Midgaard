@@ -18,6 +18,13 @@ appels d'outils en requêtes HTTP, et retient une seule chose — ce qu'il a dé
 avec les agents (Slice 2). Annoncer à Claude un outil qui rend du vide serait
 exactement l'erreur que ce paquet existe pour ne plus commettre.
 
+**L'orchestrateur n'est pas pour Claude** (Slice 5) : `harness_list_agents` ne
+le montre pas, et `harness_delegate_task` refuse de lui confier une tâche, avant
+toute création. Il se lance du dashboard seulement — une délégation de Claude à
+un orchestrateur ferait un arbre à deux niveaux. Le refus vit ici parce que le
+daemon ne distingue pas ses clients : MCP et dashboard parlent la même API.
+Prouvé par le scénario S13 de `test:wait`.
+
 ## Trois invariants
 
 **Aucun outil d'approbation.** Si Claude pouvait approuver, le contrôle humain

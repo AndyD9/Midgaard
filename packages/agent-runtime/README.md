@@ -52,6 +52,15 @@ lui-même, pas seulement avant de remonter à Claude. L'agent est la première
 cible d'une page qui essaie de détourner la tâche. Un fichier du projet n'est
 **pas** encadré : banaliser le marqueur le viderait de son sens.
 
+**Et ce qu'il en tire est marqué non fiable.** Depuis la Slice 5, le résultat
+final porte `untrusted` dès qu'un contenu encadré est entré dans la
+conversation — page, sortie de commande, résultat d'une sous-tâche, recherche
+web native —, cité ou non. Avant, seules les citations le marquaient : un
+Researcher qui lisait une page sans la citer, ou un orchestrateur qui recopiait
+le résultat d'un Researcher, rendaient un résultat présenté comme fiable.
+Conséquence voulue : un Developer qui a lancé une commande rend un résultat
+non fiable, encadré avant de remonter à Claude.
+
 **Les limites sont dites au modèle.** Elles sont appliquées par le code de toute
 façon, mais un agent qui ignore qu'il n'a que douze étapes les dépense à
 explorer, puis se fait couper sans rien rendre. Lui dire son budget change sa

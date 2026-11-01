@@ -23,7 +23,9 @@
  *    qu'un client qui ne l'a jamais vue est prévenu aussitôt (défaut n° 2) ;
  *  - S10 un daemon d'une autre version de protocole est remplacé au premier appel ;
  *  - S11 `harness_get_task_result` rend le résultat structuré d'une tâche finie ;
- *  - S12 une tâche interrompue par un redémarrage est rapportée comme telle à Claude.
+ *  - S12 une tâche interrompue par un redémarrage est rapportée comme telle à Claude ;
+ *  - S13 l'orchestrateur, lancé du dashboard seulement (Slice 5), n'est ni
+ *    montré à Claude ni délégable par lui — et aucune tâche n'est créée.
  *
  * Verdicts : `PASS`/`FAIL` pour les comportements garantis ; `CONSTAT` pour une
  * mesure d'environnement qui n'engage pas notre code.
@@ -355,6 +357,29 @@ await scenario(outcomes, 'S12 tâche interrompue rapportée comme telle à Claud
   return {
     verdict: ok ? 'PASS' : 'FAIL',
     detail: `${status.status} / ${status.next_action} — « ${status.error ?? 'aucune erreur'} »`,
+  }
+})
+
+await scenario(outcomes, 'S13 l\'orchestrateur n\'est ni montré à Claude, ni délégable par lui', async () => {
+  const listed = payload(await a.callTool({ name: 'harness_list_agents', arguments: {} }))
+  const ids = (listed.agents as { agent_id: string }[]).map((x) => x.agent_id)
+  const rt = readRuntime(config.runtimeFile)!
+  // Le daemon, lui, le connaît : l'absence vient bien du filtre du serveur MCP.
+  const known = (await daemonJson<{ agents: { id: string }[] }>(rt, '/api/agents')).body.agents.some((x) => x.id === 'orchestrator')
+  const before = (await daemonJson<{ tasks: { total: number } }>(rt, '/api/health')).body.tasks.total
+  const refused = payload(
+    await a.callTool({ name: 'harness_delegate_task', arguments: { objective: 'orchestre', agent_id: 'orchestrator' } }),
+  )
+  const after = (await daemonJson<{ tasks: { total: number } }>(rt, '/api/health')).body.tasks.total
+  const ok =
+    known &&
+    !ids.includes('orchestrator') &&
+    refused.isError === true &&
+    /dashboard/.test(String(refused.message)) &&
+    after === before
+  return {
+    verdict: ok ? 'PASS' : 'FAIL',
+    detail: `listés : ${ids.join(', ')} ; refus : « ${String(refused.message).slice(0, 90)}… » ; tâches ${before} → ${after}`,
   }
 })
 

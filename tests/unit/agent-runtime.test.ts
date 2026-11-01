@@ -26,7 +26,7 @@ import { DEFAULT_RESEARCHER_LIMITS, createRedactor, emptyUsage } from '@midgaard
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from '@midgaard/providers'
 import { buildMessages, runAgent, type ApprovalOutcome, type ApprovalRequest, type LoopHooks } from '@midgaard/agent-runtime'
 import { formatArgv, type ToolContext } from '@midgaard/tools'
-import { DEVELOPER_SYSTEM_PROMPT, RESEARCHER_SYSTEM_PROMPT } from '@midgaard/daemon'
+import { DEVELOPER_SYSTEM_PROMPT, ORCHESTRATOR_SYSTEM_PROMPT, RESEARCHER_SYSTEM_PROMPT } from '@midgaard/daemon'
 
 /** Racine de projet jetable, partagée par les tests qui lisent des fichiers. */
 function makeRoot(): string {
@@ -210,6 +210,29 @@ describe('fin de tâche', () => {
       { toolCalls: submit('selon la doc', { citations: [{ title: 'Doc', url: 'https://exemple.test' }] }) },
     ])
     assert.equal(outcome.status === 'completed' && outcome.result.untrusted, true)
+  })
+
+  // Slice 5, étape 4 : la règle ne tient plus aux seules citations. Un agent
+  // qui a lu du contenu encadré en tire son résultat, qu'il le cite ou non.
+  it('marque le résultat non fiable dès qu\'un contenu encadré est entré, même sans citation', async () => {
+    const { outcome } = await run(
+      [
+        { toolCalls: [{ id: 'e1', name: 'exec', argumentsJson: JSON.stringify({ command: 'node', args: ['-e', 'process.stdout.write("ok")'] }) }] },
+        { toolCalls: submit('la commande dit ok') },
+      ],
+      { agent: { tools: ['exec', 'submit_result'] }, ctx: { writable: true } },
+    )
+    assert.equal(outcome.status, 'completed')
+    assert.equal(outcome.status === 'completed' && outcome.result.untrusted, true)
+  })
+
+  it('laisse fiable le résultat d\'un agent qui n\'a lu que le projet', async () => {
+    const { outcome } = await run([
+      { toolCalls: [{ id: 'r1', name: 'read_file', argumentsJson: JSON.stringify({ path: 'src/a.ts' }) }] },
+      { toolCalls: submit('x vaut 1') },
+    ])
+    assert.equal(outcome.status, 'completed')
+    assert.equal(outcome.status === 'completed' && outcome.result.untrusted, false)
   })
 })
 
@@ -599,7 +622,7 @@ describe('consigne d\'un agent écrivant', () => {
 // plutôt que les seules phrases retouchées : une nouvelle ligne qui citerait
 // Claude passerait sinon inaperçue.
 describe('neutralité envers l\'orchestrateur', () => {
-  const profiles = { researcher: RESEARCHER_SYSTEM_PROMPT, developer: DEVELOPER_SYSTEM_PROMPT }
+  const profiles = { researcher: RESEARCHER_SYSTEM_PROMPT, developer: DEVELOPER_SYSTEM_PROMPT, orchestrator: ORCHESTRATOR_SYSTEM_PROMPT }
 
   for (const [id, prompt] of Object.entries(profiles)) {
     it(`ne nomme pas Claude dans ce que lit le ${id}`, () => {

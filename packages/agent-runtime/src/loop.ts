@@ -30,6 +30,13 @@
  * `untrusted` est enveloppé avant d'être réinjecté dans la conversation de
  * l'agent lui-même, pas seulement avant de remonter à Claude. L'agent est la
  * première cible d'une page qui essaie de détourner la tâche.
+ *
+ * **Et ce qu'il en tire l'est aussi.** Dès qu'un contenu encadré est entré dans
+ * la conversation — page, sortie de commande, résultat d'une sous-tâche,
+ * recherche web native —, le résultat final est marqué `untrusted`, cité ou non.
+ * Jusqu'à la Slice 5, seules les citations le marquaient : un Researcher qui
+ * lisait une page sans la citer, ou un orchestrateur qui recopiait le résultat
+ * d'un Researcher, rendaient un résultat présenté comme fiable.
  */
 import { randomUUID } from 'node:crypto'
 import type { Agent, TaskResult, ToolCallStatus, ToolDecision, Usage } from '@midgaard/contracts'
@@ -214,6 +221,9 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
   })
 
   let budgetWarned = false
+  // Vrai dès qu'un contenu non fiable est entré dans la conversation : il
+  // décide du drapeau `untrusted` du résultat final, cité ou non.
+  let tainted = false
 
   while (true) {
     const stop = checkLimits({ usage, step, limits, deadline, cancelled: input.hooks.isCancelled(), now: now() })
@@ -261,6 +271,7 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
     // pendant la réponse. On la journalise après coup pour qu'elle reste
     // visible, comptée et attribuée — sinon elle serait facturée sans trace.
     if (completion.citations.length > 0) {
+      tainted = true
       const id = input.hooks.onToolRequested({
         step,
         callId: `web_search-${step}`,
@@ -341,7 +352,7 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
 
     for (const call of accepted) {
       if (call.name === SUBMIT_RESULT) {
-        const submitted = finishWith(call, input, step, usage)
+        const submitted = finishWith(call, input, step, usage, tainted)
         if (submitted) return submitted
         // Charge utile invalide : on le dit au modèle et on continue, plutôt que
         // de perdre une tâche entière sur un champ mal rempli.
@@ -353,7 +364,9 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
         })
         continue
       }
-      messages.push(await runOneTool(call, input2, step))
+      const ran = await runOneTool(call, input2, step)
+      if (ran.untrusted) tainted = true
+      messages.push(ran.message)
     }
 
     for (const call of refused) {
@@ -369,6 +382,7 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
 
 /**
  * Traite `submit_result`.
+ * @param tainted vrai si un contenu non fiable est entré dans la conversation
  * @returns l'issue si la charge utile est valide, `null` sinon
  */
 function finishWith(
@@ -376,6 +390,7 @@ function finishWith(
   input: LoopInput,
   step: number,
   usage: Usage,
+  tainted: boolean,
 ): LoopOutcome | null {
   let parsed: unknown
   try {
@@ -417,10 +432,10 @@ function finishWith(
     details: input.redact(validated.data.details),
     steps: [],
     citations: validated.data.citations,
-    // Le drapeau qui compte pour la suite : si l'agent a cité des sources web,
-    // son résultat reprend du contenu que personne ne contrôle, et le serveur
-    // MCP l'encadrera avant de le rendre à Claude.
-    untrusted: validated.data.citations.length > 0,
+    // Le drapeau qui compte pour la suite : si l'agent a lu du contenu que
+    // personne ne contrôle — cité ou non —, son résultat en dérive, et le
+    // serveur MCP l'encadrera avant de le rendre à Claude.
+    untrusted: tainted || validated.data.citations.length > 0,
     // Le worktree, s'il y en a un, est décrit par le moteur après le commit de
     // fin : la boucle ne connaît ni Git ni la branche.
     workspace: null,
@@ -434,10 +449,18 @@ function finishWith(
  *
  * @returns le message de rôle `tool` à réinjecter — **toujours un message**,
  *          même sur refus : un appel sans réponse laisse le modèle attendre et
- *          brûle l'itération suivante à redemander la même chose
+ *          brûle l'itération suivante à redemander la même chose —, et si ce
+ *          message porte un contenu non fiable
  */
-async function runOneTool(call: ToolCallRequest, input: LoopInput, step: number): Promise<Message> {
-  const reply = (content: string): Message => ({ role: 'tool', callId: call.id, name: call.name, content })
+async function runOneTool(
+  call: ToolCallRequest,
+  input: LoopInput,
+  step: number,
+): Promise<{ message: Message; untrusted: boolean }> {
+  const reply = (content: string, untrusted = false) => ({
+    message: { role: 'tool', callId: call.id, name: call.name, content } as Message,
+    untrusted,
+  })
 
   // 1. L'outil est-il dans le profil ? Un outil hors profil n'est pas
   //    négociable : pas d'approbation, un refus.
@@ -549,7 +572,7 @@ async function runOneTool(call: ToolCallRequest, input: LoopInput, step: number)
     // remonter à Claude : l'agent est la première cible d'une page qui essaie
     // de détourner sa tâche.
     const content = result.untrusted ? wrapUntrusted(result.summary, result.content) : result.content
-    return reply(input.redact(content))
+    return reply(input.redact(content), result.untrusted)
   } catch (e) {
     // Expurgé pour la même raison qu'à la préparation, plus haut.
     const message = input.redact((e as Error).message)
