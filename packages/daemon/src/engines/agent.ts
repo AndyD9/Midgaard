@@ -378,8 +378,10 @@ export class AgentEngine implements TaskEngine {
     if (!task.project_dir) {
       return {
         error:
-          'aucun dossier de projet transmis à la délégation : le serveur MCP doit fournir project_dir ' +
-          '(mets à jour Midgaard, puis ouvre une nouvelle session Claude Code)',
+          // Le message ne nomme pas de client : depuis la Slice 5, une tâche
+          // naît aussi du dashboard. Le cas reste celui d'un vieux serveur MCP.
+          'aucun dossier de projet transmis à la création de la tâche : le serveur MCP ou le dashboard ' +
+          'doit fournir project_dir (mets à jour Midgaard, puis rouvre la session de ton client MCP)',
       }
     }
 

@@ -6,8 +6,8 @@ Code : un profil `orchestrator` qui tourne dans le daemon, sur le fournisseur et
 le modèle choisis (Venice, OpenAI, Gemini, compatible OpenAI), et qui délègue
 lui-même aux autres profils.
 
-**État : planifiée, prête à démarrer.** Décisions prises, découpage arrêté,
-aucune ligne de code. Elle attendait l'étape 8 de la Slice 4 — ce qui existe
+**État : en cours** (démarrée le 2026-11-01 ; étape 1 faite). Avant elle :
+décisions prises, découpage arrêté, aucune ligne de code. Elle attendait l'étape 8 de la Slice 4 — ce qui existe
 devait avoir fait ses preuves avant qu'on y ajoute un orchestrateur : c'est
 fait le 2026-11-01, depuis un clone frais ([SLICE4.md](SLICE4.md)). Les
 quatre constats de cet essai sont réglés (leçons n° 30 à 33), dont deux qui la
@@ -87,7 +87,7 @@ l'arbre** ; le total porte la plus faible des provenances de ses tâches
 
 | # | Étape | État |
 |---|---|---|
-| 1 | Neutraliser « Claude Code » dans ce que lisent les modèles : consignes du Researcher et du Developer, contexte assemblé, message d'erreur | à faire |
+| 1 | Neutraliser « Claude Code » dans ce que lisent les modèles : consignes du Researcher et du Developer, contexte assemblé, message d'erreur | **fait** |
 | 2 | Contrats et persistance : `kind` `orchestrator`, `parent_task_id` (migration 8), `PATCH /api/agents/:id` pour choisir fournisseur et modèle, `PROTOCOL_VERSION` 10 | à faire |
 | 3 | Les outils de délégation : `list_agents`, `delegate_task`, `wait_for_task`, `cancel_task` derrière un `DelegationPort` du `ToolContext` — sans lui, ils refusent ; cascade d'annulation | à faire |
 | 4 | Le profil `orchestrator` : consigne, outils en lecture plus délégation, ni écriture, ni `exec`, ni web ; désactivé sans fournisseur, avec son motif | à faire |
@@ -105,3 +105,29 @@ l'arbre** ; le total porte la plus faible des provenances de ses tâches
   désactivé avec son motif.
 - **Étape 7.** Le scénario n'est pas prouvé tant qu'il n'a pas tourné contre un
   vrai fournisseur ; ne rien écrire avant de l'avoir constaté.
+
+## Récit
+
+### Étape 1 — ce que lisent les modèles ne nomme plus Claude (2026-11-01)
+
+Trois textes remis aux modèles disaient « Claude Code » : les consignes du
+Researcher et du Developer (« An orchestrator (Claude Code) delegated… ») et
+l'en-tête du contexte (« This was assembled by Claude Code… »). Ils disent
+désormais « an orchestrator », et le contexte « the orchestrator that delegated
+this task, from what it already explored » — vrai pour Claude comme pour
+l'orchestrateur intégré, qui aura des outils de lecture.
+
+Le message d'erreur du moteur sur un `project_dir` manquant ne s'adresse pas au
+modèle mais à l'humain ; il ne nomme plus de client non plus, puisqu'une tâche
+naîtra aussi du dashboard. Le cas reste celui d'un serveur MCP trop ancien.
+
+**La preuve porte sur le texte entier, pas sur les phrases retouchées.** Le test
+« neutralité envers l'orchestrateur » (`tests/unit/agent-runtime.test.ts`)
+assemble, pour chaque profil livré, tout ce que reçoit le modèle — consigne,
+limites, worktree, contexte — et refuse `claude` et `anthropic` sans égard à la
+casse. Il a été vu échouer en réintroduisant l'ancienne phrase du Developer :
+une ligne ajoutée plus tard qui citerait Claude ne passera pas.
+
+Ni la base ni le protocole ne changent : les consignes des profils livrés sont
+réécrites à chaque démarrage du daemon (`ensureBuiltinAgents`), et
+`PROTOCOL_VERSION` reste 9.

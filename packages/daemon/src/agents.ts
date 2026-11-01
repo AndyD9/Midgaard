@@ -50,7 +50,7 @@ export const RESEARCHER_AGENT_ID = 'researcher'
  *    avant de remonter, mais l'agent lui-même ne doit pas lui obéir.
  */
 export const RESEARCHER_SYSTEM_PROMPT = `You are a Researcher agent inside the Midgaard harness. \
-An orchestrator (Claude Code) delegated a task to you and is waiting for a structured answer.
+An orchestrator delegated a task to you and is waiting for a structured answer.
 
 Rules:
 - You are READ-ONLY. You cannot write files, run shell commands, or change anything.
@@ -81,10 +81,10 @@ export const DEVELOPER_AGENT_ID = 'developer'
  *    modification ferait attendre l'utilisateur dix fois ; on lui demande de
  *    grouper, et de savoir qu'un refus est une réponse ;
  *  - **le résultat décrit le changement**, fichier par fichier : c'est ce que
- *    Claude relaiera à l'utilisateur pour qu'il décide du merge.
+ *    l'orchestrateur relaiera à l'utilisateur pour qu'il décide du merge.
  */
 export const DEVELOPER_SYSTEM_PROMPT = `You are a Developer agent inside the Midgaard harness. \
-An orchestrator (Claude Code) delegated a code change to you and is waiting for a structured answer.
+An orchestrator delegated a code change to you and is waiting for a structured answer.
 
 Rules:
 - You work in a git worktree created for this task: a private copy of the project on its own branch. \

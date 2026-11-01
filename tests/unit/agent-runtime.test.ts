@@ -12,7 +12,9 @@
  *    une fois avant d'échouer ;
  *  - un outil hors profil est refusé sans demander d'approbation ;
  *  - une approbation refusée n'est pas contournable ;
- *  - le contenu extérieur est encadré **avant** de revenir dans la conversation.
+ *  - le contenu extérieur est encadré **avant** de revenir dans la conversation ;
+ *  - rien de ce que lit le modèle ne nomme Claude : l'orchestrateur peut être
+ *    un autre modèle (Slice 5, étape 1).
  */
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -24,6 +26,7 @@ import { DEFAULT_RESEARCHER_LIMITS, createRedactor, emptyUsage } from '@midgaard
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from '@midgaard/providers'
 import { buildMessages, runAgent, type ApprovalOutcome, type ApprovalRequest, type LoopHooks } from '@midgaard/agent-runtime'
 import { formatArgv, type ToolContext } from '@midgaard/tools'
+import { DEVELOPER_SYSTEM_PROMPT, RESEARCHER_SYSTEM_PROMPT } from '@midgaard/daemon'
 
 /** Racine de projet jetable, partagée par les tests qui lisent des fichiers. */
 function makeRoot(): string {
@@ -550,7 +553,7 @@ describe('consigne d\'un agent écrivant', () => {
     budgetEnforceable: true,
   }
 
-  it('dit le worktree, sa branche, et que les chemins de Claude se lisent en relatif', () => {
+  it('dit le worktree, sa branche, et que les chemins de l\'orchestrateur se lisent en relatif', () => {
     const [system] = buildMessages({
       ...base,
       workspace: { branch: 'midgaard/abcd', baseCommit: 'a'.repeat(40), baseDirty: 0, submodules: [], originDir: '/depot' },
@@ -587,4 +590,33 @@ describe('consigne d\'un agent écrivant', () => {
     assert.match(system!.content, /Project root \(the only directory you can read\)/)
     assert.doesNotMatch(system!.content, /worktree/)
   })
+})
+
+// Slice 5, étape 1. L'orchestrateur n'est plus seulement Claude Code : un
+// modèle quelconque, intégré au daemon, délègue aussi. Une consigne qui le
+// nommerait mentirait à l'agent sur qui l'attend. On vérifie le texte entier
+// que reçoit le modèle — consigne du profil, limites, worktree et contexte —
+// plutôt que les seules phrases retouchées : une nouvelle ligne qui citerait
+// Claude passerait sinon inaperçue.
+describe('neutralité envers l\'orchestrateur', () => {
+  const profiles = { researcher: RESEARCHER_SYSTEM_PROMPT, developer: DEVELOPER_SYSTEM_PROMPT }
+
+  for (const [id, prompt] of Object.entries(profiles)) {
+    it(`ne nomme pas Claude dans ce que lit le ${id}`, () => {
+      const messages = buildMessages({
+        agent: agentWith({ system_prompt: prompt }),
+        objective: 'o',
+        context: 'contexte transmis',
+        root: '/wt/abcd',
+        tree: 'src/',
+        limits: DEFAULT_RESEARCHER_LIMITS,
+        budgetEnforceable: false,
+        workspace: id === 'developer'
+          ? { branch: 'midgaard/abcd', baseCommit: 'a'.repeat(40), baseDirty: 2, submodules: ['vendor/lib'], originDir: '/depot' }
+          : undefined,
+      })
+      for (const message of messages) assert.doesNotMatch(message.content, /claude|anthropic/i)
+      assert.match(messages[1]!.content, /orchestrator that delegated this task/)
+    })
+  }
 })

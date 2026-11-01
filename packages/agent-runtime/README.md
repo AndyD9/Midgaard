@@ -76,8 +76,15 @@ bogue là où il n'y a qu'une limite à relever.
 
 ## Contexte
 
-C'est **Claude Code** qui fournit le contexte (§4 du plan). Le runtime y ajoute
+Le contexte vient de qui délègue (§4 du plan). Le runtime y ajoute
 seulement l'arborescence du workspace, bornée à deux niveaux, et les consignes du
 profil. Un agent qui commencerait par lire trente fichiers pour comprendre où il
 est dépenserait plus que la question ne valait, et déléguer deviendrait plus cher
 que faire soi-même.
+
+C'est l'**orchestrateur** qui fournit ce contexte : Claude Code par MCP, et
+depuis la Slice 5 un orchestrateur intégré au daemon, sur n'importe quel
+modèle. Ce que lit l'agent ne nomme donc jamais Claude — la consigne lui dit
+seulement qu'un orchestrateur l'a délégué. Un test le vérifie sur le texte
+entier remis au modèle (`tests/unit/agent-runtime.test.ts`, « neutralité
+envers l'orchestrateur »).

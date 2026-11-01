@@ -8,8 +8,13 @@
  *
  * C'est le cœur économique du produit. Un agent qui commence par lire trente
  * fichiers pour comprendre où il est dépense plus que la question ne valait, et
- * déléguer devient plus cher que faire soi-même. Claude a déjà exploré ; ce
- * qu'il sait est transmis.
+ * déléguer devient plus cher que faire soi-même. L'orchestrateur a déjà
+ * exploré ; ce qu'il sait est transmis.
+ *
+ * **Ce que lit le modèle ne nomme pas l'orchestrateur.** Ce fut Claude Code
+ * seul ; depuis la Slice 5, ce peut être un orchestrateur intégré au daemon,
+ * sur n'importe quel modèle. Une consigne qui nommerait le mauvais attirerait
+ * l'agent vers des conventions qui ne sont pas celles de qui l'a délégué.
  *
  * L'arborescence est la seule exception, et elle est bornée : sans elle, l'agent
  * ne sait pas quels chemins existent et gaspille des appels à tâtonner.
@@ -69,7 +74,7 @@ export interface WorkspaceBrief {
   baseDirty: number
   /** Sous-modules vides dans le worktree, relatifs à la racine de l'agent. */
   submodules: readonly string[]
-  /** Dossier d'origine, tel que Claude le cite dans son contexte. */
+  /** Dossier d'origine, tel que l'orchestrateur le cite dans son contexte. */
   originDir: string
 }
 
@@ -77,7 +82,7 @@ export interface WorkspaceBrief {
 export interface ContextInput {
   agent: Agent
   objective: string
-  /** Contexte fourni par Claude à la délégation. */
+  /** Contexte fourni par l'orchestrateur à la délégation. */
   context: string | null
   root: string
   tree: string
@@ -125,7 +130,7 @@ export function buildMessages(input: ContextInput): Message[] {
   if (input.context?.trim()) {
     parts.push(
       '# Context from the orchestrator\n\n' +
-        'This was assembled by Claude Code, which already explored the repository. ' +
+        'This was assembled by the orchestrator that delegated this task, from what it already explored. ' +
         'Trust it and build on it; do not re-derive it.\n\n' +
         input.context.trim(),
     )
@@ -143,7 +148,7 @@ export function buildMessages(input: ContextInput): Message[] {
  * Ce que la consigne dit du worktree. Trois pièges y sont nommés, parce que
  * chacun coûte des étapes s'il est découvert en tâtonnant :
  *
- *  - Claude cite les chemins **du dépôt d'origine** ; l'agent doit les lire
+ *  - l'orchestrateur cite les chemins **du dépôt d'origine** ; l'agent doit les lire
  *    comme relatifs, sans quoi chaque appel est refusé « hors du workspace » ;
  *  - le travail non commité de l'utilisateur **n'est pas là** ;
  *  - les sous-modules sont des **dossiers vides**, où rien ne s'écrit ;

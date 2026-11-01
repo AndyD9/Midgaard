@@ -13,7 +13,14 @@ export { SimulatedEngine } from './engines/simulated.ts'
 export { keyCommand } from './engines/agent.ts'
 export { secretRefFor, upsertProvider } from './providers.ts'
 export type { EngineContext, TaskEngine } from './engines/types.ts'
-export { ensureBuiltinAgents, reconcileAgents, RESEARCHER_AGENT_ID, RESEARCHER_TOOLS } from './agents.ts'
+export {
+  ensureBuiltinAgents,
+  reconcileAgents,
+  RESEARCHER_AGENT_ID,
+  RESEARCHER_TOOLS,
+  RESEARCHER_SYSTEM_PROMPT,
+  DEVELOPER_SYSTEM_PROMPT,
+} from './agents.ts'
 export { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'
 export { WS_PATH } from './ws.ts'
 export { StaticFiles } from './static-files.ts'
