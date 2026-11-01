@@ -241,7 +241,11 @@ describe('aucun processus ne survit', () => {
       }
       assert.equal(dead, true, `la commande ${pid} a survécu à son lanceur`)
     } finally {
-      rmSync(dir, { recursive: true, force: true })
+      // Sous Windows, le dossier courant d'un processus qui vient de mourir
+      // reste verrouillé un instant : `rmSync` y prenait `EPERM` en CI, et
+      // l'erreur du `finally` masquait le verdict du test (passage
+      // `41335226260`). Les reprises de `rmSync` couvrent cet intervalle.
+      rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
     }
   })
 
