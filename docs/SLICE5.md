@@ -524,3 +524,13 @@ du solde.
 pour les 13 tâches de l'installation. La colonne existe, le contrat la porte
 et le serveur MCP la transmet à Claude (`harness_get_task_result`), mais rien
 ne l'écrit. Défaut ancien, sans lien avec l'orchestrateur.
+
+*Réglé après l'essai.* Comme `ended_at`, c'est une propriété du statut : le
+dépôt le pose dans `record()`, à la première entrée en `preparing` ou en
+`running`, et ne le déplace plus ; une tâche annulée ou interrompue avant de
+quitter la file le garde à `null`, ce que le contrat dit désormais. Trois
+tests de `store.test.ts`, et O1 vérifie en base que chaque tâche de l'arbre a
+démarré avant de finir et aucun enfant avant son parent. Les deux ont été vus
+échouer sans le correctif — O1 sur « orchestrator sans started_at ; developer
+sans started_at ; researcher sans started_at ». Les tâches déjà finies gardent
+leur `NULL` : on ne réécrit pas l'histoire d'une date qu'on n'a pas relevée.

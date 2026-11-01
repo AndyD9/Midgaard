@@ -142,7 +142,7 @@ Depuis la racine du dépôt :
 
 | Suite | Durée | Contenu |
 |---|---|---|
-| `npm run test:unit` | ~7 s | 404 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils (écriture, `exec` et délégation compris), boucle d'agent, port de délégation et cascade, dashboard (montants, arbre), coffres, worktrees sur de vrais dépôts Git |
+| `npm run test:unit` | ~7 s | 407 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils (écriture, `exec` et délégation compris), boucle d'agent, port de délégation et cascade, dashboard (montants, arbre), coffres, worktrees sur de vrais dépôts Git |
 | `npm run test:worktrees` | ~5 s | Worktrees, écriture et `exec` seuls — la CI les rejoue sur macOS, Linux et Windows |
 | `npm run test:vault` | ~1 s | Les 41 cas de coffre, sur le coffre **réel de la machine** — la CI les rejoue sur macOS, Windows et Linux (avec et sans trousseau) |
 | `npm run test:lock` | ~30 s | Instance unique du daemon sous concurrence |

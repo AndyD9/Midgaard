@@ -262,8 +262,10 @@ dashboard, a lu `midgaard-demo`, délégué `/version` à un Developer, attendu
 l'approbation humaine de `npm test` et rendu une synthèse juste ; la somme des
 coûts de l'arbre égale l'écart du solde Venice au microdollar. En chemin, la
 clé « saisie sans écho » s'est affichée en clair : une `readline` réaffichait
-la frappe (leçon n° 36, `packages/cli/src/secret-input.ts`). Reste noté :
-`tasks.started_at` n'est jamais écrit.
+la frappe (leçon n° 36, `packages/cli/src/secret-input.ts`). Relevé en
+lisant la base et réglé : `tasks.started_at` n'était jamais écrit ; le dépôt
+le pose désormais à la sortie de la file, comme `ended_at` à l'entrée dans un
+statut final.
 
 ## Slice 4 terminée — durcissement
 

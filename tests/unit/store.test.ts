@@ -227,6 +227,38 @@ describe('transitions', () => {
     assert.equal(done.task.error, 'boum')
   })
 
+  it('pose started_at à la sortie de la file, une seule fois', () => {
+    // Le champ a été transmis à Claude des slices durant sans jamais être
+    // écrit : on le lit donc en base, pas dans la valeur rendue.
+    const { task } = newTask()
+    assert.equal(task.started_at, null, 'une tâche en file n\'a pas démarré')
+    store.record(task.id, 'preparing', { type: 'task.started' })
+    const started = store.getTask(task.id)!.started_at
+    assert.ok(started, 'started_at doit être renseigné sans que l\'appelant y pense')
+    assert.ok(started >= task.created_at)
+    store.record(task.id, 'running', { type: 'task.progress' })
+    store.record(task.id, 'waiting_approval', { type: 'task.progress' })
+    store.record(task.id, 'running', { type: 'task.progress' })
+    store.record(task.id, 'completed', { type: 'task.completed' })
+    assert.equal(store.getTask(task.id)!.started_at, started, 'repasser en running ne le déplace pas')
+  })
+
+  it('pose started_at aussi quand une tâche passe directement en running', () => {
+    // Le profil simulé ne prépare rien : queued → running.
+    const { task } = newTask()
+    store.record(task.id, 'running', { type: 'task.started' })
+    assert.ok(store.getTask(task.id)!.started_at)
+  })
+
+  it('laisse started_at à null pour une tâche qui n\'a jamais quitté la file', () => {
+    const { task } = newTask()
+    store.record(task.id, 'cancel_requested', { type: 'task.progress' })
+    store.record(task.id, 'cancelled', { type: 'task.cancelled' })
+    const ended = store.getTask(task.id)!
+    assert.equal(ended.started_at, null)
+    assert.ok(ended.ended_at)
+  })
+
   it('rend null pour une tâche inconnue plutôt que de lever', () => {
     assert.equal(store.record('00000000-0000-4000-8000-000000000000', 'running', { type: 'task.progress' }), null)
   })

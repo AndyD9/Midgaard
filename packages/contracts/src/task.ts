@@ -187,7 +187,13 @@ export const taskSchema = z.object({
   duration_s: z.number().int().min(1),
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),
+  /**
+   * Première sortie de la file vers l'exécution (`preparing` ou `running`),
+   * posée par le dépôt. `null` tant que la tâche attend, et pour toujours si
+   * elle a été annulée ou interrompue avant de démarrer.
+   */
   started_at: z.iso.datetime().nullable(),
+  /** Entrée dans un statut final, posée par le dépôt ; `null` tant que la tâche est active. */
   ended_at: z.iso.datetime().nullable(),
   /** Présent uniquement sur une tâche `completed`. */
   result: taskResultSchema.nullable(),

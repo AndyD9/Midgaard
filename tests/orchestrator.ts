@@ -229,6 +229,14 @@ await scenario(outcomes, 'O1 délégation parallèle ; l\'approbation d\'un enfa
   // Attendre ne coûte pas d'étape : quatre tours scriptés, quatre appels de modèle.
   if (done.usage.model_calls !== 4) problems.push(`${done.usage.model_calls} appels de modèle pour 4 tours`)
   if (done.result?.untrusted !== true) problems.push('le résultat de l\'orchestrateur n\'est pas marqué non fiable')
+  // Chaque tâche de l'arbre a démarré avant de finir, et aucun enfant avant son
+  // parent. Lu en base pour les enfants : `started_at` a longtemps été transmis
+  // sans jamais être écrit.
+  for (const t of [done, ...childrenInDb(parent.id)]) {
+    if (!t.started_at) problems.push(`${t.agent_id} sans started_at`)
+    else if (t.ended_at && t.started_at > t.ended_at) problems.push(`${t.agent_id} finie avant d'avoir démarré`)
+    else if (t.id !== done.id && done.started_at && t.started_at < done.started_at) problems.push(`${t.agent_id} démarrée avant son parent`)
+  }
   return {
     verdict: problems.length ? 'FAIL' : 'PASS',
     detail: problems.length

@@ -509,7 +509,13 @@ export class HarnessStore {
     if (patch.usage !== undefined) assign('usage_json', JSON.stringify(patch.usage))
     if (patch.needs_approval !== undefined) assign('needs_approval', patch.needs_approval ? 1 : 0)
     if (patch.approval_seq !== undefined) assign('approval_seq', patch.approval_seq)
+    // `started_at`, comme `ended_at`, est une propriété du statut : posé à la
+    // première sortie de la file vers l'exécution (`preparing` ou `running`).
+    // Rien ne l'écrivait jusqu'à la Slice 5, alors que le contrat le portait et
+    // que le serveur MCP le transmettait — toujours `null` (docs/SLICE5.md).
+    // Une tâche annulée ou interrompue avant d'avoir quitté la file le garde à `null`.
     if (patch.started_at !== undefined) assign('started_at', patch.started_at)
+    else if ((to === 'preparing' || to === 'running') && current.started_at === null) assign('started_at', now)
     if (patch.error !== undefined) assign('error', patch.error)
     if (patch.result !== undefined) assign('result_json', patch.result ? JSON.stringify(patch.result) : null)
     // `ended_at` est posé d'office à l'entrée dans un statut final : c'est une

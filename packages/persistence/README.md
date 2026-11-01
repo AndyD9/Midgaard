@@ -45,6 +45,12 @@ Une ligne `workspaces` s'écrit **avec** l'événement `workspace.*` qui la raco
 dans la même transaction que la ligne de journal de sa tâche : c'est
 `recordUnlocked`, le corps de `record()` sans transaction propre, qui le permet.
 
+Deux dates sont des **propriétés du statut**, posées par `record()` sans que
+l'appelant y pense : `started_at` à la première entrée en `preparing` ou en
+`running` (jamais déplacé ensuite), `ended_at` à l'entrée dans un statut
+final. `started_at` n'était écrit par personne jusqu'à la Slice 5, alors que
+le serveur MCP le transmettait à Claude.
+
 ## Choix d'exploitation
 
 - **WAL** : la CLI (`harness status`) lit pendant que le daemon écrit.
