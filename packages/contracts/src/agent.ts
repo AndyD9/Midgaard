@@ -19,8 +19,14 @@ import { z } from 'zod'
 /**
  * Profils livrés. `developer` (Slice 3) est le seul qui écrit — dans un
  * worktree Git créé pour la tâche, jamais dans le dépôt de l'utilisateur.
+ *
+ * `orchestrator` (Slice 5) délègue aux autres profils depuis le daemon, sur
+ * n'importe quel modèle. Le type existe dès l'étape 2 pour que la base et le
+ * protocole le connaissent ; le profil lui-même n'est livré qu'à l'étape 4.
+ * D'ici là, aucune tâche ne peut en naître : aucun moteur ne le sert, et
+ * `TaskManager.create` le refuse (`engine_unavailable`).
  */
-export const AGENT_KINDS = ['simulated', 'researcher', 'developer'] as const
+export const AGENT_KINDS = ['simulated', 'researcher', 'developer', 'orchestrator'] as const
 export type AgentKind = (typeof AGENT_KINDS)[number]
 
 /** Identifiant du profil simulé, réservé : aucun fournisseur, aucun coût. */
@@ -131,3 +137,30 @@ export function tightenLimits(base: AgentLimits, asked: Partial<AgentLimits> = {
 /** Limites qu'une délégation peut demander. Toutes facultatives, toutes abaissantes. */
 export const requestedLimitsSchema = agentLimitsSchema.partial()
 export type RequestedLimits = z.infer<typeof requestedLimitsSchema>
+
+/**
+ * Corps de `PATCH /api/agents/:id` : le fournisseur et le modèle d'un profil.
+ *
+ * **Rien d'autre ne se règle ici.** Les limites restent hors de portée de
+ * l'API : un client qui pourrait les relever — le dashboard est servi à tout
+ * onglet qui passe l'enveloppe — rendrait le budget décoratif. Les consignes
+ * et les outils appartiennent au harness, qui les réécrit à chaque démarrage.
+ *
+ * Changer de fournisseur sans dire de modèle remet le modèle à `null` (celui
+ * par défaut du nouveau fournisseur) : un nom de modèle n'a de sens que chez
+ * un fournisseur, et le garder ferait échouer la tâche suivante sur un modèle
+ * inconnu.
+ */
+export const updateAgentRequestSchema = z
+  .object({
+    /** Fournisseur déclaré, par identifiant. */
+    provider_id: z.string().min(1).max(64).optional(),
+    /** Modèle employé ; `null` = celui par défaut du fournisseur. */
+    model: z.string().trim().min(1).max(200).nullable().optional(),
+  })
+  // Un corps vide n'est pas une erreur de forme, mais il ne demande rien :
+  // l'accepter laisserait croire qu'un réglage a été pris en compte.
+  .refine((b) => b.provider_id !== undefined || b.model !== undefined, {
+    message: 'provider_id ou model est requis',
+  })
+export type UpdateAgentRequest = z.infer<typeof updateAgentRequestSchema>

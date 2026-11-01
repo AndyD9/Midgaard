@@ -48,9 +48,14 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *  - 9 : Slice 4, étape 6 — `/api/health` annonce `install` (dossier et
  *        version de l'installation), et `/api/shutdown` accepte `if_idle`, qui
  *        refuse l'arrêt tant qu'une tâche est active. Un daemon de protocole 8
- *        s'arrêterait sans condition : il doit être remplacé comme avant.
+ *        s'arrêterait sans condition : il doit être remplacé comme avant ;
+ *  - 10 : Slice 5, étape 2 — une tâche porte `parent_task_id`, un profil peut
+ *        être de type `orchestrator`, et `PATCH /api/agents/:id` choisit le
+ *        fournisseur et le modèle d'un profil. Un daemon de protocole 9 rendrait
+ *        des tâches sans le champ, que le serveur MCP et le dashboard valident
+ *        désormais, et répondrait 405 au réglage du modèle.
  */
-export const PROTOCOL_VERSION = 9
+export const PROTOCOL_VERSION = 10
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({
@@ -102,6 +107,10 @@ export type Health = z.infer<typeof healthSchema>
  * simulé reste le seul moyen d'exercer la machine à états sans dépenser de jetons.
  */
 export const createTaskRequestSchema = z.object({
+  // Pas de `parent_task_id` : seul le daemon rattache une tâche à son parent
+  // (Slice 5, décision 8). zod écarte les clés inconnues, et
+  // `tests/unit/http-agents.test.ts` vérifie qu'un client qui l'envoie ne
+  // rattache rien.
   objective: z.string().min(1).max(4000),
   /** Profil d'agent. Par défaut `simulated`, qui n'appelle aucun modèle. */
   agent_id: z.string().min(1).max(64).default('simulated'),
@@ -196,6 +205,10 @@ export const execAllowRequestSchema = z.object({
 /** Réponse de `GET /api/agents`. */
 export const agentsResponseSchema = z.object({ agents: z.array(agentSchema) })
 export type AgentsResponse = z.infer<typeof agentsResponseSchema>
+
+/** Réponse de `GET /api/agents/:id` et de `PATCH /api/agents/:id`. */
+export const agentResponseSchema = z.object({ agent: agentSchema })
+export type AgentResponse = z.infer<typeof agentResponseSchema>
 
 /** Réponse de `GET /api/providers`. Ne contient **aucune clé**, seulement des références. */
 export const providersResponseSchema = z.object({

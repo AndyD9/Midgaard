@@ -1,7 +1,7 @@
 /**
  * @file Persistance : l'invariant « état et journal indissociables », la
- * numérotation des séquences, l'usage unique des approbations et la
- * réconciliation au redémarrage.
+ * numérotation des séquences, l'usage unique des approbations, la
+ * réconciliation au redémarrage, et le lien d'une tâche à son parent.
  */
 import assert from 'node:assert/strict'
 import { chmodSync, mkdtempSync, rmSync, statSync } from 'node:fs'
@@ -95,6 +95,65 @@ describe('migration 7', () => {
     } finally {
       migrated.close()
     }
+  })
+})
+
+describe('migration 8', () => {
+  it('laisse sans parent les tâches créées avant elle', () => {
+    // Une base arrêtée au schéma 7, comme l'a laissée la Slice 4.
+    const old = new DatabaseSync(join(home, 'v7.db'))
+    for (const m of MIGRATIONS.filter((m) => m.version <= 7)) old.exec(m.sql)
+    old.exec('PRAGMA user_version = 7')
+    old.exec(`INSERT INTO tasks (id, objective, status, steps_total, duration_s, created_at, updated_at)
+              VALUES ('t', 'o', 'completed', 1, 1, '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z')`)
+    old.close()
+    const migrated = HarnessStore.open({ dbPath: join(home, 'v7.db') })
+    try {
+      assert.equal(migrated.getTask('t')?.parent_task_id, null)
+    } finally {
+      migrated.close()
+    }
+  })
+})
+
+describe('tâche déléguée par une tâche', () => {
+  it('garde son parent, et le dit dans son task.created', () => {
+    const parent = newTask().task
+    const { task, event } = store.createTask({
+      objective: 'enfant',
+      agentId: 'simulated',
+      context: null,
+      projectDir: null,
+      limits: DEFAULT_RESEARCHER_LIMITS,
+      durationS: 10,
+      stepsTotal: 5,
+      needsApproval: false,
+      parentTaskId: parent.id,
+    })
+    assert.equal(task.parent_task_id, parent.id)
+    assert.equal(event.payload.parent_task_id, parent.id)
+    assert.equal(newTask().task.parent_task_id, null, 'sans parent par défaut')
+    assert.equal(newTask().event.payload.parent_task_id, undefined, 'et le récit ne l\'invente pas')
+  })
+
+  it('refuse un parent qui n\'existe pas, sans rien écrire', () => {
+    const before = store.countTasks().total
+    const seq = store.lastSeq()
+    assert.throws(() =>
+      store.createTask({
+        objective: 'orpheline',
+        agentId: 'simulated',
+        context: null,
+        projectDir: null,
+        limits: DEFAULT_RESEARCHER_LIMITS,
+        durationS: 10,
+        stepsTotal: 5,
+        needsApproval: false,
+        parentTaskId: '00000000-0000-4000-8000-000000000000',
+      }),
+    )
+    assert.equal(store.countTasks().total, before)
+    assert.equal(store.lastSeq(), seq, 'aucun événement orphelin')
   })
 })
 

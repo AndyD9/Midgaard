@@ -31,6 +31,8 @@
  * | POST | `/api/exec-allow` | Ajoute un argv exact à la liste du dépôt | 200, 400 |
  * | POST | `/api/exec-allow/remove` | Retire un argv de la liste du dépôt | 200, 400, 404 |
  * | GET  | `/api/agents` | Profils d'agents | 200 |
+ * | GET  | `/api/agents/:id` | Un profil | 200, 404 |
+ * | PATCH | `/api/agents/:id` | Fournisseur et modèle d'un profil | 200, 400, 404, 409 |
  * | GET  | `/api/providers` | Fournisseurs **sans aucune clé** | 200 |
  * | POST | `/api/providers` | Déclare un fournisseur, dépose sa clé au coffre | 200, 400, 500 |
  * | DELETE | `/api/providers/:id` | Retire un fournisseur et sa clé | 200, 404 |
@@ -51,6 +53,7 @@ import {
   createTaskRequestSchema,
   execAllowRequestSchema,
   removeWorkspaceRequestSchema,
+  updateAgentRequestSchema,
   upsertProviderRequestSchema,
   type HarnessConfig,
   type Health,
@@ -68,6 +71,7 @@ import {
 } from './providers.ts'
 import { checkEnvelope, checkToken, type SecurityContext } from './security.ts'
 import { execAllowFor, listWorkspaces, removeWorkspace, workspaceView } from './workspaces.ts'
+import { updateAgentModel } from './agents.ts'
 
 /** Taille maximale d'un corps de requête, contre l'épuisement mémoire. */
 const MAX_BODY_BYTES = 64 * 1024
@@ -169,7 +173,7 @@ export function createRequestHandler(deps: HttpDeps) {
 
       if (section === 'approvals') return handleApprovals(deps, res, method, id, action, req)
       if (section === 'tasks') return handleTasks(deps, res, method, url, id, action, req)
-      if (section === 'agents') return handleAgents(deps, res, method, id)
+      if (section === 'agents') return handleAgents(deps, res, method, id, req)
       if (section === 'providers') return handleProviders(deps, res, method, id, action, req)
       if (section === 'workspaces') return handleWorkspaces(deps, res, method, id, action, req)
       if (section === 'exec-allow') return handleExecAllow(deps, res, method, url, id, req)
@@ -350,14 +354,34 @@ async function handleApprovals(
 }
 
 /**
- * Routes `/api/agents…`. Lecture seule : les profils livrés d'office sont posés
- * au démarrage, et leur activation suit celle de leur fournisseur.
+ * Routes `/api/agents…`. Les profils livrés d'office sont posés au démarrage,
+ * et leur activation suit celle de leur fournisseur ; seuls le fournisseur et
+ * le modèle se règlent ici (`PATCH`, Slice 5) — jamais les limites, que l'API
+ * ne permet pas de relever.
  */
-function handleAgents(deps: HttpDeps, res: ServerResponse, method: string, id: string | undefined): void {
-  if (method !== 'GET') return send(res, 405, { error: 'method_not_allowed' })
-  if (!id) return send(res, 200, { agents: deps.store.listAgents() })
-  const agent = deps.store.getAgent(id)
-  return agent ? send(res, 200, { agent }) : send(res, 404, { error: 'agent_not_found' })
+async function handleAgents(
+  deps: HttpDeps,
+  res: ServerResponse,
+  method: string,
+  id: string | undefined,
+  req: IncomingMessage,
+): Promise<void> {
+  if (!id) {
+    if (method !== 'GET') return send(res, 405, { error: 'method_not_allowed' })
+    return send(res, 200, { agents: deps.store.listAgents() })
+  }
+  if (method === 'GET') {
+    const agent = deps.store.getAgent(id)
+    return agent ? send(res, 200, { agent }) : send(res, 404, { error: 'agent_not_found' })
+  }
+  if (method === 'PATCH') {
+    const parsed = updateAgentRequestSchema.safeParse(await readJson(req))
+    if (!parsed.success) return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
+    const outcome = updateAgentModel(deps.store, id, parsed.data, deps.log)
+    if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
+    return send(res, 200, { agent: outcome })
+  }
+  return send(res, 405, { error: 'method_not_allowed' })
 }
 
 /**

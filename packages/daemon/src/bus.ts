@@ -58,6 +58,7 @@ export class EventBus {
     durationS: number
     stepsTotal: number
     needsApproval: boolean
+    parentTaskId?: string | null
   }): Recorded {
     return this.emit(this.store.createTask(input))
   }

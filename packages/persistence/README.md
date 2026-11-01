@@ -29,11 +29,11 @@ le code en cours fait échouer l'ouverture, au lieu d'être interprétée de tra
 
 | Table | Rôle |
 |---|---|
-| `tasks` | État courant de chaque tâche |
+| `tasks` | État courant de chaque tâche ; `parent_task_id` (migration 8) désigne la tâche qui l'a déléguée, posée par le daemon seul |
 | `task_events` | Journal append-only. `seq` global (`AUTOINCREMENT`, jamais réutilisé) pour la reprise WebSocket ; `task_seq` local pour la timeline d'une tâche |
 | `approvals` | Demandes d'approbation : opération précise, usage unique, expiration |
 | `provider_configs` | Fournisseurs de modèles ; la clé n'y est jamais, seulement sa référence au coffre |
-| `agents` | Profils d'exécution |
+| `agents` | Profils d'exécution ; seuls le fournisseur et le modèle s'y règlent hors démarrage (`setAgentModel`) |
 | `tool_calls` | Appels d'outils, arguments et résultats expurgés |
 | `workspaces` | Worktree de chaque tâche d'agent écrivant : branche, commit de départ, ce qui y manque (travail non commité, sous-modules), cycle `active → kept → removed` |
 

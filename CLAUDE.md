@@ -232,7 +232,10 @@ Un orchestrateur intégré au daemon, sur n'importe quel modèle, lancé du
 dashboard : décisions et découpage en sept étapes dans
 [docs/SLICE5.md](docs/SLICE5.md). Démarrée le 2026-11-01. Étape 1 faite : rien
 de ce que lit un modèle ne nomme plus Claude (test « neutralité envers
-l'orchestrateur ») — à garder ainsi dans toute nouvelle consigne.
+l'orchestrateur ») — à garder ainsi dans toute nouvelle consigne. Étape 2
+faite : migration 8 (`tasks.parent_task_id`, posé par le daemon seul),
+`PATCH /api/agents/:id` (fournisseur et modèle, jamais les limites), type
+`orchestrator` sans moteur encore, `PROTOCOL_VERSION` 10.
 
 ## Slice 4 terminée — durcissement
 

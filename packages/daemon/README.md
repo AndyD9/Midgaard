@@ -16,6 +16,7 @@ soit le nombre de sessions Claude Code ouvertes.
 | `lock.ts` | Instance unique : création atomique du verrou, puis bail vérifié chaque seconde |
 | `bus.ts` | **Seul chemin d'écriture** : ce qui est écrit est diffusé |
 | `task-manager.ts` | Machine à états en marche ; tâches simulées en Slice 1 |
+| `agents.ts` | Profils livrés, rattachement à un fournisseur, choix du fournisseur et du modèle (`PATCH /api/agents/:id`) |
 | `http.ts` | Routeur de l'API locale |
 | `ws.ts` | Diffusion temps réel et **reprise sans trou** après coupure |
 | `security.ts` | `Host` exact, `Origin` en liste blanche, `Sec-Fetch-Site`, jeton porteur |

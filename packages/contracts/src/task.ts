@@ -156,6 +156,16 @@ export const taskSchema = z.object({
    * que dans le dépôt d'où la tâche a été déléguée.
    */
   project_dir: z.string().nullable(),
+  /**
+   * Tâche qui a délégué celle-ci ; `null` pour une tâche née d'un client
+   * (serveur MCP, dashboard).
+   *
+   * **Posé par le daemon seul** (Slice 5, décision 8) : le champ est absent de
+   * `POST /api/tasks`, et un client qui l'y glisse est ignoré. Sans cela, n'importe
+   * quel client rattacherait une tâche à un arbre qui n'est pas le sien — et
+   * l'annulation en cascade d'un parent emporterait des tâches qu'il n'a pas créées.
+   */
+  parent_task_id: z.uuid().nullable(),
   /** Limites effectivement appliquées : celles du profil, abaissées par la délégation. */
   limits: agentLimitsSchema,
   /** Consommation cumulée, et d'où vient le montant. Toujours présente, à zéro pour une tâche simulée. */

@@ -69,6 +69,7 @@ interface TaskRow {
   limits_json: string
   usage_json: string
   project_dir: string | null
+  parent_task_id: string | null
 }
 
 /** Ligne `task_events` telle que SQLite la rend. */
@@ -148,6 +149,7 @@ function toTask(row: TaskRow): Task {
     limits: JSON.parse(row.limits_json) as AgentLimits,
     usage: JSON.parse(row.usage_json) as Usage,
     project_dir: row.project_dir,
+    parent_task_id: row.parent_task_id,
   }
 }
 
@@ -326,7 +328,12 @@ export class HarnessStore {
   /**
    * Crée une tâche en statut `queued` et son événement `task.created`.
    *
+   * `parentTaskId` est facultatif et ne vient **jamais** d'un client : seul le
+   * daemon rattache une tâche à celle qui l'a déléguée (Slice 5).
+   *
    * @returns la tâche créée et l'événement à diffuser
+   * @throws si `parentTaskId` ne désigne aucune tâche (clé étrangère) : c'est
+   *         un bug du daemon, pas une saisie à corriger
    */
   createTask(input: {
     objective: string
@@ -337,6 +344,7 @@ export class HarnessStore {
     durationS: number
     stepsTotal: number
     needsApproval: boolean
+    parentTaskId?: string | null
   }): Recorded {
     const now = new Date().toISOString()
     const id = randomUUID()
@@ -345,9 +353,9 @@ export class HarnessStore {
         .prepare(
           `INSERT INTO tasks (id, objective, status, step, steps_total, needs_approval, approval_seq,
                               duration_s, created_at, updated_at, agent_id, context, limits_json, usage_json,
-                              project_dir)
+                              project_dir, parent_task_id)
            VALUES (:id, :objective, 'queued', 0, :steps_total, :needs_approval, 0, :duration_s, :now, :now,
-                   :agent_id, :context, :limits, :usage, :project_dir)`,
+                   :agent_id, :context, :limits, :usage, :project_dir, :parent_task_id)`,
         )
         .run({
           id,
@@ -359,6 +367,7 @@ export class HarnessStore {
           agent_id: input.agentId,
           context: input.context,
           project_dir: input.projectDir,
+          parent_task_id: input.parentTaskId ?? null,
           limits: JSON.stringify(input.limits),
           usage: JSON.stringify(emptyUsage()),
         })
@@ -367,7 +376,14 @@ export class HarnessStore {
         'queued',
         {
           type: 'task.created',
-          payload: { objective: input.objective, agent_id: input.agentId, limits: input.limits },
+          // Le parent est dans le récit : la timeline d'un enfant dit qui l'a
+          // délégué, sans qu'il faille relire la ligne de la tâche.
+          payload: {
+            objective: input.objective,
+            agent_id: input.agentId,
+            limits: input.limits,
+            ...(input.parentTaskId ? { parent_task_id: input.parentTaskId } : {}),
+          },
         },
         now,
       )
@@ -756,6 +772,21 @@ export class HarnessStore {
     const info = this.db
       .prepare('UPDATE agents SET enabled = :e, updated_at = :now WHERE id = :id')
       .run({ id, e: enabled ? 1 : 0, now: new Date().toISOString() })
+    return info.changes === 1 ? this.getAgent(id) : null
+  }
+
+  /**
+   * Règle le fournisseur et le modèle d'un profil, sans toucher au reste.
+   *
+   * Ne vérifie pas que le fournisseur existe : c'est la règle métier de
+   * l'appelant (`daemon/src/agents.ts`), qui sait aussi le dire en clair.
+   *
+   * @returns le profil après coup, ou `null` s'il n'existe pas
+   */
+  setAgentModel(id: string, providerId: string | null, model: string | null): Agent | null {
+    const info = this.db
+      .prepare('UPDATE agents SET provider_id = :p, model = :m, updated_at = :now WHERE id = :id')
+      .run({ id, p: providerId, m: model, now: new Date().toISOString() })
     return info.changes === 1 ? this.getAgent(id) : null
   }
 

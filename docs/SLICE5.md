@@ -6,7 +6,7 @@ Code : un profil `orchestrator` qui tourne dans le daemon, sur le fournisseur et
 le modèle choisis (Venice, OpenAI, Gemini, compatible OpenAI), et qui délègue
 lui-même aux autres profils.
 
-**État : en cours** (démarrée le 2026-11-01 ; étape 1 faite). Avant elle :
+**État : en cours** (démarrée le 2026-11-01 ; étapes 1 et 2 faites). Avant elle :
 décisions prises, découpage arrêté, aucune ligne de code. Elle attendait l'étape 8 de la Slice 4 — ce qui existe
 devait avoir fait ses preuves avant qu'on y ajoute un orchestrateur : c'est
 fait le 2026-11-01, depuis un clone frais ([SLICE4.md](SLICE4.md)). Les
@@ -88,7 +88,7 @@ l'arbre** ; le total porte la plus faible des provenances de ses tâches
 | # | Étape | État |
 |---|---|---|
 | 1 | Neutraliser « Claude Code » dans ce que lisent les modèles : consignes du Researcher et du Developer, contexte assemblé, message d'erreur | **fait** |
-| 2 | Contrats et persistance : `kind` `orchestrator`, `parent_task_id` (migration 8), `PATCH /api/agents/:id` pour choisir fournisseur et modèle, `PROTOCOL_VERSION` 10 | à faire |
+| 2 | Contrats et persistance : `kind` `orchestrator`, `parent_task_id` (migration 8), `PATCH /api/agents/:id` pour choisir fournisseur et modèle, `PROTOCOL_VERSION` 10 | **fait** |
 | 3 | Les outils de délégation : `list_agents`, `delegate_task`, `wait_for_task`, `cancel_task` derrière un `DelegationPort` du `ToolContext` — sans lui, ils refusent ; cascade d'annulation | à faire |
 | 4 | Le profil `orchestrator` : consigne, outils en lecture plus délégation, ni écriture, ni `exec`, ni web ; désactivé sans fournisseur, avec son motif | à faire |
 | 5 | Le dashboard : formulaire « Nouvelle tâche », tâches en arbre, carte « Sous-tâches » (total et plafond théorique), choix du modèle par profil | à faire |
@@ -131,3 +131,50 @@ une ligne ajoutée plus tard qui citerait Claude ne passera pas.
 Ni la base ni le protocole ne changent : les consignes des profils livrés sont
 réécrites à chaque démarrage du daemon (`ensureBuiltinAgents`), et
 `PROTOCOL_VERSION` reste 9.
+
+### Étape 2 — contrats et persistance (2026-11-01)
+
+**Ce qui existe.** Le type de profil `orchestrator` ; `tasks.parent_task_id`
+(migration 8, clé étrangère `ON DELETE CASCADE` et index) ; `parent_task_id`
+sur chaque tâche et dans le `task.created` d'un enfant ; `PATCH
+/api/agents/:id` ; `PROTOCOL_VERSION` 10.
+
+**`parent_task_id` n'entre que par le daemon.** Le champ est absent de
+`POST /api/tasks` ; zod écarte les clés inconnues, et un test envoie le champ
+puis lit la tâche **en base** pour constater qu'elle n'a pas de parent. Le
+dépôt l'accepte (`createTask({ parentTaskId })`) et le bus le transmet ; le
+`TaskManager` ne le pose pas encore — ce sera l'outil `delegate_task` de
+l'étape 3, seul appelant prévu. Un parent inexistant fait lever la clé
+étrangère, sans tâche ni événement écrit : c'est un bug du daemon, pas une
+saisie.
+
+**`PATCH /api/agents/:id` ne règle que le fournisseur et le modèle.** Les
+limites restent hors de l'API, même glissées dans le corps (testé) : le
+dashboard est servi à tout onglet qui passe l'enveloppe, et un budget qu'un
+client pourrait relever ne protégerait personne. Les règles
+(`updateAgentModel`, `daemon/src/agents.ts`) :
+
+- le profil simulé refuse (`409 agent_has_no_model`) ;
+- un fournisseur non déclaré est refusé (`404 provider_not_found`, avec la
+  liste de ceux qui existent) ; l'accepter, c'était voir le profil désactivé
+  au démarrage suivant par `reconcileAgents`, sans erreur visible ;
+- changer de fournisseur sans dire de modèle remet le modèle à `null` (celui
+  par défaut du nouveau) : un nom de modèle n'a de sens que chez son
+  fournisseur ;
+- un corps vide est un `400` : il ne demande rien, et l'accepter laisserait
+  croire qu'un réglage a été pris ;
+- le changement vaut pour les tâches créées ensuite ; une tâche en cours
+  garde l'adaptateur reçu à son départ.
+
+**Le type avant le profil.** `orchestrator` est connu des contrats et de la
+base dès maintenant, mais aucun moteur ne le sert : un profil de ce type,
+même actif, est refusé par `TaskManager.create` (`503 engine_unavailable`)
+sans qu'aucune tâche soit créée. Le commentaire de `AGENT_KINDS` l'affirmait ;
+un test le prouve (`tests/unit/http-agents.test.ts`).
+
+**Preuves.** `tests/unit/http-agents.test.ts`, nouveau, démarre un vrai daemon
+dans le processus de test (coffre fichier, fournisseurs écrits sans clé) et
+couvre le `PATCH`, le `parent_task_id` glissé par un client et le refus du
+type sans moteur ; `tests/unit/store.test.ts` couvre la migration 8 sur une
+base arrêtée au schéma 7, le parent et son récit, et le refus d'un parent
+inexistant sans rien écrire.

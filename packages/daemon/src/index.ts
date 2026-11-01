@@ -20,6 +20,7 @@ export {
   RESEARCHER_TOOLS,
   RESEARCHER_SYSTEM_PROMPT,
   DEVELOPER_SYSTEM_PROMPT,
+  updateAgentModel,
 } from './agents.ts'
 export { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'
 export { WS_PATH } from './ws.ts'

@@ -29,8 +29,10 @@ import {
   SIMULATED_AGENT_ID,
   type Agent,
   type AgentLimits,
+  type UpdateAgentRequest,
 } from '@midgaard/contracts'
 import type { HarnessStore } from '@midgaard/persistence'
+import type { Refusal } from './task-manager.ts'
 
 /** Identifiant du profil Researcher. */
 export const RESEARCHER_AGENT_ID = 'researcher'
@@ -248,4 +250,62 @@ export function reconcileAgents(store: HarnessStore, log: (...a: unknown[]) => v
     log(`profil « ${agent.id} » ${enabled ? `rattaché à « ${providerId} »` : 'désactivé (plus de fournisseur)'}`)
   }
   return out
+}
+
+/**
+ * Règle le fournisseur et le modèle d'un profil — `PATCH /api/agents/:id`.
+ *
+ * Les règles, chacune pour une raison :
+ *
+ *  - **le profil simulé n'a pas de modèle** : il n'appelle rien, et lui en
+ *    donner un laisserait croire qu'il coûte ;
+ *  - **le fournisseur doit être déclaré** : un profil rattaché à un fournisseur
+ *    absent serait désactivé au prochain démarrage par {@link reconcileAgents},
+ *    sans que personne ait vu le réglage échouer ;
+ *  - **changer de fournisseur sans dire de modèle remet le modèle à `null`** :
+ *    un nom de modèle n'a de sens que chez son fournisseur.
+ *
+ * Ne touche **ni aux limites, ni à l'activation**. Le changement vaut pour les
+ * tâches créées ensuite : une tâche en cours garde l'adaptateur qu'elle a reçu
+ * à son départ.
+ *
+ * @returns le profil après coup, ou un refus à rendre tel quel au client
+ */
+export function updateAgentModel(
+  store: HarnessStore,
+  id: string,
+  request: UpdateAgentRequest,
+  log: (...a: unknown[]) => void = () => {},
+): Agent | Refusal {
+  const agent = store.getAgent(id)
+  if (!agent) return { error: 'agent_not_found', status: 404, detail: { agent_id: id } }
+  if (agent.kind === 'simulated') {
+    return {
+      error: 'agent_has_no_model',
+      status: 409,
+      detail: { agent_id: id, reason: 'le profil simulé n\'appelle aucun modèle' },
+    }
+  }
+
+  const providerId = request.provider_id ?? agent.provider_id
+  if (providerId === null) {
+    return {
+      error: 'provider_required',
+      status: 409,
+      detail: { agent_id: id, reason: 'aucun fournisseur n\'est rattaché à ce profil : choisis-en un avec provider_id' },
+    }
+  }
+  if (!store.getProvider(providerId)) {
+    return {
+      error: 'provider_not_found',
+      status: 404,
+      detail: { provider_id: providerId, available: store.listProviders().map((p) => p.id) },
+    }
+  }
+
+  const providerChanged = providerId !== agent.provider_id
+  const model = request.model !== undefined ? request.model : providerChanged ? null : agent.model
+  const updated = store.setAgentModel(id, providerId, model)!
+  log(`profil « ${id} » : fournisseur « ${providerId} », modèle ${model ?? '(celui par défaut)'}`)
+  return updated
 }

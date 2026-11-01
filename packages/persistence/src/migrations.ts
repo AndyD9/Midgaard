@@ -270,6 +270,23 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE workspaces ADD COLUMN submodules_json TEXT NOT NULL DEFAULT '[]';
     `,
   },
+  {
+    version: 8,
+    label: 'Slice 5 — tâches déléguées par une tâche',
+    sql: `
+      -- La tâche qui a délégué celle-ci, posée par le daemon seul ; NULL pour
+      -- une tâche née d'un client (serveur MCP, dashboard), donc pour toutes
+      -- celles d'avant.
+      --
+      -- ON DELETE CASCADE, comme le journal et les approbations : rien ne
+      -- supprime de tâche aujourd'hui, mais un enfant sans parent se lirait
+      -- comme une tâche de premier niveau, ce qu'il n'a jamais été.
+      ALTER TABLE tasks ADD COLUMN parent_task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE;
+      -- L'annulation en cascade et la carte « Sous-tâches » cherchent les
+      -- enfants d'un parent.
+      CREATE INDEX tasks_parent_idx ON tasks(parent_task_id);
+    `,
+  },
 ]
 
 // Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',
