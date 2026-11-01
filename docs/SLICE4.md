@@ -742,8 +742,9 @@ l'autre plateforme. Désormais `available()` exige que `security
 default-keychain` nomme un trousseau ; sur ce `HOME`, `doctor` dit « coffre
 fichier » et le conseil de macOS nomme cette commande (`docs/DEPANNAGE.md`
 aussi). Le test (`secrets.test.ts`) lance la sonde dans un sous-processus au
-`HOME` vide, et échoue contre l'ancienne. *Le poste macOS de `vault.yml` doit
-avoir un trousseau par défaut pour rester vert : pas encore constaté.*
+`HOME` vide, et échoue contre l'ancienne. *Constaté en CI au passage
+`41287292375` de `vault.yml` : quatre postes au vert, et le poste macOS retient
+toujours `macos-keychain` avec la nouvelle sonde.*
 
 **30. Deux installations partagent le trousseau.** La référence d'une clé est
 `provider.<id>`, sans rien qui dépende du dossier runtime. Deux
@@ -913,8 +914,6 @@ Nés de l'étape 8, à décider avant ou pendant la Slice 5 :
   l'essai, `cached_input_usd_per_mtok` étant `null`.
 - **Deux dashboards sur deux ports** (leçon n° 33) : rien n'avertit qu'un autre
   daemon tient 7777.
-- **La nouvelle sonde du trousseau en CI** (leçon n° 29) : le poste macOS de
-  `vault.yml` doit avoir un trousseau par défaut ; pas encore constaté.
 
 Connus avant l'étape 8 :
 
