@@ -12,7 +12,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, it } from 'node:test'
 import { harnessCommand, loadConfig, pidAlive, readRuntime } from '@midgaard/contracts'
@@ -47,11 +47,16 @@ describe('harnessCommand', () => {
 
 describe('extractHome', () => {
   it('retire --home où qu’il soit avant --, et le rend absolu', () => {
+    // `resolve` et non `join` pour l'attendu : sous Windows, un chemin sans
+    // lecteur prend celui du dossier courant (`D:\\w\\rt`) — constaté en CI.
     assert.deepEqual(extractHome(['--home', 'rt', 'approve', 'a1'], '/w'), {
-      home: join('/w', 'rt'),
+      home: resolve('/w', 'rt'),
       rest: ['approve', 'a1'],
     })
-    assert.deepEqual(extractHome(['approve', '--home=/abs', 'a1'], '/w'), { home: '/abs', rest: ['approve', 'a1'] })
+    assert.deepEqual(extractHome(['approve', '--home=/abs', 'a1'], '/w'), {
+      home: resolve('/abs'),
+      rest: ['approve', 'a1'],
+    })
   })
 
   it('ne lit rien après --', () => {
