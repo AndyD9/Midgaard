@@ -17,7 +17,7 @@
  * | Méthode | Chemin | Rôle | Codes |
  * |---|---|---|---|
  * | GET  | `/api/health` | Vivacité, version de protocole, compteurs | 200 |
- * | POST | `/api/tasks` | Crée une tâche | 201, 400 |
+ * | POST | `/api/tasks` | Crée une tâche ; `project_dir` vérifié (`checkProjectDir`) | 201, 400 |
  * | GET  | `/api/tasks?status=&limit=` | Liste les tâches | 200 |
  * | GET  | `/api/tasks/:id` | État et consigne | 200, 404 |
  * | GET  | `/api/tasks/:id/wait?timeout_ms=&known_approval=` | Long-poll | 200, 404 |
@@ -72,6 +72,7 @@ import {
 import { checkEnvelope, checkToken, type SecurityContext } from './security.ts'
 import { execAllowFor, listWorkspaces, removeWorkspace, workspaceView } from './workspaces.ts'
 import { updateAgentModel } from './agents.ts'
+import { checkProjectDir } from './project-dir.ts'
 
 /** Taille maximale d'un corps de requête, contre l'épuisement mémoire. */
 const MAX_BODY_BYTES = 64 * 1024
@@ -268,11 +269,20 @@ async function handleTasks(
       if (!parsed.success) {
         return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
       }
+      // Le dossier se vérifie ici, avant la création : un chemin tapé au
+      // dashboard est une source nouvelle (Slice 5, décision 9). Pas pour le
+      // profil simulé, qui ne lit rien et ignore ce champ.
+      let projectDir = parsed.data.project_dir ?? null
+      if (projectDir !== null && deps.store.getAgent(parsed.data.agent_id)?.kind !== 'simulated') {
+        const checked = checkProjectDir(projectDir, deps.config.userHome)
+        if ('error' in checked) return send(res, 400, { error: 'invalid_project_dir', reason: checked.error })
+        projectDir = checked.dir
+      }
       const created = deps.tasks.create({
         objective: parsed.data.objective.trim(),
         agentId: parsed.data.agent_id,
         context: parsed.data.context ?? null,
-        projectDir: parsed.data.project_dir ?? null,
+        projectDir,
         requestedLimits: parsed.data.limits,
         durationS: parsed.data.duration_s,
         needsApproval: parsed.data.needs_approval,

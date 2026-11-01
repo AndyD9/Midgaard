@@ -1,32 +1,42 @@
 /**
- * @file Application du dashboard : deux colonnes, la liste et l'inspecteur.
+ * @file Application du dashboard : deux colonnes, la liste et le panneau principal.
  *
- * Le routage se fait par le fragment d'URL (`#/tasks/<id>`), sans bibliothèque :
- * une seule route, et un lien d'approbation doit pouvoir pointer directement sur
- * une tâche. Le daemon sert `index.html` pour toute route inconnue, donc un
- * rechargement fonctionne aussi.
+ * Le routage se fait par le fragment d'URL, sans bibliothèque. Trois routes :
+ * `#/tasks/<id>` (une tâche — un lien d'approbation doit pouvoir y pointer),
+ * et depuis la Slice 5 `#/new` (le formulaire « Nouvelle tâche ») et `#/agents`
+ * (les profils, leur fournisseur et leur modèle). Le daemon sert `index.html`
+ * pour toute route inconnue, donc un rechargement fonctionne aussi.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Plus, SlidersHorizontal } from 'lucide-react'
 import { useHarness } from '@/lib/useHarness'
 import { AgentsCard } from './components/AgentsCard'
+import { NewTaskForm } from './components/NewTaskForm'
 import { StatusBar } from './components/StatusBar'
 import { TaskInspector } from './components/TaskInspector'
 import { TaskList } from './components/TaskList'
+import { Button } from './components/ui/button'
 
-/** Identifiant de tâche lu dans le fragment `#/tasks/<id>`. */
-function taskIdFromHash(): string | null {
+/** Ce que montre le panneau principal, lu dans le fragment d'URL. */
+type View = { kind: 'task'; id: string } | { kind: 'new' } | { kind: 'agents' } | { kind: 'none' }
+
+/** Vue désignée par le fragment courant. */
+function viewFromHash(): View {
+  if (location.hash === '#/new') return { kind: 'new' }
+  if (location.hash === '#/agents') return { kind: 'agents' }
   const match = /^#\/tasks\/([0-9a-f-]{36})$/i.exec(location.hash)
-  return match ? match[1]! : null
+  return match ? { kind: 'task', id: match[1]! } : { kind: 'none' }
 }
 
 export function App() {
   const { state, loadEvents, reportError } = useHarness()
-  const [selectedId, setSelectedId] = useState<string | null>(taskIdFromHash)
+  const [view, setView] = useState<View>(viewFromHash)
+  const selectedId = view.kind === 'task' ? view.id : null
 
-  // Le fragment est la source de vérité de la sélection : les boutons Précédent
-  // et Suivant du navigateur fonctionnent, et un lien partagé ouvre la bonne tâche.
+  // Le fragment est la source de vérité de la vue : les boutons Précédent et
+  // Suivant du navigateur fonctionnent, et un lien partagé ouvre la bonne tâche.
   useEffect(() => {
-    const onHashChange = () => setSelectedId(taskIdFromHash())
+    const onHashChange = () => setView(viewFromHash())
     addEventListener('hashchange', onHashChange)
     return () => removeEventListener('hashchange', onHashChange)
   }, [])
@@ -38,17 +48,18 @@ export function App() {
   // À défaut de sélection, on ouvre ce qui attend une décision, sinon la tâche
   // la plus récente : ouvrir le dashboard doit montrer quelque chose d'utile.
   const effectiveId = useMemo(() => {
+    if (view.kind === 'new' || view.kind === 'agents') return null
     if (selectedId && state.tasks.some((t) => t.id === selectedId)) return selectedId
     return state.approvals[0]?.task_id ?? state.tasks[0]?.id ?? null
-  }, [selectedId, state.tasks, state.approvals])
+  }, [view.kind, selectedId, state.tasks, state.approvals])
 
   // Ce choix par défaut devient aussitôt une sélection explicite, inscrite dans
   // le fragment. Sans cela, il serait recalculé à chaque changement d'état : la
   // tâche qu'on regarde s'échapperait au moment même où on l'approuve, puisqu'elle
   // cesse alors d'être celle qui attend une décision.
   useEffect(() => {
-    if (!selectedId && effectiveId) select(effectiveId)
-  }, [selectedId, effectiveId, select])
+    if (view.kind === 'none' && effectiveId) select(effectiveId)
+  }, [view.kind, effectiveId, select])
 
   const task = state.tasks.find((t) => t.id === effectiveId) ?? null
   const approval = state.approvals.find((a) => a.task_id === effectiveId) ?? null
@@ -59,9 +70,15 @@ export function App() {
 
       <main className="grid min-h-0 flex-1 lg:grid-cols-[22rem_1fr]">
         <aside className="min-h-0 overflow-y-auto border-border lg:border-r">
-          <h1 className="sticky top-0 border-b border-border bg-surface px-4 py-2.5 text-xs font-semibold tracking-wide text-muted uppercase">
-            Tâches
-          </h1>
+          <div className="sticky top-0 z-10 flex items-center gap-1 border-b border-border bg-surface px-4 py-1.5">
+            <h1 className="mr-auto text-xs font-semibold tracking-wide text-muted uppercase">Tâches</h1>
+            <Button size="sm" variant="ghost" onClick={() => (location.hash = '#/agents')} data-testid="nav-agents">
+              <SlidersHorizontal /> Profils
+            </Button>
+            <Button size="sm" onClick={() => (location.hash = '#/new')} data-testid="nav-new">
+              <Plus /> Nouvelle tâche
+            </Button>
+          </div>
           <TaskList
             tasks={state.tasks}
             approvals={state.approvals}
@@ -71,13 +88,21 @@ export function App() {
         </aside>
 
         <section className="min-h-0 overflow-y-auto p-5">
-          {task ? (
+          {view.kind === 'new' ? (
+            <NewTaskForm onCreated={select} />
+          ) : view.kind === 'agents' ? (
+            <div className="mx-auto max-w-2xl">
+              <AgentsCard editable />
+            </div>
+          ) : task ? (
             <TaskInspector
               task={task}
+              tasks={state.tasks}
               approval={approval}
               events={state.events[task.id]}
               onLoadEvents={loadEvents}
               onError={reportError}
+              onSelect={select}
             />
           ) : (
             <Empty />
@@ -101,9 +126,9 @@ function Empty() {
       <div className="space-y-3 text-center">
         <h2 className="text-lg font-semibold">Rien à observer pour l'instant</h2>
         <p className="text-sm text-muted">
-          Ouvre une session Claude Code sur un dossier où le serveur{' '}
-          <code className="font-mono">midgaard</code> est déclaré, et demande-lui de déléguer une tâche.
-          Elle apparaîtra ici en direct.
+          Lance une tâche avec « Nouvelle tâche », ou ouvre une session Claude Code sur un dossier où le
+          serveur <code className="font-mono">midgaard</code> est déclaré, et demande-lui de déléguer. Elle
+          apparaîtra ici en direct.
         </p>
       </div>
       <AgentsCard />

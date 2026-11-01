@@ -14,12 +14,15 @@
 import type {
   Agent,
   Approval,
+  CreateTaskRequest,
   Health,
   ProviderConfig,
   Task,
   TaskEvent,
+  TaskView,
   TaskWorkspaceResponse,
   ToolCall,
+  UpdateAgentRequest,
 } from '@midgaard/contracts'
 
 /** Jeton d'API, en mémoire uniquement. */
@@ -34,13 +37,19 @@ let token: string | null = null
  */
 let pending: Promise<{ token: string; health: Health }> | null = null
 
-/** Erreur d'API portant le code HTTP, pour que l'appelant puisse le distinguer. */
+/**
+ * Erreur d'API portant le code HTTP, pour que l'appelant puisse le distinguer,
+ * et le **motif** que le daemon joint à un refus (`reason`) : « agent_disabled »
+ * seul ne dit pas quoi faire, « aucun fournisseur configuré » si.
+ */
 export class ApiError extends Error {
   readonly status: number
-  constructor(status: number, message: string) {
+  readonly reason: string | null
+  constructor(status: number, message: string, reason: string | null = null) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.reason = reason
   }
 }
 
@@ -103,8 +112,10 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
   })
-  const body = (await res.json().catch(() => ({}))) as { error?: string }
-  if (!res.ok) throw new ApiError(res.status, body.error ?? `erreur ${res.status}`)
+  const body = (await res.json().catch(() => ({}))) as { error?: string; reason?: unknown }
+  if (!res.ok) {
+    throw new ApiError(res.status, body.error ?? `erreur ${res.status}`, typeof body.reason === 'string' ? body.reason : null)
+  }
   return body as T
 }
 
@@ -165,4 +176,19 @@ export function fetchProviders(): Promise<{
 /** Approbations en attente, pour un rafraîchissement ponctuel. */
 export function fetchApprovals(): Promise<{ approvals: Approval[] }> {
   return api('/api/approvals')
+}
+
+/**
+ * Crée une tâche depuis le formulaire « Nouvelle tâche » (Slice 5).
+ *
+ * Le daemon vérifie le dossier de projet avant toute création ; un refus
+ * arrive en `ApiError` avec son motif.
+ */
+export function createTask(request: Omit<CreateTaskRequest, 'duration_s' | 'needs_approval'>): Promise<TaskView> {
+  return api('/api/tasks', { method: 'POST', body: JSON.stringify(request) })
+}
+
+/** Règle le fournisseur et le modèle d'un profil — jamais ses limites, que l'API refuse de toucher. */
+export function updateAgent(agentId: string, request: UpdateAgentRequest): Promise<{ agent: Agent }> {
+  return api(`/api/agents/${encodeURIComponent(agentId)}`, { method: 'PATCH', body: JSON.stringify(request) })
 }

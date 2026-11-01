@@ -26,7 +26,15 @@
  *    des données d'apparence normale est pire qu'un dashboard en panne ;
  *  - D8 le diff d'une tâche Developer **se lit** : branche, fichiers, et le
  *    patch d'un fichier déplié — le livrable « diff consultable » de la
- *    Slice 3, avec un faux fournisseur qui joue les appels d'outils.
+ *    Slice 3, avec un faux fournisseur qui joue les appels d'outils ;
+ *  - D9 le formulaire « Nouvelle tâche » ne propose **que des profils actifs**
+ *    et dit pourquoi les autres ne le sont pas, puis lance une tâche (Slice 5) ;
+ *  - D10 le modèle d'un profil se choisit dans la vue « Profils », et ses
+ *    limites n'en bougent pas ;
+ *  - D11 un orchestrateur lancé du formulaire : dossier refusé avec son motif
+ *    puis accepté, sous-tâche rangée sous son parent, carte « Sous-tâches »
+ *    avec le plafond théorique et le total de l'arbre **avec sa provenance**,
+ *    lien de l'enfant vers son parent.
  *
  * Playwright est employé en **bibliothèque**, pas en lanceur : les suites de ce
  * dépôt ont leur forme (`scenario`, `summarize`, verdicts), et ajouter un second
@@ -39,7 +47,9 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { chromium, type Browser, type ConsoleMessage, type Page } from 'playwright'
-import { daemonJson, pidAlive, readRuntime, type Approval, type RuntimeInfo, type TaskView } from '@midgaard/contracts'
+import {
+  daemonJson, pidAlive, readRuntime, type Agent, type Approval, type RuntimeInfo, type Task, type TaskView,
+} from '@midgaard/contracts'
 import { StaticFiles, defaultDashboardDir } from '@midgaard/daemon'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -323,6 +333,43 @@ await scenario(outcomes, 'D6 un lien profond rouvre la bonne tâche après recha
   return { verdict: 'PASS', detail: `#/tasks/${id.slice(0, 8)}… ouvre et survit au rechargement` }
 })
 
+// --- D9 (avant D8 : aucun fournisseur n'est encore déclaré) -----------------
+
+await scenario(outcomes, 'D9 le formulaire ne propose que les profils actifs, et lance une tâche', async () => {
+  await page.goto(`${rt.dashboard_url}#/new`, { waitUntil: 'domcontentloaded' })
+  try {
+    await page.getByTestId('new-task-form').waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+  } catch {
+    return { verdict: 'FAIL', detail: 'le formulaire « Nouvelle tâche » ne s’affiche pas sur #/new' }
+  }
+  // Sans fournisseur, seul le profil simulé peut recevoir une tâche : c'est le
+  // seul proposé, et les autres sont nommés avec leur motif, pas cachés.
+  const options = await page
+    .getByTestId('new-task-agent')
+    .locator('option')
+    .evaluateAll((os) => os.map((o) => o.getAttribute('value') ?? ''))
+  if (options.join(',') !== 'simulated') return { verdict: 'FAIL', detail: `profils proposés : ${options.join(', ')}` }
+  const inactive = (await page.getByTestId('new-task-inactive').textContent()) ?? ''
+  if (!/orchestrator indisponible — aucun fournisseur/.test(inactive)) {
+    return { verdict: 'FAIL', detail: `motif absent pour l’orchestrateur : « ${inactive} »` }
+  }
+
+  const objective = '[D9] tâche lancée du dashboard'
+  await page.getByTestId('new-task-objective').fill(objective)
+  await page.getByTestId('new-task-submit').click()
+  try {
+    await page.waitForURL(/#\/tasks\/[0-9a-f-]{36}$/, { timeout: UI_TIMEOUT })
+  } catch {
+    return { verdict: 'FAIL', detail: 'le formulaire n’ouvre pas la tâche créée' }
+  }
+  const id = /#\/tasks\/([0-9a-f-]{36})$/.exec(page.url())![1]!
+  const created = await taskNow(id)
+  await daemonJson(rt, `/api/tasks/${id}/cancel`, { method: 'POST' })
+  if (created.objective !== objective) return { verdict: 'FAIL', detail: `tâche créée : « ${created.objective} »` }
+  if (!(await sees(objective))) return { verdict: 'FAIL', detail: 'la tâche créée ne s’affiche pas' }
+  return { verdict: 'PASS', detail: `seul « simulated » proposé, motifs des autres affichés ; tâche ${id.slice(0, 8)} créée et ouverte` }
+})
+
 // --- D8 ----------------------------------------------------------------------
 
 await scenario(outcomes, 'D8 le diff d’une tâche Developer se lit dans le dashboard', async () => {
@@ -382,6 +429,118 @@ await scenario(outcomes, 'D8 le diff d’une tâche Developer se lit dans le das
   } finally {
     provider.server.close()
     rmSync(repos, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+  }
+})
+
+// --- D10 (après D8 : le fournisseur « faux » existe) -------------------------
+
+await scenario(outcomes, 'D10 le modèle d’un profil se choisit dans le dashboard, ses limites n’en bougent pas', async () => {
+  const before = (await daemonJson<{ agent: Agent }>(rt, '/api/agents/orchestrator')).body.agent
+  await page.goto(`${rt.dashboard_url}#/agents`, { waitUntil: 'domcontentloaded' })
+  const input = page.getByTestId('agent-model-orchestrator')
+  try {
+    await input.waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+  } catch {
+    return { verdict: 'FAIL', detail: 'aucun champ de modèle pour l’orchestrateur dans la vue « Profils »' }
+  }
+  await input.fill('faux-2')
+  await page.getByTestId('agent-save-orchestrator').click()
+  if (!(await sees(/enregistré : faux · faux-2/))) return { verdict: 'FAIL', detail: 'aucune confirmation à l’écran' }
+  const after = (await daemonJson<{ agent: Agent }>(rt, '/api/agents/orchestrator')).body.agent
+  if (after.model !== 'faux-2') return { verdict: 'FAIL', detail: `modèle en base : ${after.model}` }
+  if (JSON.stringify(after.limits) !== JSON.stringify(before.limits)) {
+    return { verdict: 'FAIL', detail: 'les limites du profil ont bougé' }
+  }
+  return { verdict: 'PASS', detail: `orchestrator : ${before.model ?? 'modèle par défaut'} → ${after.model}, limites intactes` }
+})
+
+// --- D11 ---------------------------------------------------------------------
+
+/** Libellé de provenance de la carte « Sous-tâches », par provenance. */
+const SOURCE_LABEL = { provider: 'facturé', pricing_table: 'estimé', unknown: 'inconnu' } as const
+
+await scenario(outcomes, 'D11 un orchestrateur lancé du formulaire, et son arbre', async () => {
+  const provider = await startFakeProvider()
+  const repo = realpathSync.native(mkdtempSync(join(tmpdir(), 'midgaard-ui-orch-')))
+  try {
+    // Le faux fournisseur de D8 est arrêté : on redéclare « faux » sur celui-ci.
+    await daemonJson(rt, '/api/providers', {
+      method: 'POST',
+      body: JSON.stringify({ id: 'faux', preset: 'custom', base_url: provider.url, default_model: 'faux-1', api_key: 'sk-faux-0000' }),
+    })
+    writeFileSync(join(repo, 'README.md'), '# Projet\n')
+    provider.scripts.set('[D11]', [
+      [{ tool: 'list_agents', args: {} }],
+      [{ tool: 'delegate_task', args: { agent_id: 'researcher', objective: '[D11-enfant] lis le README' } }],
+      [{ tool: 'wait_for_task', args: { task_id: '{{task_id}}' } }],
+      [{ tool: 'submit_result', args: { summary: 'le README dit Projet' } }],
+    ])
+    provider.scripts.set('[D11-enfant]', [[{ tool: 'submit_result', args: { summary: 'Projet' } }]])
+
+    await page.goto(`${rt.dashboard_url}#/new`, { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('new-task-agent').waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+    await page.getByTestId('new-task-agent').selectOption('orchestrator')
+    if (!/jusqu'à 64/.test((await page.getByTestId('new-task-ceiling').textContent()) ?? '')) {
+      return { verdict: 'FAIL', detail: 'le plafond théorique n’est pas annoncé avant le lancement' }
+    }
+    await page.getByTestId('new-task-objective').fill('[D11] orchestre la lecture du README')
+
+    // Un dossier refusé l'est par le daemon, et son motif s'affiche tel quel.
+    await page.getByTestId('new-task-dir').fill('/')
+    await page.getByTestId('new-task-submit').click()
+    if (!(await sees(/racine du système/))) return { verdict: 'FAIL', detail: '« / » accepté, ou refus sans motif' }
+
+    await page.getByTestId('new-task-dir').fill(repo)
+    await page.getByTestId('new-task-submit').click()
+    try {
+      await page.waitForURL(/#\/tasks\/[0-9a-f-]{36}$/, { timeout: UI_TIMEOUT })
+    } catch {
+      return { verdict: 'FAIL', detail: 'l’orchestrateur n’a pas été créé avec un dossier valide' }
+    }
+    const parentId = /#\/tasks\/([0-9a-f-]{36})$/.exec(page.url())![1]!
+    if (!(await until(async () => (await taskNow(parentId)).status === 'completed'))) {
+      const t = await taskNow(parentId)
+      return { verdict: 'FAIL', detail: `orchestrateur non terminé : ${t.status} — ${t.error}` }
+    }
+    const all = (await daemonJson<{ tasks: Task[] }>(rt, '/api/tasks?limit=50')).body.tasks
+    const child = all.find((t) => t.parent_task_id === parentId)
+    if (!child) return { verdict: 'FAIL', detail: 'aucune sous-tâche rattachée à l’orchestrateur' }
+    if (child.status !== 'completed') return { verdict: 'FAIL', detail: `sous-tâche ${child.status} — ${child.error}` }
+
+    // La carte : plafond, total, et la provenance la plus faible de l'arbre.
+    const card = page.getByTestId('subtasks-card')
+    await card.waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+    const ceiling = (await card.getByTestId('subtasks-ceiling').textContent()) ?? ''
+    if (!/1 lancée\(s\) sur 64/.test(ceiling)) return { verdict: 'FAIL', detail: `plafond affiché : « ${ceiling} »` }
+    const parent = await taskNow(parentId)
+    const measured = [parent, child].filter((t) => t.usage.model_calls > 0).map((t) => t.usage.cost_source)
+    const weakest = measured.includes('unknown') ? 'unknown' : measured.includes('pricing_table') ? 'pricing_table' : 'provider'
+    const total = (await card.getByTestId('subtasks-total').textContent()) ?? ''
+    if (!total.includes(SOURCE_LABEL[weakest])) {
+      return { verdict: 'FAIL', detail: `total sans la provenance attendue (${SOURCE_LABEL[weakest]}) : « ${total} »` }
+    }
+
+    // L'arbre dans la liste : l'enfant suit immédiatement son parent, en retrait.
+    const rows = await page.locator('[data-testid^="task-row-"]').evaluateAll((els) =>
+      els.map((e) => ({ id: e.getAttribute('data-testid'), depth: e.getAttribute('data-depth') })),
+    )
+    const at = rows.findIndex((r) => r.id === `task-row-${parentId}`)
+    if (rows[at + 1]?.id !== `task-row-${child.id}` || rows[at + 1]?.depth !== '1') {
+      return { verdict: 'FAIL', detail: 'la sous-tâche n’est pas rangée sous son orchestrateur' }
+    }
+
+    // De l'enfant au parent, par les liens de l'inspecteur.
+    await card.getByTestId('subtasks-list').getByText('[D11-enfant]').click()
+    await page.waitForURL(new RegExp(`#/tasks/${child.id}$`), { timeout: UI_TIMEOUT })
+    await page.getByTestId('parent-link').getByRole('button').click()
+    await page.waitForURL(new RegExp(`#/tasks/${parentId}$`), { timeout: UI_TIMEOUT })
+    return {
+      verdict: 'PASS',
+      detail: `« / » refusé avec son motif ; arbre ${parentId.slice(0, 8)} → ${child.id.slice(0, 8)} rangé, 1/64, total ${SOURCE_LABEL[weakest]}, liens parent ↔ enfant`,
+    }
+  } finally {
+    provider.server.close()
+    rmSync(repo, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   }
 })
 

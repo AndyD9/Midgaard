@@ -6,7 +6,7 @@ Code : un profil `orchestrator` qui tourne dans le daemon, sur le fournisseur et
 le modèle choisis (Venice, OpenAI, Gemini, compatible OpenAI), et qui délègue
 lui-même aux autres profils.
 
-**État : en cours** (démarrée le 2026-11-01 ; étapes 1 à 4 faites). Avant elle :
+**État : en cours** (démarrée le 2026-11-01 ; étapes 1 à 5 faites). Avant elle :
 décisions prises, découpage arrêté, aucune ligne de code. Elle attendait l'étape 8 de la Slice 4 — ce qui existe
 devait avoir fait ses preuves avant qu'on y ajoute un orchestrateur : c'est
 fait le 2026-11-01, depuis un clone frais ([SLICE4.md](SLICE4.md)). Les
@@ -91,7 +91,7 @@ l'arbre** ; le total porte la plus faible des provenances de ses tâches
 | 2 | Contrats et persistance : `kind` `orchestrator`, `parent_task_id` (migration 8), `PATCH /api/agents/:id` pour choisir fournisseur et modèle, `PROTOCOL_VERSION` 10 | **fait** |
 | 3 | Les outils de délégation : `list_agents`, `delegate_task`, `wait_for_task`, `cancel_task` derrière un `DelegationPort` du `ToolContext` — sans lui, ils refusent ; cascade d'annulation | **fait** |
 | 4 | Le profil `orchestrator` : consigne, outils en lecture plus délégation, ni écriture, ni `exec`, ni web ; désactivé sans fournisseur, avec son motif | **fait** |
-| 5 | Le dashboard : formulaire « Nouvelle tâche », tâches en arbre, carte « Sous-tâches » (total et plafond théorique), choix du modèle par profil | à faire |
+| 5 | Le dashboard : formulaire « Nouvelle tâche », tâches en arbre, carte « Sous-tâches » (total et plafond théorique), choix du modèle par profil | **fait** |
 | 6 | Preuves : `test:orchestrator` (vrai daemon, faux fournisseur : délégation parallèle, approbation d'un enfant, annulation en cascade, `SIGKILL`), ajouts à `test:security` et `test:ui`, CI sur trois plateformes | à faire |
 | 7 | L'essai réel : un orchestrateur non-Claude lancé du dashboard, un Developer enfant sous approbation, chaque coût comparé à la facture | à faire |
 
@@ -281,3 +281,47 @@ porter les outils de délégation. `agent-runtime.test.ts` : la consigne de
 l'orchestrateur rejoint le test de neutralité, et deux tests fixent la règle
 du non-fiable (sortie de commande sans citation → non fiable ; lecture du
 projet seule → fiable).
+
+### Étape 5 — le dashboard (2026-11-01)
+
+**Ce qui existe.** Deux routes de plus : `#/new`, le formulaire « Nouvelle
+tâche », et `#/agents`, les profils avec leur fournisseur et leur modèle
+(`PATCH /api/agents/:id`). La liste des tâches est un arbre ; l'inspecteur
+d'un orchestrateur porte la carte « Sous-tâches », celui d'une sous-tâche un
+lien vers son parent. Côté daemon, `checkProjectDir` vérifie le dossier de
+projet à la création (décision 9) ; `HarnessConfig.userHome` lui donne le
+dossier personnel, injecté.
+
+**Ce qui a été décidé en écrivant.**
+
+- **La vérification du dossier s'applique à toute tâche qui lit**, MCP compris,
+  pas au seul formulaire : le daemon ne distingue pas ses clients. Elle ne
+  gêne pas une session ouverte sur un dépôt ; elle refuse désormais une
+  session Claude Code ouverte sur `~` ou sur `/`, qui donnait jusqu'ici à un
+  agent tout le dossier personnel à lire. Le profil simulé n'est pas vérifié,
+  il ne lit rien. Le guide de dépannage cite les cinq motifs.
+- **Le motif d'un profil désactivé est calculé au dashboard** (`lib/agents.ts`)
+  depuis les profils et fournisseurs que l'API rend déjà, plutôt qu'en ajoutant
+  un champ au protocole : la règle tient en deux cas, ceux de
+  `TaskManager.whyDisabled`.
+- **Le total de l'arbre ignore une tâche qui n'a appelé aucun modèle** : sans
+  cela, une sous-tâche simulée ou échouée avant tout appel — provenance
+  `unknown` par défaut — rendrait inconnu un total dont tous les termes sont
+  connus.
+- **Le faux fournisseur sait attendre** : `{{task_id}}` dans un argument est
+  remplacé par le dernier identifiant de sous-tâche lu dans la conversation.
+  Sans état côté serveur, le scénario d'un orchestrateur peut enfin appeler
+  `wait_for_task` ; `orchestrator-engine.test.ts` en profite.
+
+**Preuves.** `test:ui` passe de 8 à 11 scénarios, tous verts : D9, le
+formulaire sans fournisseur ne propose que `simulated` et nomme les autres
+avec leur motif, puis lance une tâche ; D10, le modèle d'un profil se choisit
+à l'écran, en base ensuite, limites intactes ; D11, un orchestrateur lancé du
+formulaire — `/` refusé avec son motif, puis le vrai dossier — délègue,
+attend et termine ; la sous-tâche est rangée sous lui, la carte affiche
+« 1 lancée(s) sur 64 » et le total avec la provenance la plus faible, et les
+liens mènent de l'un à l'autre. En unitaire : `dashboard-tree.test.ts`
+(rangement, total et provenance, plafond, motif), `project-dir.test.ts`
+(chemin relatif, absent, fichier, racine, dossier personnel même par un lien
+symbolique, dans les deux sens), deux cas HTTP dans `http-agents.test.ts`.
+Les écrans ont aussi été relus en capture, sur bureau et à 390 px de large.

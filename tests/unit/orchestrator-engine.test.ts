@@ -8,13 +8,12 @@
  *  - le moteur pose le port de délégation pour un orchestrateur — sans lui,
  *    `list_agents` et `delegate_task` seraient refusés ;
  *  - la sous-tâche créée par le modèle est rattachée au parent, sur son dossier ;
+ *  - l'orchestrateur attend sa sous-tâche et en reçoit le résultat, **encadré** ;
  *  - quand l'orchestrateur rend son résultat, la cascade emporte la sous-tâche
  *    qu'il n'a pas attendue : **aucune tâche active en base** ensuite.
  *
- * Le scénario ne peut pas appeler `wait_for_task` : le faux fournisseur est sans
- * état, et l'identifiant de la sous-tâche n'existe pas quand le scénario
- * s'écrit. L'attente est éprouvée dans `delegation.test.ts`, et le sera de bout
- * en bout par `test:orchestrator` (étape 6).
+ * L'identifiant de la sous-tâche n'existe pas quand le scénario s'écrit : le
+ * faux fournisseur le reprend du résultat de `delegate_task` (`{{task_id}}`).
  */
 import assert from 'node:assert/strict'
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -58,6 +57,29 @@ after(async () => {
 })
 
 describe('orchestrateur sur le vrai moteur', () => {
+  it('attend sa sous-tâche, et en reçoit le résultat comme donnée', async () => {
+    provider.scripts.set('[orch-attend]', [
+      [{ tool: 'delegate_task', args: { agent_id: 'researcher', objective: '[enfant-attendu] lis' } }],
+      [{ tool: 'wait_for_task', args: { task_id: '{{task_id}}' } }],
+      [{ tool: 'submit_result', args: { summary: 'synthèse' } }],
+    ])
+    provider.scripts.set('[enfant-attendu]', [[{ tool: 'submit_result', args: { summary: 'le README dit Projet' } }]])
+
+    const created = daemon.tasks.create({
+      objective: '[orch-attend] orchestre', agentId: 'orchestrator', context: null, projectDir: project,
+      durationS: 20, needsApproval: false,
+    })
+    assert.ok(!('error' in created), JSON.stringify(created))
+    const done = await daemon.tasks.wait(created.task.id, 20_000, 0)
+    assert.equal(done?.task.status, 'completed', done?.task.error ?? '')
+    const [child] = daemon.store.childTasks(created.task.id)
+    assert.equal(child?.status, 'completed', 'attendue jusqu\'au bout, pas annulée')
+    const waited = daemon.store.toolCalls(created.task.id).find((c) => c.name === 'wait_for_task')
+    assert.equal(waited?.status, 'succeeded')
+    // Le résultat de l'enfant est entré encadré : celui du parent est donc non fiable.
+    assert.equal(done?.task.result?.untrusted, true)
+  })
+
   it('reçoit le port, délègue, et ne laisse aucune sous-tâche derrière lui', async () => {
     provider.scripts.set('[orch-1]', [
       [{ tool: 'list_agents', args: {} }],

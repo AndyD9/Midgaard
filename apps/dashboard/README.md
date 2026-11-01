@@ -1,7 +1,9 @@
 # `@midgaard/dashboard`
 
 L'interface d'observation et de décision : la liste des tâches, l'inspecteur avec
-sa timeline temps réel, et les boutons d'approbation. React + Vite + Tailwind,
+sa timeline temps réel, et les boutons d'approbation. Depuis la Slice 5, aussi
+l'endroit d'où l'on **lance** une tâche sans Claude Code — un orchestrateur en
+particulier, qui ne se lance que d'ici. React + Vite + Tailwind,
 composants dans l'idiome shadcn/ui, recopiés dans `src/components/ui/`.
 
 ```bash
@@ -65,17 +67,44 @@ Uniquement les **types** : le point d'entrée du paquet charge des modules Node
 deux seules valeurs nécessaires — les sous-protocoles WebSocket — sont recopiées
 dans `src/lib/useHarness.ts`, avec le commentaire qui le signale.
 
+## Lancer une tâche, régler un profil (Slice 5)
+
+Trois routes, par le fragment d'URL : `#/tasks/<id>`, `#/new` (formulaire
+« Nouvelle tâche ») et `#/agents` (profils).
+
+- **Le formulaire ne propose que des profils actifs**, et nomme les autres avec
+  leur motif (`lib/agents.ts`, la même règle que le daemon). Il montre les
+  limites du profil sans manette pour les relever, et pour un orchestrateur son
+  **plafond théorique** de sous-tâches.
+- **Le dossier de projet est vérifié par le daemon** (`checkProjectDir`) : il
+  existe, c'est un dossier, ni `/` ni le dossier personnel. Le formulaire
+  affiche le motif d'un refus tel quel. Le dernier dossier saisi est retenu
+  dans le `localStorage` de ce navigateur — commodité de ce seul poste, qui ne
+  porte rien de ce qui doit durer, et dont la page se passe.
+- **La vue « Profils » règle le fournisseur et le modèle** de chaque profil,
+  par `PATCH /api/agents/:id`. Jamais les limites : l'API ne le permet pas.
+- **Les tâches sont un arbre** (`lib/tree.ts`) : chaque sous-tâche suit son
+  orchestrateur, en retrait, dans l'ordre où il l'a déléguée. La carte
+  « Sous-tâches » montre ce qu'il a délégué, celle qu'il attend (d'après le
+  dernier `subtask.waiting`), le **total de l'arbre avec la plus faible
+  provenance de ses termes**, et le plafond théorique. Une sous-tâche nomme
+  son parent.
+
 ## Comment c'est vérifié
 
 Deux niveaux, et le second a longtemps manqué :
 
 - `tests/unit/dashboard-format.test.ts` couvre les **fonctions pures** de
-  `src/lib/utils.ts` — montants, durées, dates. Aucun rendu.
+  `src/lib/utils.ts` — montants, durées, dates — et
+  `tests/unit/dashboard-tree.test.ts` celles de l'arbre : rangement, total et
+  provenance, plafond, motif d'un profil désactivé. Aucun rendu.
 - `npm run test:ui` (`tests/dashboard.ts`) ouvre un **vrai Chromium** sur un
   **vrai daemon** : l'application démarre, une tâche apparaît sans rechargement,
   la progression avance seule, une approbation donnée au clic débloque la tâche,
   un lien profond survit à un `F5`, et la perte **comme le retour** de la
-  connexion se voient. Il lui faut le dashboard compilé et
+  connexion se voient. Depuis la Slice 5 : le formulaire (D9), le choix du
+  modèle (D10), et un orchestrateur lancé du formulaire jusqu'à son arbre
+  (D11), sur un faux fournisseur. Il lui faut le dashboard compilé et
   `npx playwright install chromium`, que `npm ci` ne fait pas.
 
 Ce que cette suite ne fait **pas** : comparer des pixels. Elle vérifie des
@@ -93,3 +122,8 @@ qu'une suite qui rougit à chaque retouche de style.
 | `components/TaskInspector.tsx` | État, résultat, erreur, timeline |
 | `components/ApprovalPanel.tsx` | Le seul endroit qui débloque une tâche |
 | `components/Timeline.tsx` | Le journal, rendu lisible |
+| `components/NewTaskForm.tsx` | « Nouvelle tâche » : profils actifs seulement, dossier vérifié par le daemon |
+| `components/AgentsCard.tsx` | Exécutants ; en vue « Profils », fournisseur et modèle de chacun |
+| `components/SubtasksCard.tsx` | Sous-tâches d'un orchestrateur, total de l'arbre, plafond théorique |
+| `lib/tree.ts` | Arbre des tâches, total et provenance, plafond — fonctions pures |
+| `lib/agents.ts` | Motif d'un profil désactivé — fonction pure |

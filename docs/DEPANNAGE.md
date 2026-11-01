@@ -69,6 +69,23 @@ rabat sur son dossier de travail, et l'écrit sur sa sortie d'erreur :
 « roots/list indisponible, repli sur le dossier de travail ». Ouvre la session
 Claude Code **sur le dossier du projet** lui-même.
 
+### « Delegation refused (invalid_project_dir) » ou refus du formulaire « Nouvelle tâche »
+
+Le daemon vérifie le dossier qu'un agent aura le droit de lire, d'où que vienne
+la tâche (Slice 5). Les motifs, mot pour mot :
+
+- « le dossier de projet doit être un chemin absolu : « … » » ;
+- « le dossier de projet n'existe pas : « … » » ;
+- « le dossier de projet n'est pas un dossier : « … » » ;
+- « la racine du système ne peut pas être un dossier de projet : choisis le
+  dossier du dépôt » ;
+- « le dossier personnel ne peut pas être un dossier de projet : un agent y
+  lirait tout. Choisis le dossier du dépôt ».
+
+Les deux derniers frappent aussi une session Claude Code ouverte sur `~` ou
+sur `/` : ouvre-la **sur le dossier du dépôt**. Au dashboard, saisis le chemin
+absolu du dépôt. Le profil `simulated`, qui ne lit rien, n'est pas concerné.
+
 ### Une attente est coupée, ou rend la main sans résultat
 
 Un client MCP coupe un appel d'outil resté 60 s sans signe de vie. Midgaard

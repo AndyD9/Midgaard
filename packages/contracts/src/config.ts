@@ -18,6 +18,11 @@ import { join } from 'node:path'
 export interface HarnessConfig {
   /** Dossier d'état runtime (base, journal, fichier de découverte, verrou). Créé en `0700`. */
   home: string
+  /**
+   * Dossier personnel de l'utilisateur. Un dossier de projet ne peut pas être
+   * celui-ci (Slice 5, décision 9) : un agent y lirait tout.
+   */
+  userHome: string
   /** Base SQLite : toute la mémoire longue du harness. */
   dbPath: string
   /** Fichier de découverte du daemon (port, jeton, pid). **Secret**, écrit en `0600`. */
@@ -174,6 +179,7 @@ export function loadConfig(env: ConfigEnv = {}, overrides: Partial<HarnessConfig
 
   const base: HarnessConfig = {
     home,
+    userHome: homedir(),
     dbPath: join(home, 'harness.db'),
     runtimeFile: join(home, 'daemon.json'),
     lockFile: join(home, 'daemon.lock'),

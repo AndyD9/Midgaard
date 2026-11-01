@@ -195,3 +195,29 @@ describe('profil orchestrator', () => {
     }
   })
 })
+
+describe('dossier de projet à la création', () => {
+  it('refuse un dossier invalide avant toute création, et dit pourquoi', async () => {
+    const before = daemon.store.countTasks().total
+    const r = await daemonJson<{ error?: string; reason?: string }>(rt, '/api/tasks', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ objective: 'o', agent_id: 'researcher', project_dir: join(home, 'absent') }),
+    })
+    assert.equal(r.status, 400)
+    assert.equal(r.body.error, 'invalid_project_dir')
+    assert.match(r.body.reason ?? '', /n'existe pas/)
+    assert.equal(daemon.store.countTasks().total, before)
+  })
+
+  it('ne vérifie rien pour le profil simulé, qui ne lit aucun dossier', async () => {
+    const r = await daemonJson<TaskView>(rt, '/api/tasks', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ objective: 'o', duration_s: 60, project_dir: join(home, 'absent') }),
+    })
+    assert.equal(r.status, 201)
+    assert.equal(r.body.task.project_dir, null)
+    await daemonJson(rt, `/api/tasks/${r.body.task.id}/cancel`, { method: 'POST' })
+  })
+})

@@ -5,6 +5,10 @@
  * est-ce que quelque chose m'attend (approbation), où en est-ce (état et
  * progression), qu'est-ce qui en est sorti (résultat ou erreur, puis, pour un
  * Developer, les fichiers et le diff), et enfin ce qui s'est passé (timeline).
+ *
+ * Depuis la Slice 5, une sous-tâche nomme son parent (lien), et un orchestrateur
+ * montre ses sous-tâches juste après sa consommation : le total de l'arbre se lit
+ * à côté du coût propre de l'orchestrateur.
  */
 import { useEffect, useState } from 'react'
 import { Ban, ShieldAlert } from 'lucide-react'
@@ -12,6 +16,7 @@ import type { Approval, Task, TaskEvent } from '@midgaard/contracts'
 import { cancelTask } from '@/lib/api'
 import { duration, formatDateTime } from '@/lib/utils'
 import { ApprovalPanel } from './ApprovalPanel'
+import { SubtasksCard } from './SubtasksCard'
 import { Timeline } from './Timeline'
 import { ToolCalls } from './ToolCalls'
 import { UsageCard } from './UsageCard'
@@ -25,16 +30,21 @@ const CANCELLABLE = ['queued', 'preparing', 'running', 'waiting_approval']
 
 export function TaskInspector({
   task,
+  tasks,
   approval,
   events,
   onLoadEvents,
   onError,
+  onSelect,
 }: {
   task: Task
+  /** Toutes les tâches connues : pour le parent d'une sous-tâche, et les enfants d'un orchestrateur. */
+  tasks: Task[]
   approval: Approval | null
   events: TaskEvent[] | undefined
   onLoadEvents: (taskId: string) => void
   onError: (message: string | null) => void
+  onSelect: (taskId: string) => void
 }) {
   const [cancelling, setCancelling] = useState(false)
 
@@ -80,6 +90,19 @@ export function TaskInspector({
         </CardHeader>
         <CardBody className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
           <Field label="Exécutant" value={task.agent_id} />
+          {task.parent_task_id && (
+            <p className="flex gap-2" data-testid="parent-link">
+              <span className="text-muted">Sous-tâche de :</span>
+              <button
+                type="button"
+                className="min-w-0 truncate font-mono text-xs text-accent hover:underline"
+                onClick={() => onSelect(task.parent_task_id!)}
+              >
+                {tasks.find((t) => t.id === task.parent_task_id)?.agent_id ?? 'tâche'} ·{' '}
+                {task.parent_task_id.slice(0, 8)}
+              </button>
+            </p>
+          )}
           <Field label="Progression" value={`étape ${task.step} sur ${task.steps_total}`} />
           <Field label="Créée" value={formatDateTime(task.created_at)} />
           <Field label="Terminée" value={task.ended_at ? formatDateTime(task.ended_at) : '—'} />
@@ -96,6 +119,8 @@ export function TaskInspector({
       </Card>
 
       <UsageCard task={task} />
+
+      <SubtasksCard task={task} tasks={tasks} events={events} onSelect={onSelect} />
 
       {task.error && (
         <Card className="border-danger/40">
