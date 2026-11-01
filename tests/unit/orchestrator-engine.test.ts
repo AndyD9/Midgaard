@@ -14,8 +14,13 @@
  *
  * L'identifiant de la sous-tâche n'existe pas quand le scénario s'écrit : le
  * faux fournisseur le reprend du résultat de `delegate_task` (`{{task_id}}`).
+ *
+ * S'y ajoute une régression du moteur trouvée par la suite de sécurité (X5) :
+ * une tâche annulée **pendant sa préparation** finissait `failed`, et le motif
+ * d'une annulation conclue par le moteur se perdait.
  */
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -120,5 +125,38 @@ describe('orchestrateur sur le vrai moteur', () => {
     const system = provider.systems.get('[orch-1]') ?? ''
     assert.match(system, /Orchestrator agent/)
     assert.doesNotMatch(system, /claude|anthropic/i)
+  })
+})
+
+describe('annulation pendant la préparation', () => {
+  it('conclut en cancelled, avec son motif, et non en failed', async () => {
+    // Un vrai dépôt : le Developer y crée son worktree, l'attente la plus longue
+    // de sa préparation — celle où l'annulation tombait.
+    const repo = realpathSync.native(mkdtempSync(join(tmpdir(), 'midgaard-orch-prep-')))
+    const git = (...a: string[]) =>
+      execFileSync('git', ['-c', 'user.name=u', '-c', 'user.email=u@example.org', '-c', 'commit.gpgsign=false', ...a], {
+        cwd: repo,
+        stdio: 'ignore',
+      })
+    try {
+      git('init', '-q', '-b', 'main')
+      writeFileSync(join(repo, 'README.md'), '# Projet\n')
+      git('add', '-A')
+      git('commit', '-q', '-m', 'initial')
+      provider.scripts.set('[prep]', [[{ tool: 'submit_result', args: { summary: 'jamais' } }]])
+      const created = daemon.tasks.create({
+        objective: '[prep] trop tard', agentId: 'developer', context: null, projectDir: repo,
+        durationS: 20, needsApproval: false,
+      })
+      assert.ok(!('error' in created), JSON.stringify(created))
+      // Aussitôt : le moteur est entré dans sa préparation, pas encore en marche.
+      const asked = daemon.tasks.cancel(created.task.id, 'tâche parente annulée')
+      assert.ok(!('error' in asked))
+      const done = await daemon.tasks.wait(created.task.id, 15_000, 0)
+      assert.equal(done?.task.status, 'cancelled', done?.task.error ?? '')
+      assert.match(done?.task.error ?? '', /^tâche parente annulée/)
+    } finally {
+      rmSync(repo, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+    }
   })
 })

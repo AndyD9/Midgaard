@@ -17,7 +17,10 @@
  *  - X3 `; rm -rf` dans un argument n'est qu'un argument : l'humain l'approuve
  *       tel quel, et rien n'est supprimé ;
  *  - X4 l'API locale n'écoute que la boucle locale, et le jeton et la base ne
- *       sont lisibles que de l'utilisateur.
+ *       sont lisibles que de l'utilisateur ;
+ *  - X5 un orchestrateur qui recopie une clé tierce dans ce qu'il délègue —
+ *       objectif, contexte, motif d'annulation — ne la fait pas persister
+ *       (Slice 5) : ces textes sont écrits par un modèle, puis rangés en base.
  *
  * Ce qui est déjà prouvé ailleurs n'est pas rejoué : `Host` et `Origin`
  * étrangers, WebSocket comprise (`restart.ts`, R4) ; approbation à usage
@@ -317,6 +320,60 @@ await scenario(outcomes, 'X3 « ; rm -rf » dans un argument reste un argument',
   return {
     verdict: problems.length ? 'FAIL' : 'PASS',
     detail: problems.length ? problems.join(' ; ') : 'argv approuvé tel quel, lancé sans shell, dossier visé intact',
+  }
+})
+
+await scenario(outcomes, 'X5 un orchestrateur ne fait pas persister une clé recopiée dans une délégation', async () => {
+  const repo = makeRepo('x5')
+  // L'enfant attend l'humain sur une commande : il est encore actif quand
+  // l'orchestrateur l'annule, et le motif d'annulation est bien écrit.
+  provider.scripts.set('[X5-enfant]', [
+    [{ tool: 'exec', args: { command: 'node', args: ['-e', '0'] } }],
+    submit('jamais atteint'),
+  ])
+  const parent = await delegate('orchestrator', '[X5]', repo, [
+    [{ tool: 'read_file', args: { path: 'config/secrets.env' } }],
+    [
+      {
+        tool: 'delegate_task',
+        args: {
+          agent_id: 'developer',
+          objective: `[X5-enfant] configure le jeton ${THIRD_PARTY}`,
+          context: `GITHUB_TOKEN=${THIRD_PARTY}`,
+        },
+      },
+    ],
+    [{ tool: 'cancel_task', args: { task_id: '{{task_id}}', reason: `inutile, le jeton ${THIRD_PARTY} suffit` } }],
+    submit('fini'),
+  ])
+  const done = await finish(parent.id)
+
+  const problems: string[] = []
+  if (done.task.status !== 'completed') problems.push(`orchestrateur ${done.task.status} — ${done.task.error}`)
+  const all = (await daemonJson<{ tasks: TaskView['task'][] }>(rt, '/api/tasks?limit=50')).body.tasks
+  const kid = all.find((t) => t.parent_task_id === parent.id)
+  if (!kid) problems.push('aucune sous-tâche créée')
+  else {
+    const ended = await finish(kid.id)
+    // Le chemin d'expurgation a bien été emprunté, à chacun des trois endroits :
+    // sans cela, l'absence de la clé pourrait venir d'un texte jamais écrit.
+    if (!ended.task.objective.includes(REDACTED)) problems.push(`objectif non expurgé : « ${ended.task.objective} »`)
+    if (!ended.task.context?.includes(REDACTED)) problems.push('contexte non expurgé')
+    if (ended.task.status !== 'cancelled' || !ended.task.error?.includes(REDACTED)) {
+      problems.push(`annulation : ${ended.task.status} — « ${ended.task.error} »`)
+    }
+  }
+  for (const name of ['harness.db', 'harness.db-wal', 'daemon.log']) {
+    const path = join(main.home, name)
+    if (existsSync(path) && readFileSync(path).includes(THIRD_PARTY)) problems.push(`clé tierce en clair dans ${name}`)
+  }
+  const columns = whereInDatabase(main.config.dbPath, THIRD_PARTY)
+  if (columns.length) problems.push(`clé tierce dans ${columns.join(', ')}`)
+  return {
+    verdict: problems.length ? 'FAIL' : 'PASS',
+    detail: problems.length
+      ? problems.join(' ; ')
+      : 'objectif, contexte et motif d\'annulation expurgés ; base et journal lus octet pour octet : aucune clé',
   }
 })
 

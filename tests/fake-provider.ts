@@ -10,12 +10,13 @@
  * Rien d'autre n'est simulé : le daemon, la boucle, les outils et Git sont les
  * vrais. `test:live` reste la seule suite à parler à un vrai modèle.
  *
- * **Un seul trou dans le script : `{{task_id}}`** (Slice 5). Un orchestrateur
- * attend la sous-tâche qu'il vient de déléguer, dont l'identifiant n'existe pas
- * quand le scénario s'écrit. Toute valeur d'argument égale à `{{task_id}}` est
- * remplacée par le dernier `task_id` lu dans un résultat d'outil de la
- * conversation — ce que ferait le modèle. Le serveur reste sans état : la
- * conversation porte tout.
+ * **Un seul trou dans le script : l'identifiant d'une sous-tâche** (Slice 5).
+ * Un orchestrateur attend la sous-tâche qu'il vient de déléguer, dont
+ * l'identifiant n'existe pas quand le scénario s'écrit. Une valeur d'argument
+ * égale à `{{task_id}}` est remplacée par le dernier `task_id` lu dans un
+ * résultat d'outil de la conversation, `{{task_id:N}}` par le N-ième (à partir
+ * de 0, dans l'ordre d'apparition) — ce que ferait le modèle. Le serveur reste
+ * sans état : la conversation porte tout.
  */
 import { createServer, type Server } from 'node:http'
 
@@ -47,12 +48,21 @@ function completion(
   const tag = [...scripts.keys()].find((t) => user.includes(t))
   if (tag && !systems.has(tag)) systems.set(tag, messages.find((m) => m.role === 'system')?.content ?? '')
   const turn = tag ? scripts.get(tag)![messages.filter((m) => m.role === 'assistant').length] : undefined
-  // Le dernier identifiant de sous-tâche rendu par un outil (`delegate_task`).
-  const lastTaskId = messages
-    .filter((m) => m.role === 'tool')
-    .map((m) => /"task_id":\s*"([0-9a-f-]{36})"/.exec(m.content ?? '')?.[1])
-    .filter((id): id is string => id !== undefined)
-    .at(-1)
+  // Les identifiants de sous-tâche rendus par les outils, dans l'ordre où ils
+  // sont apparus, chacun une fois.
+  const taskIds = [
+    ...new Set(
+      messages
+        .filter((m) => m.role === 'tool')
+        .map((m) => /"task_id":\s*"([0-9a-f-]{36})"/.exec(m.content ?? '')?.[1])
+        .filter((id): id is string => id !== undefined),
+    ),
+  ]
+  const fill = (v: unknown): unknown => {
+    if (v === '{{task_id}}') return taskIds.at(-1) ?? v
+    const nth = typeof v === 'string' ? /^\{\{task_id:(\d+)\}\}$/.exec(v) : null
+    return nth ? (taskIds[Number(nth[1])] ?? v) : v
+  }
   const usage = { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 }
   if (!turn || 'text' in turn) {
     const content = turn && 'text' in turn ? turn.text : 'fin du scénario'
@@ -72,9 +82,7 @@ function completion(
             function: {
               name: c.tool,
               arguments: JSON.stringify(
-                Object.fromEntries(
-                  Object.entries(c.args).map(([k, v]) => [k, v === '{{task_id}}' ? (lastTaskId ?? v) : v]),
-                ),
+                Object.fromEntries(Object.entries(c.args).map(([k, v]) => [k, fill(v)])),
               ),
             },
           })),

@@ -433,11 +433,15 @@ export class TaskManager {
   private finishCancellation(taskId: string, reason?: string) {
     const task = this.store.getTask(taskId)
     if (!task || task.status !== 'cancel_requested') return null
+    // Le motif de la demande, quand c'est le moteur qui conclut à son point de
+    // contrôle : sans lui, une sous-tâche emportée par la cascade se dirait
+    // annulée « à la demande de l'utilisateur ».
+    const why = reason ?? this.store.cancelRequestReason(taskId) ?? undefined
     return this.bus.record(
       taskId,
       'cancelled',
-      { type: 'task.cancelled', payload: { reason, phase: 'done' } },
-      { error: reason ?? 'annulée à la demande de l\'utilisateur' },
+      { type: 'task.cancelled', payload: { reason: why, phase: 'done' } },
+      { error: why ?? 'annulée à la demande de l\'utilisateur' },
     )
   }
 

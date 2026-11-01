@@ -48,8 +48,9 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
 | `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer et arbre d'un orchestrateur compris (`npx playwright install chromium` au préalable) |
 | `npm run test:developer` | ~35 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris |
+| `npm run test:orchestrator` | ~6 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL` |
 | `npm run test:security` | ~3 s — PLAN §8.4 de bout en bout : base et journal lus octet pour octet, refus tracés, API sur la seule boucle locale |
-| `npm run test:wait` | ~3 min — 12 scénarios de bout en bout MCP |
+| `npm run test:wait` | ~3 min — 13 scénarios de bout en bout MCP |
 
 ## Invariants à ne pas casser
 
@@ -252,6 +253,10 @@ de Claude par MCP ; un résultat est non fiable dès que la tâche a reçu un
 contenu encadré, cité ou non. Étape 5 faite : le dashboard lance une tâche
 (`#/new`), règle fournisseur et modèle (`#/agents`), montre l'arbre et la
 carte « Sous-tâches » ; le daemon vérifie tout `project_dir` (`checkProjectDir`).
+Étape 6 faite en local : `test:orchestrator` (4 scénarios), X5 dans
+`test:security`, étape ajoutée à la CI — **pas encore constatée en CI**. Elle a
+trouvé un défaut ancien : une annulation pendant la préparation finissait
+`failed` (leçon n° 35).
 
 ## Slice 4 terminée — durcissement
 

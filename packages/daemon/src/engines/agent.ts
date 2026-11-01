@@ -148,8 +148,23 @@ export class AgentEngine implements TaskEngine {
     let workspace: Workspace | null = null
     let outcome: LoopOutcome | null = null
 
+    /**
+     * Point de contrôle de la préparation. Une annulation demandée pendant
+     * l'une de ses attentes — lecture de la clé, création du worktree — laisse
+     * la tâche en `cancel_requested`, d'où ni `preparing` ni `running` ne sont
+     * permis : écrire l'une ou l'autre levait, et la tâche finissait `failed`
+     * sur « erreur inattendue du moteur ». Trouvé par la suite de sécurité
+     * (X5, Slice 5) : la cascade annule des sous-tâches qui viennent de naître.
+     */
+    const cancelledNow = (): boolean => {
+      if (!state.cancelled) return false
+      ctx.concludeCancellation(task.id)
+      return true
+    }
+
     try {
       const ready = await this.prepare(task, agent)
+      if (cancelledNow()) return
       if ('error' in ready) {
         this.conclude(task.id, { status: 'failed', error: ready.error, usage: emptyish() })
         return
@@ -170,6 +185,8 @@ export class AgentEngine implements TaskEngine {
       // mentirait sur ce qui la retient.
       if (agent.kind === 'developer') {
         const made = await this.makeWorkspace(task)
+        if ('workspace' in made) workspace = made.workspace
+        if (cancelledNow()) return
         if ('error' in made) {
           this.conclude(task.id, { status: 'failed', error: made.error, usage: emptyish() })
           return
@@ -539,14 +556,18 @@ export class AgentEngine implements TaskEngine {
     // soit la limite qu'elle aurait franchie au même instant.
     const status =
       current.status === 'cancel_requested' && outcome.status !== 'failed' ? 'cancelled' : outcome.status
+    // Une annulation dit sa cause — « tâche parente annulée », le motif d'un
+    // orchestrateur —, puis où la boucle s'est arrêtée.
+    const asked = status === 'cancelled' ? ctx.store.cancelRequestReason(taskId) : null
+    const error = asked ? `${asked} (${outcome.error})` : outcome.error
 
     ctx.bus.record(
       taskId,
       status,
-      { type: EVENT[status], payload: { reason: outcome.error, usage: outcome.usage } },
-      { error: outcome.error, usage: outcome.usage },
+      { type: EVENT[status], payload: { reason: error, usage: outcome.usage } },
+      { error, usage: outcome.usage },
     )
-    ctx.log(`tâche ${taskId.slice(0, 8)} → ${status} : ${outcome.error}`)
+    ctx.log(`tâche ${taskId.slice(0, 8)} → ${status} : ${error}`)
   }
 }
 

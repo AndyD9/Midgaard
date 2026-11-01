@@ -141,18 +141,19 @@ Depuis la racine du dépôt :
 
 | Suite | Durée | Contenu |
 |---|---|---|
-| `npm run test:unit` | ~7 s | 312 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils (écriture et `exec` compris), boucle d'agent, formatage des montants, coffres, worktrees sur de vrais dépôts Git |
+| `npm run test:unit` | ~7 s | 399 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils (écriture, `exec` et délégation compris), boucle d'agent, port de délégation et cascade, dashboard (montants, arbre), coffres, worktrees sur de vrais dépôts Git |
 | `npm run test:worktrees` | ~5 s | Worktrees, écriture et `exec` seuls — la CI les rejoue sur macOS, Linux et Windows |
 | `npm run test:vault` | ~1 s | Les 41 cas de coffre, sur le coffre **réel de la machine** — la CI les rejoue sur macOS, Windows et Linux (avec et sans trousseau) |
 | `npm run test:lock` | ~30 s | Instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s | Redémarrage, reprise WebSocket, sécurité, expiration, inactivité |
 | `npm run test:developer` | ~35 s | 13 scénarios : le Developer dans un vrai daemon, face à un faux fournisseur compatible OpenAI |
-| `npm run test:security` | ~3 s | 4 scénarios : le PLAN §8.4 de bout en bout — aucun secret dans la base ni le journal du daemon (lus octet pour octet), chaque refus tracé, `; rm -rf` reste un argument, API sur la seule boucle locale |
-| `npm run test:ui` | ~1 min | 8 scénarios dans un vrai navigateur : direct, approbation au clic, reconnexion, diff d'une tâche Developer |
-| `npm run test:wait` | ~3 min | 12 scénarios de bout en bout avec le client MCP officiel |
+| `npm run test:orchestrator` | ~6 s | 4 scénarios : l'orchestrateur dans un vrai daemon — délégation parallèle, approbation d'un enfant, annulation en cascade, `SIGKILL` |
+| `npm run test:security` | ~3 s | 5 scénarios : le PLAN §8.4 de bout en bout — aucun secret dans la base ni le journal du daemon (lus octet pour octet), y compris recopié par un orchestrateur dans une délégation ; chaque refus tracé, `; rm -rf` reste un argument, API sur la seule boucle locale |
+| `npm run test:ui` | ~1 min | 11 scénarios dans un vrai navigateur : direct, approbation au clic, reconnexion, diff d'une tâche Developer, formulaire « Nouvelle tâche », modèle d'un profil, arbre d'un orchestrateur |
+| `npm run test:wait` | ~3 min | 13 scénarios de bout en bout avec le client MCP officiel |
 | `npm run test:live` | ~3 min | 5 scénarios **contre la vraie API** — opt-in, dépense ~0,003 $, s'abstient sans clé |
 
-`npm test` enchaîne `unit`, `lock`, `restart`, `developer`, `security` et `wait`. `test:ui` se lance à
+`npm test` enchaîne `unit`, `lock`, `restart`, `developer`, `orchestrator`, `security` et `wait`. `test:ui` se lance à
 part : il lui faut le dashboard compilé et le navigateur de Playwright, que
 `npm ci` ne télécharge pas.
 

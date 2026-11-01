@@ -6,7 +6,7 @@ Code : un profil `orchestrator` qui tourne dans le daemon, sur le fournisseur et
 le modèle choisis (Venice, OpenAI, Gemini, compatible OpenAI), et qui délègue
 lui-même aux autres profils.
 
-**État : en cours** (démarrée le 2026-11-01 ; étapes 1 à 5 faites). Avant elle :
+**État : en cours** (démarrée le 2026-11-01 ; étapes 1 à 5 faites, 6 faite en local et à constater en CI). Avant elle :
 décisions prises, découpage arrêté, aucune ligne de code. Elle attendait l'étape 8 de la Slice 4 — ce qui existe
 devait avoir fait ses preuves avant qu'on y ajoute un orchestrateur : c'est
 fait le 2026-11-01, depuis un clone frais ([SLICE4.md](SLICE4.md)). Les
@@ -92,7 +92,7 @@ l'arbre** ; le total porte la plus faible des provenances de ses tâches
 | 3 | Les outils de délégation : `list_agents`, `delegate_task`, `wait_for_task`, `cancel_task` derrière un `DelegationPort` du `ToolContext` — sans lui, ils refusent ; cascade d'annulation | **fait** |
 | 4 | Le profil `orchestrator` : consigne, outils en lecture plus délégation, ni écriture, ni `exec`, ni web ; désactivé sans fournisseur, avec son motif | **fait** |
 | 5 | Le dashboard : formulaire « Nouvelle tâche », tâches en arbre, carte « Sous-tâches » (total et plafond théorique), choix du modèle par profil | **fait** |
-| 6 | Preuves : `test:orchestrator` (vrai daemon, faux fournisseur : délégation parallèle, approbation d'un enfant, annulation en cascade, `SIGKILL`), ajouts à `test:security` et `test:ui`, CI sur trois plateformes | à faire |
+| 6 | Preuves : `test:orchestrator` (vrai daemon, faux fournisseur : délégation parallèle, approbation d'un enfant, annulation en cascade, `SIGKILL`), ajouts à `test:security` et `test:ui`, CI sur trois plateformes | **fait en local** — CI à constater |
 | 7 | L'essai réel : un orchestrateur non-Claude lancé du dashboard, un Developer enfant sous approbation, chaque coût comparé à la facture | à faire |
 
 ### Ce que chaque étape doit surveiller
@@ -325,3 +325,65 @@ liens mènent de l'un à l'autre. En unitaire : `dashboard-tree.test.ts`
 (chemin relatif, absent, fichier, racine, dossier personnel même par un lien
 symbolique, dans les deux sens), deux cas HTTP dans `http-agents.test.ts`.
 Les écrans ont aussi été relus en capture, sur bureau et à 390 px de large.
+
+### Étape 6 — les preuves (2026-11-01)
+
+**`test:orchestrator`** (`tests/orchestrator.ts`), nouvelle suite : un vrai
+daemon, de vrais dépôts, le faux fournisseur, et chaque effet vérifié **en
+base** sur une connexion en lecture seule.
+
+- **O1** — deux délégations dans la même étape ; le Researcher finit pendant
+  que le Developer attend l'humain sur une commande. L'orchestrateur reste
+  `running`, écrit `subtask.waiting` désignant le Developer, et aucune
+  approbation n'est demandée à son nom. L'humain approuve ; tout l'arbre
+  termine. Quatre tours scriptés, **quatre appels de modèle** : attendre ne
+  coûte pas d'étape. Le résultat de l'orchestrateur est non fiable.
+- **O2** — deux Developer en pause d'approbation ; l'orchestrateur est annulé
+  comme au dashboard : **zéro sous-tâche active en base**, motif « tâche
+  parente annulée », aucune approbation pendante, aucune commande lancée
+  dans leurs worktrees. Vu échouer en retirant la cascade (2 actives restent).
+- **O3** — `SIGKILL` pendant que l'orchestrateur attend un Developer en pause :
+  au redémarrage, l'arbre entier est `interrupted`, l'approbation expirée, le
+  worktree conservé, et rien n'est repris.
+- **O4** — déléguer à `orchestrator` est refusé ; 1 000 $ demandés pour un
+  Researcher donnent le plafond de son profil.
+
+Le faux fournisseur reprend l'identifiant des sous-tâches qu'il a vues
+(`{{task_id:N}}`, le N-ième ; `{{task_id}}`, le dernier) : sans état, un
+orchestrateur scripté peut attendre une sous-tâche précise.
+
+**`test:security`, X5** — un orchestrateur lit `config/secrets.env`, recopie
+la clé tierce dans l'objectif et le contexte d'une délégation, puis dans le
+motif de son annulation. Les trois sont expurgés en base (le marqueur y est,
+la clé non), et la base et le journal, lus octet pour octet, n'en contiennent
+rien.
+
+**`test:ui`** avait reçu ses trois scénarios à l'étape 5 (D9 à D11).
+
+**La CI** gagne l'étape `test:orchestrator` dans `.github/workflows/e2e.yml`,
+sur macOS, Linux et Windows. **Pas encore constatée** : elle ne tourne qu'après
+un push.
+
+#### Leçon n° 35 — une annulation pendant la préparation finissait `failed`
+
+X5 a échoué au premier passage, et pas sur une fuite : l'enfant annulé finissait
+`failed` sur « erreur inattendue du moteur : transition interdite …
+cancel_requested → running ». Le défaut date de la Slice 2 : une tâche annulée
+**pendant sa préparation** — lecture de la clé, et surtout création du worktree
+d'un Developer — passe en `cancel_requested`, puis le moteur, sorti de son
+attente, écrit `preparing` ou `running`, que la machine à états interdit
+depuis ce statut. Personne n'annulait si tôt ; la cascade le fait, puisqu'un
+orchestrateur annule des sous-tâches qui viennent de naître.
+
+Corrigé par un point de contrôle après chaque attente de la préparation
+(`AgentEngine.execute`, `cancelledNow`). Le même passage a montré un second
+défaut, plus discret : quand c'est le moteur qui conclut une annulation à son
+point de contrôle, il ne connaît plus le motif, et l'enfant finissait sur
+« annulée à la demande de l'utilisateur » au lieu de « tâche parente
+annulée ». Le motif est désormais relu dans le journal (`cancelRequestReason`).
+Le test de régression (`orchestrator-engine.test.ts`, « annulation pendant la
+préparation ») a été vu échouer sans le correctif.
+
+La leçon générale tient de celle de la Slice 4 : **une nouvelle manière
+d'appeler un code ancien en trouve les fenêtres**. La cascade n'a rien de
+faux ; elle annule simplement plus tôt que ne l'avait jamais fait un humain.

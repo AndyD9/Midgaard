@@ -1,4 +1,5 @@
 # Le daemon de bout en bout, le dashboard et la CLI, sur les trois plateformes.
+# Depuis la Slice 5, l'orchestrateur aussi (`test:orchestrator`).
 #
 # Raison d'être (Slice 4, étape 5) : jusqu'ici, seules les suites unitaires de
 # `workspace`, de l'écriture, d'`exec` et du coffre tournaient sous Windows et
@@ -60,6 +61,12 @@ jobs:
       - name: test:developer
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: npm run test:developer
+      # Slice 5 : délégation parallèle, approbation d'un enfant, cascade
+      # d'annulation et `SIGKILL` — la mort du daemon et les groupes de
+      # processus sont précisément ce qui diffère d'un système à l'autre.
+      - name: test:orchestrator
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm run test:orchestrator
       - name: test:security
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: npm run test:security

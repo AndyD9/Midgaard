@@ -433,6 +433,31 @@ export class HarnessStore {
     return filter.active ? found.filter((t) => !isTerminal(t.status)) : found
   }
 
+  /**
+   * Motif de l'annulation **demandée** d'une tâche, tel que l'a écrit celui qui
+   * l'a demandée (`task.cancelled`, phase `requested`).
+   *
+   * Une tâche en marche ne s'arrête qu'à son prochain point de contrôle ; celui
+   * qui conclut alors l'annulation n'a plus le motif en main. Le relire ici
+   * évite qu'une sous-tâche annulée par la cascade finisse sur un « annulée à
+   * la demande de l'utilisateur » qui ment sur la cause.
+   *
+   * @returns le motif, ou `null` s'il n'y en a pas eu
+   */
+  cancelRequestReason(taskId: string): string | null {
+    const found = row<{ payload_json: string }>(
+      this.db
+        .prepare(
+          `SELECT payload_json FROM task_events WHERE task_id = :id AND type = 'task.cancelled'
+           ORDER BY seq DESC LIMIT 1`,
+        )
+        .get({ id: taskId }),
+    )
+    if (!found) return null
+    const payload = JSON.parse(found.payload_json) as { phase?: string; reason?: unknown }
+    return payload.phase === 'requested' && typeof payload.reason === 'string' ? payload.reason : null
+  }
+
   /** Compte les tâches, au total et parmi les statuts actifs. */
   countTasks(): { total: number; active: number } {
     const marks = ACTIVE_STATUSES.map((_, i) => `?${i + 1}`).join(', ')
