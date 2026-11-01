@@ -11,4 +11,6 @@ export { SERVER_NAME, findNode, mcpConfigPath, mcpServerEntry, writeMcpConfig } 
 export type { McpServerEntry } from './mcp-config.ts'
 export { exec, parseExecArgs, workspaces } from './workspaces.ts'
 export { extractHome } from './args.ts'
+export { readSecret } from './secret-input.ts'
+export type { SecretInput, SecretIo } from './secret-input.ts'
 export { cmd, setAdviceHome } from './ui.ts'

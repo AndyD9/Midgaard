@@ -71,6 +71,16 @@ exemple — peut passer `--yes`, comme il pourrait lancer `harness approve`. La
 frontière reste la même qu'à la Slice 0 : les permissions de Claude Code sur le
 shell, que l'utilisateur accorde commande par commande.
 
+## La clé d'API ne s'affiche pas
+
+`providers add` lit la clé sur l'entrée standard, jamais en argument (visible
+dans `ps` et l'historique du shell). Au terminal, la saisie se fait **en mode
+brut, sans `readline`** (`src/secret-input.ts`) : seuls l'invite et le retour
+à la ligne s'écrivent. Une `readline` en mode terminal réaffiche ce qu'elle
+reçoit, même mode brut posé — c'est ainsi que la clé s'est affichée en clair
+jusqu'à la Slice 5 (docs/SLICE5.md, leçon n° 36). `tests/unit/secret-input.test.ts`
+relit tout ce qui a été écrit pendant la saisie.
+
 ## `status` fonctionne daemon arrêté
 
 Il lit la base directement. C'est possible parce qu'elle est en WAL : la lecture

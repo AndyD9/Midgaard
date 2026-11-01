@@ -10,7 +10,6 @@
  * commande est visible dans `ps`, et surtout il reste dans l'historique du
  * shell, où personne ne pense à aller l'effacer.
  */
-import { createInterface } from 'node:readline'
 import {
   PRESETS,
   PROVIDER_PRESETS,
@@ -23,6 +22,7 @@ import {
   type ProviderPreset,
 } from '@midgaard/contracts'
 import { ensureDaemon } from '@midgaard/mcp-server'
+import { readSecret } from './secret-input.ts'
 import { bold, cmd, dim, green, mark, red, yellow } from './ui.ts'
 
 /** Journalisation discrète du démarrage de daemon : la CLI a sa propre sortie. */
@@ -250,61 +250,3 @@ export async function pricing(config: HarnessConfig, args: string[]): Promise<nu
   return 0
 }
 
-// --- saisie du secret ---------------------------------------------------------
-
-/**
- * Lit un secret sur l'entrée standard.
- *
- * Deux modes, selon d'où l'on vient :
- *  - **tube** (`echo "$CLE" | harness providers add …`) : on lit la première
- *    ligne, sans rien afficher ;
- *  - **terminal** : saisie sans écho. Le mode brut est rétabli dans tous les
- *    cas, y compris sur interruption — un terminal laissé sans écho après un
- *    Ctrl-C est inutilisable, et l'utilisateur ne sait pas pourquoi.
- */
-async function readSecret(prompt: string): Promise<string | null> {
-  if (!process.stdin.isTTY) {
-    const chunks: Buffer[] = []
-    for await (const c of process.stdin) chunks.push(c as Buffer)
-    const first = Buffer.concat(chunks).toString('utf8').split('\n')[0]?.trim()
-    return first || null
-  }
-
-  const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true })
-  const restore = () => {
-    if (process.stdin.isTTY) process.stdin.setRawMode(false)
-  }
-  try {
-    process.stdout.write(`${prompt} : `)
-    process.stdin.setRawMode(true)
-    const typed = await new Promise<string>((resolve) => {
-      let value = ''
-      const onData = (chunk: Buffer) => {
-        const text = chunk.toString('utf8')
-        for (const char of text) {
-          if (char === '\r' || char === '\n') {
-            process.stdin.off('data', onData)
-            process.stdout.write('\n')
-            return resolve(value)
-          }
-          // Ctrl-C : on rend la main sans rien déposer.
-          if (char === '\u0003') {
-            process.stdin.off('data', onData)
-            process.stdout.write('\n')
-            return resolve('')
-          }
-          if (char === '\u007f' || char === '\b') {
-            value = value.slice(0, -1)
-            continue
-          }
-          value += char
-        }
-      }
-      process.stdin.on('data', onData)
-    })
-    return typed.trim() || null
-  } finally {
-    restore()
-    rl.close()
-  }
-}

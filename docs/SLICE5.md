@@ -6,7 +6,7 @@ Code : un profil `orchestrator` qui tourne dans le daemon, sur le fournisseur et
 le modèle choisis (Venice, OpenAI, Gemini, compatible OpenAI), et qui délègue
 lui-même aux autres profils.
 
-**État : en cours** (démarrée le 2026-11-01 ; étapes 1 à 6 faites). Avant elle :
+**État : terminée** (démarrée et terminée le 2026-11-01). Avant elle :
 décisions prises, découpage arrêté, aucune ligne de code. Elle attendait l'étape 8 de la Slice 4 — ce qui existe
 devait avoir fait ses preuves avant qu'on y ajoute un orchestrateur : c'est
 fait le 2026-11-01, depuis un clone frais ([SLICE4.md](SLICE4.md)). Les
@@ -93,7 +93,7 @@ l'arbre** ; le total porte la plus faible des provenances de ses tâches
 | 4 | Le profil `orchestrator` : consigne, outils en lecture plus délégation, ni écriture, ni `exec`, ni web ; désactivé sans fournisseur, avec son motif | **fait** |
 | 5 | Le dashboard : formulaire « Nouvelle tâche », tâches en arbre, carte « Sous-tâches » (total et plafond théorique), choix du modèle par profil | **fait** |
 | 6 | Preuves : `test:orchestrator` (vrai daemon, faux fournisseur : délégation parallèle, approbation d'un enfant, annulation en cascade, `SIGKILL`), ajouts à `test:security` et `test:ui`, CI sur trois plateformes | **fait** — CI constatée au passage `41307159340` |
-| 7 | L'essai réel : un orchestrateur non-Claude lancé du dashboard, un Developer enfant sous approbation, chaque coût comparé à la facture | à faire |
+| 7 | L'essai réel : un orchestrateur non-Claude lancé du dashboard, un Developer enfant sous approbation, chaque coût comparé à la facture | **fait** — C1 à C9 constatés, coût exact |
 
 ### Ce que chaque étape doit surveiller
 
@@ -389,3 +389,137 @@ préparation ») a été vu échouer sans le correctif.
 La leçon générale tient de celle de la Slice 4 : **une nouvelle manière
 d'appeler un code ancien en trouve les fenêtres**. La cascade n'a rien de
 faux ; elle annule simplement plus tôt que ne l'avait jamais fait un humain.
+
+### Étape 7 — l'essai réel (2026-11-01)
+
+*Comme aux Slices 3 et 4, le protocole est écrit avant l'essai et n'est pas
+retouché après coup ; les résultats viennent en dessous.*
+
+#### Le terrain
+
+- **Installation** : l'installation de travail (ce clone, `1eb61a5`, runtime
+  `~/.midgaard`), daemon redémarré sur le code de la Slice 5 — protocole 10, la
+  base passe du schéma 7 au schéma 8 à son démarrage, port 7777.
+- **Projet** : `~/Documents/midgaard-demo` à `dea8375`, arbre propre,
+  `npm test` 2/2, sans route `/version`.
+- **Orchestrateur** : profil `orchestrator` sur le fournisseur `venice`, modèle
+  `deepseek-v4-flash-0731` — un modèle qui n'est pas Claude. Limites du
+  profil : 16 étapes, 0,5 $, 3 600 s.
+
+#### Le déroulé
+
+1. Relever le solde Venice (`providers test venice`), aucune autre session ne
+   se servant de Venice.
+2. Au dashboard (`http://127.0.0.1:7777/#/new`), lancer le profil
+   `orchestrator`, dossier `/Users/andydodakal/Documents/midgaard-demo`, avec
+   l'objectif :
+
+   > Ajoute une route GET /version qui répond 200 avec {"version": "…"}, la
+   > version étant lue dans package.json, et un test pour elle dans
+   > test/app.test.js, dans le style des tests existants. Le changement doit
+   > être vérifié avec npm test.
+
+3. L'orchestrateur lit le projet et délègue lui-même ; aucune sous-tâche n'est
+   créée à la main.
+4. À chaque approbation demandée par une sous-tâche : l'auteur la lit et décide
+   au dashboard. Ni Claude ni l'orchestrateur n'approuvent.
+5. À la fin : carte « Sous-tâches », carte « Fichiers et diff » du Developer,
+   puis relever le solde.
+
+#### Ce qui sera relevé
+
+| # | Attendu | Ce qui le constate |
+|---|---|---|
+| C1 | Le formulaire propose `orchestrator`, actif, sur `venice` | dashboard |
+| C2 | L'orchestrateur lit le projet, puis délègue à `developer` avec un contexte tiré de sa lecture | timeline, `delegate_task` |
+| C3 | La sous-tâche porte `parent_task_id`, hérite de `project_dir`, et paraît en retrait sous son parent | base, liste des tâches |
+| C4 | `npm test` suspend le Developer ; l'orchestrateur attend sans approbation à son nom (`subtask.waiting`) | dashboard, base |
+| C5 | Approuvée par l'auteur, la commande passe dans le worktree | appel `exec`, code 0 |
+| C6 | Developer `completed`, commit à l'identité de l'agent ; l'orchestrateur `completed`, sa synthèse nomme la branche `midgaard/…` | résultats, `git log` |
+| C7 | `midgaard-demo` intact : le harness ne merge pas | `git status`, `git log` |
+| C8 | Chaque tâche a son coût « facturé par le fournisseur » ; le total de l'arbre porte la même provenance | carte « Sous-tâches » |
+| C9 | La somme des coûts de l'arbre égale l'écart du solde Venice | solde avant et après |
+
+Échec du produit : une approbation sans l'humain, une sous-tâche hors de
+l'arbre ou d'un autre dossier, une sous-tâche qui survit à son parent, une
+écriture hors du worktree, un merge, un coût sans provenance ou qui ne
+correspond pas à la facture. Échec de l'essai, à rejouer : un modèle qui ne
+délègue pas ou ne conclut pas, un budget trop bas.
+
+#### Relevé avant l'essai
+
+- Daemon redémarré à 13:26 UTC : protocole 10, base migrée au schéma 8.
+- **La clé Venice enregistrée est refusée** : `providers test venice` répond
+  « clé refusée par le fournisseur (401) », et un appel direct à
+  `/api_keys/rate_limits` avec la clé lue dans le trousseau (sans l'afficher,
+  63 caractères, décodée de `mg1:`) rend aussi `401`. Ce n'est donc pas le
+  harness : la clé n'est plus valide chez Venice. L'essai attend que l'auteur
+  la redéclare (`providers add venice`).
+- Redéclarée par l'auteur à 16:02 UTC : clé acceptée, solde 7,5846725 $.
+  **Mais elle s'est affichée en clair** dans le terminal (leçon n° 36), et
+  le solde a baissé de 0,0129 $ entre 16:02:31 et 16:03:32 UTC sans
+  qu'aucune tâche Midgaard tourne : la clé sert aussi ailleurs. L'écart du solde ne mesurerait donc pas
+  l'arbre. Décision de l'auteur : corriger la saisie d'abord, révoquer cette
+  clé et en déclarer une **dédiée à Midgaard** avec la saisie corrigée.
+
+#### Leçon n° 36 — la clé « saisie sans écho » s'affichait en clair
+
+Depuis la Slice 2, `providers add` promettait une saisie sans écho, et le
+README le répétait. La fonction posait bien le mode brut du terminal, mais
+ouvrait **aussi** une interface `readline` en mode terminal sur l'entrée et la
+sortie standard. Cette `readline` gère elle-même l'affichage de la ligne : à
+chaque caractère reçu, elle redessine `> ` suivi de tout ce qui a été tapé.
+Le mode brut coupe l'écho du terminal, pas celui de `readline`. L'auteur a vu
+son invite remplacée par un `>`, puis sa clé en entier.
+
+Aucun test ne regardait **ce qui s'écrivait** pendant la saisie, et le mode
+tube (`echo "$CLE" | …`) n'a jamais eu le défaut : seule la saisie au
+terminal le montrait.
+
+Corrigé en retirant `readline`, qui ne servait à rien puisque la lecture se
+faisait déjà octet par octet (`packages/cli/src/secret-input.ts`, flux
+injectables). `tests/unit/secret-input.test.ts` donne à la saisie un faux
+terminal et relit toute la sortie : l'invite et le retour à la ligne, rien
+d'autre. Le test a été vu échouer avec l'ancienne `readline` remise en place,
+sur exactement ce que l'auteur avait vu (`> abc…`). Puis la saisie a tourné
+dans un vrai pseudo-terminal (`script`) : l'invite seule, et les 13
+caractères lus.
+
+C'est l'invariant « une phrase de documentation est une affirmation à
+prouver » (Slice 3, leçon n° 10) : « sans écho » était écrit, jamais vérifié.
+
+#### L'essai — 2026-11-01, 16:59 UTC
+
+Le solde, revérifié avant de lancer : **7,16009597 $**, stable quatre fois de
+suite entre 16:58:09 et 16:59:12 UTC, l'autre usage du compte arrêté par
+l'auteur. Le formulaire est rempli et soumis depuis le navigateur de la
+session ; la session n'y fait **rien d'autre** ensuite.
+
+| # | Verdict | Constat |
+|---|---|---|
+| C1 | ✅ | `orchestrator` proposé, actif et présélectionné ; « 16 étapes · 0.50 $ · 3600 s — limites du profil », et « jusqu'à 64 sous-tâches » |
+| C2 | ✅ | `89a4ea9a` lit `package.json`, `src/app.js`, `test/app.test.js`, `src/server.js`, appelle `list_agents`, puis délègue à `developer` en 4 étapes. Le contexte transmis résume ce qu'il a lu : ESM, Node ≥ 24, le helper `json()`, la forme des tests, et le piège de l'import JSON depuis `src/` |
+| C3 | ✅ | `014ec447` porte `parent_task_id` = `89a4ea9a…` et le même `project_dir` ; worktree `midgaard/014ec447` depuis `dea8375`, `base_dirty` 0 ; affichée en retrait sous son parent |
+| C4 | ✅ | `exec — exécuter /opt/homebrew/bin/npm test dans …/worktrees/midgaard-demo-56375bb0/014ec447 (délai 120 s)` suspend le Developer ; l'orchestrateur est en `subtask.waiting` sur lui, **aucune approbation à son nom** (0 en base) |
+| C5 | ✅ | Accordée depuis le dashboard (`resolved_by: dashboard`) 2 s après la demande, **par l'auteur**, confirmé après coup ; la session n'a fait aucune action dans le navigateur après « Lancer » ; `npm test → code 0 en 0,4 s` |
+| C6 | ✅ | Developer `completed` en 8 étapes ; commit `d7087e8` à `Midgaard developer <developer@midgaard.invalid>`, non signé ; `src/app.js` +4, `test/app.test.js` +7. Orchestrateur `completed` en 5 étapes, 1 min 8 s ; sa synthèse nomme `midgaard/014ec447` et `d7087e8`, et rappelle que le merge revient à l'humain |
+| C7 | ✅ | `midgaard-demo` : `main` toujours à `dea8375`, arbre propre |
+| C8 | ✅ | Orchestrateur 0,00216276 $, Developer 0,004630752 $, tous deux « facturé par le fournisseur » ; « Total de l'arbre : 0.0068 $ facturé, 2 tâche(s) ayant appelé un modèle » |
+| C9 | ✅ | Somme **0,006793512 $**. Solde 7,16009597 $ avant, 7,15330246 $ après (17:00:42 UTC) : écart **0,00679351 $**, **exact** à la précision du solde |
+
+Le résultat de l'orchestrateur est marqué « contenu extérieur » : il a reçu le
+résultat encadré de sa sous-tâche, et la règle de l'étape 4 s'applique, cité
+ou non. L'estimation égale cette fois la facture au microdollar, cache
+compris : le tarif caché relevé après la leçon n° 32 tient.
+
+**Ce que l'essai établit.** Un modèle qui n'est pas Claude
+(`deepseek-v4-flash-0731` sur Venice), lancé du dashboard sans Claude Code, a
+lu un projet, confié le travail à un Developer avec un contexte utile, attendu
+l'approbation humaine sans en demander une lui-même, et rendu une synthèse
+juste ; chaque coût est celui que Venice a facturé, et leur somme est l'écart
+du solde.
+
+**Hors protocole.** Relevé en lisant la base : `tasks.started_at` est `NULL`
+pour les 13 tâches de l'installation. La colonne existe, le contrat la porte
+et le serveur MCP la transmet à Claude (`harness_get_task_result`), mais rien
+ne l'écrit. Défaut ancien, sans lien avec l'orchestrateur.

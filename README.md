@@ -28,11 +28,12 @@ et les coûts.
 | 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 167 vérifications + essai en session réelle ; coût **exact au microdollar** contre le solde Venice, trois fois |
 | 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | ✅ **Terminée** : un Developer a implémenté `/health` en vraie session, dans un worktree, sous approbation, coût **exact au microdollar** ; suites vertes sur macOS, Linux et Windows |
 | 4 | Durcissement sécurité, installation depuis un clone | ✅ **Terminée** : suite de sécurité, crash et concurrence, toutes les suites en CI sur macOS, Linux et Windows ; depuis un clone frais, le scénario §12 rejoué en vraie session sous macOS, coût **exact** contre le solde Venice. La distribution npm a été **abandonnée** : Midgaard s'installe depuis un clone ([docs/SLICE4.md](docs/SLICE4.md)) |
-| 5 | Orchestrateur intégré sur n'importe quel modèle, lancé du dashboard | 🚧 **En cours** — étapes 1 à 5 faites sur 7 ([docs/SLICE5.md](docs/SLICE5.md)) |
+| 5 | Orchestrateur intégré sur n'importe quel modèle, lancé du dashboard | ✅ **Terminée** le 2026-11-01 — essai réel : un orchestrateur sur Venice délègue à un Developer sous approbation, coût exact ([docs/SLICE5.md](docs/SLICE5.md)) |
 
 Le détail des slices est dans [docs/PLAN.md](docs/PLAN.md). Ce que chaque slice a
 prouvé et appris : [docs/SLICE0.md](docs/SLICE0.md), [docs/SLICE1.md](docs/SLICE1.md),
-[docs/SLICE2.md](docs/SLICE2.md), [docs/SLICE3.md](docs/SLICE3.md), [docs/SLICE4.md](docs/SLICE4.md).
+[docs/SLICE2.md](docs/SLICE2.md), [docs/SLICE3.md](docs/SLICE3.md), [docs/SLICE4.md](docs/SLICE4.md),
+[docs/SLICE5.md](docs/SLICE5.md).
 
 ## Installer
 
@@ -141,7 +142,7 @@ Depuis la racine du dépôt :
 
 | Suite | Durée | Contenu |
 |---|---|---|
-| `npm run test:unit` | ~7 s | 399 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils (écriture, `exec` et délégation compris), boucle d'agent, port de délégation et cascade, dashboard (montants, arbre), coffres, worktrees sur de vrais dépôts Git |
+| `npm run test:unit` | ~7 s | 404 tests : machine à états, persistance, adaptateurs, coûts, sécurité des outils (écriture, `exec` et délégation compris), boucle d'agent, port de délégation et cascade, dashboard (montants, arbre), coffres, worktrees sur de vrais dépôts Git |
 | `npm run test:worktrees` | ~5 s | Worktrees, écriture et `exec` seuls — la CI les rejoue sur macOS, Linux et Windows |
 | `npm run test:vault` | ~1 s | Les 41 cas de coffre, sur le coffre **réel de la machine** — la CI les rejoue sur macOS, Windows et Linux (avec et sans trousseau) |
 | `npm run test:lock` | ~30 s | Instance unique du daemon sous concurrence |
@@ -179,7 +180,7 @@ Midgaard/
 │   ├── SLICE2.md                 agents réels, coûts, coffre, et les dettes soldées
 │   ├── SLICE3.md                 Developer, worktrees, approbations : décisions, essai réel
 │   ├── SLICE4.md                 durcissement : décisions, étapes, essai depuis un clone
-│   ├── SLICE5.md                 orchestrateur intégré : en cours
+│   ├── SLICE5.md                 orchestrateur intégré : décisions, étapes, essai réel
 │   └── DEPANNAGE.md              symptômes, causes et remèdes ; variables d'environnement
 ├── packages/
 │   ├── contracts/                schémas Zod, machine à états, protocole — aucune dépendance

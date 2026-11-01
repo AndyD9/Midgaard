@@ -3,8 +3,7 @@
 Harness local qui laisse Claude Code déléguer des tâches à des agents exécutants,
 les observer et les soumettre à approbation humaine. **Lire d'abord** :
 [README.md](README.md) (état, commandes), [docs/PLAN.md](docs/PLAN.md) (décisions
-et slices), [docs/SLICE5.md](docs/SLICE5.md) (orchestrateur intégré — la
-slice en cours), [docs/SLICE4.md](docs/SLICE4.md) (durcissement,
+et slices), [docs/SLICE5.md](docs/SLICE5.md) (orchestrateur intégré, essai réel), [docs/SLICE4.md](docs/SLICE4.md) (durcissement,
 distribution abandonnée, essai depuis un clone), [docs/SLICE3.md](docs/SLICE3.md) (Developer, worktrees,
 approbations : décisions, étapes, essai réel, CI), [docs/SLICE2.md](docs/SLICE2.md),
 [docs/SLICE1.md](docs/SLICE1.md) et [docs/SLICE0.md](docs/SLICE0.md) (d'où
@@ -236,11 +235,11 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
 
-## Slice 5 — en cours
+## Slice 5 terminée — un orchestrateur intégré
 
 Un orchestrateur intégré au daemon, sur n'importe quel modèle, lancé du
 dashboard : décisions et découpage en sept étapes dans
-[docs/SLICE5.md](docs/SLICE5.md). Démarrée le 2026-11-01. Étape 1 faite : rien
+[docs/SLICE5.md](docs/SLICE5.md). Démarrée et terminée le 2026-11-01. Étape 1 faite : rien
 de ce que lit un modèle ne nomme plus Claude (test « neutralité envers
 l'orchestrateur ») — à garder ainsi dans toute nouvelle consigne. Étape 2
 faite : migration 8 (`tasks.parent_task_id`, posé par le daemon seul),
@@ -257,6 +256,14 @@ carte « Sous-tâches » ; le daemon vérifie tout `project_dir` (`checkProjectD
 vertes en CI sur les trois plateformes (passage `41307159340`). Elle a
 trouvé un défaut ancien : une annulation pendant la préparation finissait
 `failed` (leçon n° 35).
+
+Étape 7, l'essai réel : `deepseek-v4-flash-0731` sur Venice, lancé du
+dashboard, a lu `midgaard-demo`, délégué `/version` à un Developer, attendu
+l'approbation humaine de `npm test` et rendu une synthèse juste ; la somme des
+coûts de l'arbre égale l'écart du solde Venice au microdollar. En chemin, la
+clé « saisie sans écho » s'est affichée en clair : une `readline` réaffichait
+la frappe (leçon n° 36, `packages/cli/src/secret-input.ts`). Reste noté :
+`tasks.started_at` n'est jamais écrit.
 
 ## Slice 4 terminée — durcissement
 
