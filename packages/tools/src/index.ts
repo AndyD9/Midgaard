@@ -14,8 +14,12 @@ import { submitResultTool } from './result.ts'
 import { deleteFileTool, editFileTool, writeFileTool } from './write.ts'
 import { gitDiffTool } from './git.ts'
 import { execTool } from './exec.ts'
+import { cancelTaskTool, delegateTaskTool, listAgentsTool, waitForTaskTool } from './delegation.ts'
 
-export type { Tool, ToolContext, HttpPolicy, PreparedOperation } from './types.ts'
+export type {
+  Tool, ToolContext, HttpPolicy, PreparedOperation,
+  DelegableAgent, DelegateRequest, DelegationPort, DelegationRefusal, SubtaskState, WaitStop,
+} from './types.ts'
 export { ToolError, HTTP_POLICIES, MAX_TOOL_RESULT_BYTES, truncate } from './types.ts'
 export { canonicalRoot, isUnder, openUnderRoot, resolveUnderRoot } from './paths.ts'
 export { assertPublicHost, hostAllowed, isPrivateAddress, IMDS_ADDRESS } from './net.ts'
@@ -30,12 +34,16 @@ export type { ExecOutcome } from './exec.ts'
 export { submitResultSchema } from './result.ts'
 export type { SubmitResultArgs } from './result.ts'
 
+/** Outils de délégation : réservés au profil `orchestrator` (Slice 5). */
+export const DELEGATION_TOOLS = ['list_agents', 'delegate_task', 'wait_for_task', 'cancel_task'] as const
+
 /** Nom de l'outil terminal, que la boucle intercepte. */
 export const SUBMIT_RESULT = 'submit_result'
 
 /**
  * Tous les outils. Ceux de la Slice 2 lisent ; ceux de la Slice 3 écrivent dans
- * le worktree de la tâche et refusent partout ailleurs (`ToolContext.writable`).
+ * le worktree de la tâche et refusent partout ailleurs (`ToolContext.writable`) ;
+ * ceux de la Slice 5 délèguent, et refusent sans `ToolContext.delegation`.
  *
  * `web_search` n'y figure pas, et c'est délibéré : voir
  * {@link WEB_SEARCH_IS_NOT_A_TOOL}.
@@ -50,6 +58,10 @@ export const TOOLBOX: Readonly<Record<string, Tool<never>>> = Object.freeze({
   delete_file: deleteFileTool as Tool<never>,
   git_diff: gitDiffTool as Tool<never>,
   exec: execTool as Tool<never>,
+  list_agents: listAgentsTool as Tool<never>,
+  delegate_task: delegateTaskTool as Tool<never>,
+  wait_for_task: waitForTaskTool as Tool<never>,
+  cancel_task: cancelTaskTool as Tool<never>,
   submit_result: submitResultTool as Tool<never>,
 })
 

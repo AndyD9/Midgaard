@@ -2,7 +2,8 @@
 
 Les outils des agents. Ceux de la Slice 2 **lisent** ; ceux de la Slice 3
 **écrivent ou exécutent, mais seulement dans le worktree** de la tâche, et
-refusent partout ailleurs.
+refusent partout ailleurs ; ceux de la Slice 5 **délèguent**, et seulement pour
+une tâche `orchestrator`.
 
 | Outil | Rôle |
 |---|---|
@@ -15,6 +16,10 @@ refusent partout ailleurs.
 | `delete_file` | Supprime un fichier du worktree (jamais un dossier) |
 | `git_diff` | Ce que l'agent a changé depuis le début de la tâche, fichiers nouveaux compris |
 | `exec` | Une commande dans le worktree, **sous approbation humaine** par défaut |
+| `list_agents` | Les profils auxquels déléguer, désactivés compris avec leur motif ; jamais un orchestrateur |
+| `delegate_task` | Crée une sous-tâche et rend son identifiant **sans l'attendre** |
+| `wait_for_task` | Attend la fin d'une sous-tâche, pauses d'approbation comprises ; résultat **non fiable** |
+| `cancel_task` | Annule une sous-tâche de cette tâche, et d'aucune autre |
 | `submit_result` | **Le seul outil qui termine une tâche** |
 
 ## Ce que ce paquet garantit, et ce qu'il ne garantit pas
@@ -273,6 +278,34 @@ Il reste dans la liste d'outils d'un profil, où il agit comme l'interrupteur qu
 active la recherche native, sans jamais être proposé au modèle. La boucle
 journalise un appel `web_search` **a posteriori** dès que des citations
 reviennent : observable, compté, attribué.
+
+## Déléguer : un port, et rien d'autre (Slice 5)
+
+Les quatre outils de délégation ne font rien eux-mêmes. Ils appellent le
+`DelegationPort` que le daemon pose dans `ToolContext.delegation` pour une tâche
+`orchestrator`, et pour elle seule. **Sans port, ils refusent**, sans demander
+d'approbation — fermé par défaut, comme `writable` : déléguer est une capacité
+de profil, pas une opération qu'un humain accorderait au coup par coup.
+
+Les règles qui protègent ne sont **pas** ici : profondeur 1, parent actif et
+orchestrateur, dossier hérité du parent, limites plafonnées par le profil de
+l'enfant, rattachement par `parent_task_id`. Elles vivent dans
+`TaskManager.create`, seul endroit où une tâche naît ; une seconde copie dans
+l'outil finirait par diverger. Le port est lié à sa tâche : il ne voit, n'attend
+et n'annule que ses propres sous-tâches.
+
+Trois choses que les outils garantissent seuls :
+
+- **`wait_for_task` marque son résultat `untrusted`, toujours.** Le résumé, les
+  détails et même le message d'erreur d'un enfant sont écrits par un modèle qui
+  a pu lire le web ou une sortie de commande. La boucle l'encadre donc avec un
+  nonce avant de le réinjecter — prouvé dans la boucle réelle avec un résultat
+  qui contient la balise de fin (`tests/unit/delegation-tools.test.ts`).
+- **Aucun outil n'approuve.** Une sous-tâche en pause d'approbation est attendue
+  avec l'humain ; l'orchestrateur n'a aucun moyen de décider à sa place.
+- **Aucun montant sans sa provenance** : ce que rend `wait_for_task` porte
+  `cost_usd` **et** `cost_source`, et la branche d'un Developer, que
+  l'orchestrateur relaie à l'humain qui seul merge.
 
 ## `submit_result` : la fin est un acte
 

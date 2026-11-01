@@ -41,6 +41,13 @@ import { taskStatusSchema } from './task.ts'
  *  - `workspace.kept` — la tâche est finie, le worktree est conservé pour lecture ;
  *  - `workspace.removed` — un humain l'a nettoyé ; la branche, elle, reste.
  *
+ * La Slice 5 ajoute `subtask.waiting`, écrit sur la tâche **parente** quand
+ * un orchestrateur se met à attendre une sous-tâche : son statut ne change pas
+ * (`running`), et sans lui le dashboard montrerait un orchestrateur immobile
+ * sans dire qui il attend. Le nouveau type ne demande pas de nouveau protocole :
+ * aucun client ne valide le type d'un événement à l'exécution, et un daemon
+ * antérieur ne fait simplement jamais attendre de sous-tâche.
+ *
  * `artifact.created`, prévu au plan, n'est pas créé : le diff d'un worktree se
  * calcule à la demande contre son commit de départ, et un artefact figé en
  * serait une seconde copie, vraie au moment de l'écrire seulement.
@@ -64,6 +71,7 @@ export const EVENT_TYPES = [
   'workspace.created',
   'workspace.kept',
   'workspace.removed',
+  'subtask.waiting',
 ] as const
 export type EventType = (typeof EVENT_TYPES)[number]
 

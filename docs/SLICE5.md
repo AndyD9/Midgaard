@@ -6,7 +6,7 @@ Code : un profil `orchestrator` qui tourne dans le daemon, sur le fournisseur et
 le modèle choisis (Venice, OpenAI, Gemini, compatible OpenAI), et qui délègue
 lui-même aux autres profils.
 
-**État : en cours** (démarrée le 2026-11-01 ; étapes 1 et 2 faites). Avant elle :
+**État : en cours** (démarrée le 2026-11-01 ; étapes 1 à 3 faites). Avant elle :
 décisions prises, découpage arrêté, aucune ligne de code. Elle attendait l'étape 8 de la Slice 4 — ce qui existe
 devait avoir fait ses preuves avant qu'on y ajoute un orchestrateur : c'est
 fait le 2026-11-01, depuis un clone frais ([SLICE4.md](SLICE4.md)). Les
@@ -89,7 +89,7 @@ l'arbre** ; le total porte la plus faible des provenances de ses tâches
 |---|---|---|
 | 1 | Neutraliser « Claude Code » dans ce que lisent les modèles : consignes du Researcher et du Developer, contexte assemblé, message d'erreur | **fait** |
 | 2 | Contrats et persistance : `kind` `orchestrator`, `parent_task_id` (migration 8), `PATCH /api/agents/:id` pour choisir fournisseur et modèle, `PROTOCOL_VERSION` 10 | **fait** |
-| 3 | Les outils de délégation : `list_agents`, `delegate_task`, `wait_for_task`, `cancel_task` derrière un `DelegationPort` du `ToolContext` — sans lui, ils refusent ; cascade d'annulation | à faire |
+| 3 | Les outils de délégation : `list_agents`, `delegate_task`, `wait_for_task`, `cancel_task` derrière un `DelegationPort` du `ToolContext` — sans lui, ils refusent ; cascade d'annulation | **fait** |
 | 4 | Le profil `orchestrator` : consigne, outils en lecture plus délégation, ni écriture, ni `exec`, ni web ; désactivé sans fournisseur, avec son motif | à faire |
 | 5 | Le dashboard : formulaire « Nouvelle tâche », tâches en arbre, carte « Sous-tâches » (total et plafond théorique), choix du modèle par profil | à faire |
 | 6 | Preuves : `test:orchestrator` (vrai daemon, faux fournisseur : délégation parallèle, approbation d'un enfant, annulation en cascade, `SIGKILL`), ajouts à `test:security` et `test:ui`, CI sur trois plateformes | à faire |
@@ -178,3 +178,60 @@ couvre le `PATCH`, le `parent_task_id` glissé par un client et le refus du
 type sans moteur ; `tests/unit/store.test.ts` couvre la migration 8 sur une
 base arrêtée au schéma 7, le parent et son récit, et le refus d'un parent
 inexistant sans rien écrire.
+
+### Étape 3 — les outils de délégation (2026-11-01)
+
+**Ce qui existe.** Les quatre outils (`packages/tools/src/delegation.ts`), le
+`DelegationPort` qu'ils appellent (`ToolContext.delegation`), son
+implémentation par le `TaskManager` (`delegationFor`), la cascade
+d'annulation, l'événement `subtask.waiting`, et `childTasks` au dépôt. Le
+moteur d'agent pose le port pour un profil `orchestrator` et pour lui seul —
+câblage qui ne sert qu'à partir de l'étape 4 : aucun moteur ne sert encore ce
+type.
+
+**Où vivent les règles.** Dans `TaskManager.create`, pas dans les outils :
+parent existant et actif (ni fini, ni en `cancel_requested`), parent
+orchestrateur, enfant qui n'en est pas un, dossier du parent imposé. Une
+seconde copie dans l'outil aurait fini par diverger. Le port ne voit que les
+sous-tâches de sa tâche, et répond la même chose pour une tâche inconnue et
+pour celle d'un autre arbre.
+
+**Ce qui a été décidé en écrivant.**
+
+- **L'expurgation passe au port.** L'objectif, le contexte et le motif
+  d'annulation sont écrits par le modèle de l'orchestrateur, qui a pu lire une
+  clé dans le projet, puis persistés. Le plan n'en disait rien ; l'invariant
+  « tout ce qui est persisté passe par `createRedactor` » l'imposait. Le port
+  reçoit donc le `redact` de la tâche parente (`EngineContext.delegationFor`).
+- **La cascade écoute le bus**, sur `cancel_requested` comme sur tout statut
+  final : annuler dès la demande, sans attendre que le parent ait atteint son
+  point de contrôle. Elle est **différée d'une micro-tâche** pour ne pas
+  écrire les événements des enfants pendant la diffusion de celui du parent.
+- **`wait_for_task` marque toujours son résultat non fiable**, message
+  d'erreur compris : c'est un modèle qui l'a écrit.
+- **`subtask.waiting` ne change pas le protocole** : aucun client ne valide le
+  type d'un événement à l'exécution. La timeline du dashboard l'affiche déjà
+  (« Attend une sous-tâche ») ; la carte « Sous-tâches » est l'étape 5.
+
+**Preuves.** `tests/unit/delegation-tools.test.ts` : refus sans port pour les
+quatre outils, refus du port rendu au modèle, résultat marqué non fiable avec
+branche et provenance du coût, et **encadrement dans la boucle réelle** d'un
+résultat qui contient la balise de fin. `tests/unit/delegation.test.ts`, sur un
+vrai daemon dont l'orchestrateur et le Researcher ont un moteur pilotable :
+règles de rattachement, attente qui traverse une pause d'approbation, échéance
+et arrêt du parent, cascade sur annulation et sur les quatre fins (tâches
+actives **comptées en base**), expurgation de l'objectif et du contexte.
+
+Les tests ont été vus échouer en retirant tour à tour la cascade (6 échecs),
+l'expurgation, la règle de profondeur, et en laissant une pause d'approbation
+interrompre l'attente (un échec chacun).
+
+**Ce qui reste pour la suite.**
+
+- Le résultat de l'orchestrateur lui-même n'est marqué non fiable que s'il cite
+  des sources (`finishWith`) : un orchestrateur qui recopie le résultat d'un
+  Researcher le rend comme fiable. À trancher à l'étape 4 — la boucle pourrait
+  marquer non fiable tout résultat d'une tâche qui a reçu un contenu encadré.
+- Le scénario de bout en bout (vrai daemon, faux fournisseur, `SIGKILL`) est
+  l'étape 6 ; la suite de sécurité y gagnera un orchestrateur qui recopie une
+  clé tierce dans une délégation.

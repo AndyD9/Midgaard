@@ -33,6 +33,7 @@ const EVENT_LOOK: Record<EventType, { icon: typeof Flag; label: string; classNam
   'workspace.created': { icon: FolderGit2, label: 'Worktree créé', className: 'text-running' },
   'workspace.kept': { icon: Archive, label: 'Worktree conservé', className: 'text-muted' },
   'workspace.removed': { icon: FolderX, label: 'Worktree retiré', className: 'text-muted' },
+  'subtask.waiting': { icon: Hourglass, label: 'Attend une sous-tâche', className: 'text-waiting' },
 }
 
 /**
@@ -52,6 +53,9 @@ function describe(event: TaskEvent): string | null {
     return `${String(p.decision)}${by}${reason}`
   }
   if (event.type === 'task.interrupted') return `statut précédent : ${String(p.previous_status)}`
+  if (event.type === 'subtask.waiting') {
+    return `${String(p.agent_id)} · ${String(p.task_id).slice(0, 8)} (${String(p.status)})`
+  }
   if (event.type === 'workspace.created') {
     // Deux choses seulement surprennent ici, et l'agent ne les verra pas : les
     // fichiers non commités, absents du worktree, et les sous-modules, vides.

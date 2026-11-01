@@ -422,6 +422,17 @@ export class HarnessStore {
     ).map(toTask)
   }
 
+  /**
+   * Sous-tâches d'une tâche, de la plus ancienne à la plus récente.
+   * @param filter `active` pour ne garder que les statuts non finaux
+   */
+  childTasks(parentId: string, filter: { active?: boolean } = {}): Task[] {
+    const found = rows<TaskRow>(
+      this.db.prepare('SELECT * FROM tasks WHERE parent_task_id = :p ORDER BY created_at ASC').all({ p: parentId }),
+    ).map(toTask)
+    return filter.active ? found.filter((t) => !isTerminal(t.status)) : found
+  }
+
   /** Compte les tâches, au total et parmi les statuts actifs. */
   countTasks(): { total: number; active: number } {
     const marks = ACTIVE_STATUSES.map((_, i) => `?${i + 1}`).join(', ')

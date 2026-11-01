@@ -399,6 +399,10 @@ export class AgentEngine implements TaskEngine {
         workspace: null,
         execAllow: ctx.config.execAllow,
         signal: undefined,
+        // Le port de délégation n'est posé que pour un orchestrateur (Slice 5) :
+        // tout autre profil qui recevrait `delegate_task` par erreur se verrait
+        // refuser l'outil, sans approbation à la place.
+        delegation: agent.kind === 'orchestrator' ? ctx.delegationFor(task.id, redact) : undefined,
         log: ctx.log,
       },
       redact,

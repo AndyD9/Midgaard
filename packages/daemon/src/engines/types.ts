@@ -18,6 +18,7 @@
  */
 import type { Agent, AgentKind, Approval, HarnessConfig, Task } from '@midgaard/contracts'
 import type { HarnessStore } from '@midgaard/persistence'
+import type { DelegationPort } from '@midgaard/tools'
 import type { EventBus } from '../bus.ts'
 
 /**
@@ -57,6 +58,14 @@ export interface EngineContext {
    * reste en un seul endroit.
    */
   concludeCancellation(taskId: string): void
+  /**
+   * Le port de délégation d'une tâche `orchestrator` (Slice 5) : ce qu'elle
+   * peut déléguer, attendre et annuler, rattaché à elle seule.
+   *
+   * @param redact l'expurgation de la tâche parente : ce que son modèle écrit
+   *               dans une délégation est persisté, et passe donc par elle
+   */
+  delegationFor(parentTaskId: string, redact: (text: string) => string): DelegationPort
 }
 
 /**

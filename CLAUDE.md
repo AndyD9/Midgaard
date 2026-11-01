@@ -178,6 +178,13 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   l'utilisateur** : `Midgaard <agent> <agent@midgaard.invalid>`, `--no-gpg-sign`.
 - **Le diff se calcule contre `base_commit`, jamais contre une branche**, et
   inclut les fichiers nouveaux (index temporaire, celui de l'agent intact).
+- **`parent_task_id` n'est posé que par le daemon** (`TaskManager.create`,
+  appelé par le port de délégation) : aucune route ne l'accepte, sans quoi un
+  client rattacherait une tâche à un arbre qui n'est pas le sien (Slice 5).
+- **Aucune sous-tâche ne survit à son parent.** Un parent en
+  `cancel_requested` ou dans un statut final emporte ses sous-tâches actives ;
+  le vérifier en **comptant les tâches actives en base**. Profondeur 1 : un
+  orchestrateur ne délègue jamais à un orchestrateur.
 
 ## Pièges d'environnement
 
@@ -235,7 +242,9 @@ de ce que lit un modèle ne nomme plus Claude (test « neutralité envers
 l'orchestrateur ») — à garder ainsi dans toute nouvelle consigne. Étape 2
 faite : migration 8 (`tasks.parent_task_id`, posé par le daemon seul),
 `PATCH /api/agents/:id` (fournisseur et modèle, jamais les limites), type
-`orchestrator` sans moteur encore, `PROTOCOL_VERSION` 10.
+`orchestrator` sans moteur encore, `PROTOCOL_VERSION` 10. Étape 3 faite : les
+outils `list_agents`, `delegate_task`, `wait_for_task`, `cancel_task` derrière
+`ToolContext.delegation`, la cascade d'annulation et `subtask.waiting`.
 
 ## Slice 4 terminée — durcissement
 

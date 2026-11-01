@@ -15,7 +15,7 @@ soit le nombre de sessions Claude Code ouvertes.
 | `daemon.ts` | Assemblage : verrou, base, bus, moteur, HTTP, WebSocket, bail, inactivité |
 | `lock.ts` | Instance unique : création atomique du verrou, puis bail vérifié chaque seconde |
 | `bus.ts` | **Seul chemin d'écriture** : ce qui est écrit est diffusé |
-| `task-manager.ts` | Machine à états en marche ; tâches simulées en Slice 1 |
+| `task-manager.ts` | Machine à états en marche ; port de délégation d'un orchestrateur et annulation en cascade (Slice 5) |
 | `agents.ts` | Profils livrés, rattachement à un fournisseur, choix du fournisseur et du modèle (`PATCH /api/agents/:id`) |
 | `http.ts` | Routeur de l'API locale |
 | `ws.ts` | Diffusion temps réel et **reprise sans trou** après coupure |
@@ -57,6 +57,32 @@ qu'aucune autre interface que la boucle locale ne répond.
 `/ui/bootstrap` et les fichiers du dashboard sont servis **sans jeton** — le
 navigateur n'en a aucun avant d'avoir chargé la page — mais restent soumis aux
 contrôles d'enveloppe, qui sont précisément ce qui arrête une page hostile.
+
+## Délégation entre tâches (Slice 5)
+
+Une tâche `orchestrator` délègue par le port que lui remet
+`TaskManager.delegationFor`. Ce que le daemon garantit :
+
+- **`parent_task_id` n'est posé que par lui.** Aucune route HTTP ne l'accepte ;
+  `create` applique les règles d'une sous-tâche : parent actif et
+  orchestrateur, enfant qui n'en est pas un (profondeur 1), dossier du parent
+  imposé.
+- **Aucun orphelin.** Le gérant écoute le bus : dès qu'une tâche passe en
+  `cancel_requested` ou dans un statut final, ses sous-tâches actives sont
+  annulées. Écouter le bus plutôt que chaque chemin de fin, parce qu'il y en a
+  une dizaine et que le bus les voit tous. L'annulation est **différée d'une
+  micro-tâche** : le bus diffuse de façon synchrone, et annuler pendant la
+  diffusion du parent enverrait à la WebSocket des `seq` dans le désordre.
+- **Ce que le modèle écrit dans une délégation est expurgé** — objectif,
+  contexte, motif d'annulation — avec le `redact` de la tâche parente, avant
+  d'être persisté.
+- **Attendre ne coûte rien.** `wait` bloque en mémoire jusqu'à la fin de
+  l'enfant, l'arrêt du parent ou son échéance ; une pause d'approbation ne
+  l'interrompt pas, et un `subtask.waiting` écrit sur le parent dit au
+  dashboard qui il attend.
+
+Prouvé par `tests/unit/delegation.test.ts`, qui compte les tâches actives
+**en base** après l'arrêt du parent.
 
 ## Installation
 

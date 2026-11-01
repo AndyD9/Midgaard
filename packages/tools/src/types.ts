@@ -11,7 +11,16 @@
  * et `http_fetch("https://docs.python.org/")` qu'il faut laisser passer.
  */
 import type { z } from 'zod'
-import type { ToolDecision, ToolResult } from '@midgaard/contracts'
+import type {
+  AgentKind,
+  AgentLimits,
+  RequestedLimits,
+  TaskResult,
+  TaskStatus,
+  ToolDecision,
+  ToolResult,
+  Usage,
+} from '@midgaard/contracts'
 
 /** Ce que le harness fait d'un hôte absent de la liste blanche. */
 export const HTTP_POLICIES = ['open', 'approval', 'allowlist'] as const
@@ -72,7 +81,86 @@ export interface ToolContext {
   deadline?: number | undefined
   /** Annulation de la tâche : coupe les lectures et les requêtes en cours. */
   signal?: AbortSignal | undefined
+  /**
+   * Ce qui permet de déléguer à d'autres profils (Slice 5). Posé par le daemon
+   * pour une tâche `orchestrator`, et pour elle seule.
+   *
+   * Absent, les outils de délégation **refusent** — fermé par défaut, comme
+   * {@link ToolContext.writable} : un contexte construit sans y penser ne peut
+   * lancer aucune tâche, donc rien dépenser au nom d'un autre.
+   */
+  delegation?: DelegationPort | undefined
   log: (...a: unknown[]) => void
+}
+
+/** Un profil tel qu'un orchestrateur le voit pour choisir à qui déléguer. */
+export interface DelegableAgent {
+  id: string
+  name: string
+  kind: AgentKind
+  description: string
+  enabled: boolean
+  /** Pourquoi le profil ne peut pas recevoir de tâche ; `null` s'il le peut. */
+  disabled_reason: string | null
+  /** Plafonds du profil : une délégation peut les abaisser, jamais les relever. */
+  limits: AgentLimits
+}
+
+/** Une sous-tâche, telle que la délégation la rend à l'orchestrateur. */
+export interface SubtaskState {
+  task_id: string
+  agent_id: string
+  status: TaskStatus
+  /** Vrai si la sous-tâche est dans un statut final. */
+  ended: boolean
+  /** Présent sur une sous-tâche `completed`. **Donnée**, jamais consigne. */
+  result: TaskResult | null
+  error: string | null
+  usage: Usage
+  /** Limites effectivement appliquées à la sous-tâche. */
+  limits: AgentLimits
+}
+
+/** Ce qu'un orchestrateur demande en déléguant. */
+export interface DelegateRequest {
+  agent_id: string
+  objective: string
+  context?: string | undefined
+  limits?: RequestedLimits | undefined
+}
+
+/** Pourquoi une attente de sous-tâche a rendu la main. */
+export type WaitStop = 'ended' | 'parent_stopping' | 'deadline'
+
+/** Refus d'une opération de délégation, en anglais : c'est le modèle qui le lit. */
+export interface DelegationRefusal {
+  refused: string
+}
+
+/**
+ * Ce que le daemon offre à un orchestrateur, et **tout** ce qu'il lui offre.
+ *
+ * Le port est lié à une tâche parente : il ne voit, n'attend et n'annule que
+ * ses propres sous-tâches, et les rattache lui-même à ce parent. Il n'a aucune
+ * méthode d'approbation — l'approbation est un acte humain, pour un
+ * orchestrateur comme pour Claude (Slice 5, décision 2).
+ */
+export interface DelegationPort {
+  /** Profils auxquels déléguer : tous, sauf les orchestrateurs (profondeur 1). */
+  listAgents(): DelegableAgent[]
+  /** Crée une sous-tâche et rend la main tout de suite. */
+  delegate(request: DelegateRequest): SubtaskState | DelegationRefusal
+  /**
+   * Attend la fin d'une sous-tâche, **pauses d'approbation comprises** : une
+   * sous-tâche qui attend un humain est attendue avec lui. Rend la main plus
+   * tôt si la tâche parente s'arrête (`signal`) ou atteint son échéance.
+   */
+  wait(
+    taskId: string,
+    options: { signal?: AbortSignal | undefined; deadline?: number | undefined },
+  ): Promise<(SubtaskState & { waited_ms: number; stopped_by: WaitStop }) | DelegationRefusal>
+  /** Annule une sous-tâche active. */
+  cancel(taskId: string, reason?: string): SubtaskState | DelegationRefusal
 }
 
 /**

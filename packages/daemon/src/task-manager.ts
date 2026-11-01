@@ -15,6 +15,11 @@
  * Toutes les écritures passent par le bus ({@link EventBus}), jamais par le
  * dépôt directement : c'est ce qui garantit qu'aucun changement d'état n'échappe
  * aux long-polls ni aux dashboards connectés.
+ *
+ * Depuis la Slice 5, il porte aussi la **délégation** d'un orchestrateur : le
+ * port qu'il lui remet ({@link TaskManager.delegationFor}), les règles qui
+ * rattachent une sous-tâche à son parent ({@link TaskManager.create}), et la
+ * cascade qui ne laisse aucun orphelin.
  */
 import type {
   Agent,
@@ -34,6 +39,7 @@ import {
   tightenLimits,
 } from '@midgaard/contracts'
 import type { HarnessStore } from '@midgaard/persistence'
+import type { DelegableAgent, DelegationPort, DelegationRefusal, SubtaskState, WaitStop } from '@midgaard/tools'
 import type { EventBus } from './bus.ts'
 import { SimulatedEngine, STEPS_TOTAL } from './engines/simulated.ts'
 import type { EngineContext, TaskEngine } from './engines/types.ts'
@@ -78,6 +84,18 @@ export class TaskManager {
     this.bus = bus
     this.log = log
     this.register(new SimulatedEngine(this.engineContextFor()))
+    // Aucun orphelin (Slice 5, décision 5) : une tâche qu'on annule, ou qui se
+    // termine pour quelque raison que ce soit, emporte ses sous-tâches actives.
+    // Écouter le bus plutôt que chaque chemin de fin : il y en a une dizaine
+    // (moteurs, refus, expiration, annulation), et le bus les voit tous.
+    this.bus.subscribe(({ task }) => {
+      if (task.status !== 'cancel_requested' && !isTerminal(task.status)) return
+      // Différé : le bus diffuse de façon synchrone, et annuler ici écrirait
+      // les événements des enfants **pendant** la diffusion de celui du parent.
+      // Les abonnés suivants — la WebSocket — recevraient alors des `seq` dans
+      // le désordre, et un dashboard qui retient le dernier vu le perdrait.
+      queueMicrotask(() => this.cancelChildren(task.id, task.status))
+    })
   }
 
   /**
@@ -109,6 +127,7 @@ export class TaskManager {
       concludeCancellation: (taskId) => {
         this.finishCancellation(taskId)
       },
+      delegationFor: (parentTaskId, redact) => this.delegationFor(parentTaskId, redact),
     }
   }
 
@@ -160,6 +179,18 @@ export class TaskManager {
    * aussitôt parce que son agent n'existe pas pollue l'historique et oblige
    * Claude à lire un statut pour comprendre une erreur de saisie.
    *
+   * **Une sous-tâche** (`parentTaskId`, posé par {@link delegationFor} et par
+   * lui seul — jamais par une route HTTP) obéit à quatre règles de plus, ici
+   * plutôt que dans l'outil pour qu'il n'en existe qu'une copie :
+   *
+   *  - son parent existe et est **encore actif** — ni fini, ni en cours
+   *    d'annulation : un orchestrateur qui s'arrête ne lance plus rien ;
+   *  - son parent est un **orchestrateur** ;
+   *  - elle-même **n'en est pas un** : profondeur 1, pas d'arbre qui s'emballe
+   *    (Slice 5, décision 1) ;
+   *  - elle travaille sur le **dossier du parent**, jamais sur celui qu'on lui
+   *    passerait (décision 9) : le modèle ne choisit pas où lit son enfant.
+   *
    * @returns la tâche créée, ou un refus explicite
    */
   create(input: {
@@ -170,6 +201,7 @@ export class TaskManager {
     requestedLimits?: RequestedLimits | undefined
     durationS: number
     needsApproval: boolean
+    parentTaskId?: string | null | undefined
   }): { task: Task } | Refusal {
     const agent = this.store.getAgent(input.agentId)
     if (!agent) {
@@ -186,6 +218,21 @@ export class TaskManager {
         detail: { agent_id: agent.id, reason: this.whyDisabled(agent) },
       }
     }
+    let projectDir = input.projectDir
+    if (input.parentTaskId) {
+      const parent = this.store.getTask(input.parentTaskId)
+      if (!parent) return { error: 'parent_not_found', status: 404, detail: { parent_task_id: input.parentTaskId } }
+      if (isTerminal(parent.status) || parent.status === 'cancel_requested') {
+        return { error: 'parent_not_active', status: 409, detail: { parent_task_id: parent.id, status: parent.status } }
+      }
+      if (this.store.getAgent(parent.agent_id)?.kind !== 'orchestrator') {
+        return { error: 'parent_cannot_delegate', status: 409, detail: { parent_task_id: parent.id } }
+      }
+      if (agent.kind === 'orchestrator') {
+        return { error: 'nested_orchestrator', status: 409, detail: { agent_id: agent.id } }
+      }
+      projectDir = parent.project_dir
+    }
     if (!this.engines.has(agent.kind)) {
       return { error: 'engine_unavailable', status: 503, detail: { agent_id: agent.id, kind: agent.kind } }
     }
@@ -200,7 +247,7 @@ export class TaskManager {
       context: input.context,
       // Une tâche simulée ne lit rien : lui attribuer une racine laisserait
       // croire qu'elle y touche.
-      projectDir: agent.kind === 'simulated' ? null : input.projectDir,
+      projectDir: agent.kind === 'simulated' ? null : projectDir,
       limits,
       durationS: input.durationS,
       // `steps_total` est le dénominateur affiché par MCP, la CLI et le
@@ -211,8 +258,12 @@ export class TaskManager {
       // savoir si une tâche a touché son plafond était faux.
       stepsTotal: agent.kind === 'simulated' ? STEPS_TOTAL : limits.max_steps,
       needsApproval: input.needsApproval,
+      parentTaskId: input.parentTaskId ?? null,
     })
-    this.log(`tâche ${short(task.id)} créée pour ${agent.id} (budget ${limits.max_cost_usd} $)`)
+    this.log(
+      `tâche ${short(task.id)} créée pour ${agent.id} (budget ${limits.max_cost_usd} $)` +
+        (input.parentTaskId ? `, sous-tâche de ${short(input.parentTaskId)}` : ''),
+    )
     this.engines.get(agent.kind)!.start(task, agent)
     return { task }
   }
@@ -418,6 +469,184 @@ export class TaskManager {
     }
   }
 
+  // --- Délégation (Slice 5) -------------------------------------------------
+
+  /**
+   * Le port de délégation d'une tâche `orchestrator`.
+   *
+   * Lié à **sa** tâche : il ne voit, n'attend et n'annule que les sous-tâches
+   * dont `parent_task_id` est elle, et c'est lui qui pose ce champ. Ce qu'il
+   * rend est lu par le modèle : en anglais.
+   *
+   * @param redact expurgation de la tâche parente. L'objectif, le contexte et
+   *               le motif d'annulation sont **écrits par un modèle** qui a pu
+   *               lire une clé dans le projet, puis persistés : ils passent par
+   *               elle, comme tout ce que la boucle journalise (PLAN §8.4, X1).
+   */
+  delegationFor(parentId: string, redact: (text: string) => string): DelegationPort {
+    /** La sous-tâche, si elle appartient bien à ce parent. */
+    const own = (taskId: string): Task | DelegationRefusal => {
+      const task = this.store.getTask(taskId)
+      // Même réponse pour une tâche inconnue et pour celle d'un autre arbre :
+      // un orchestrateur n'a pas à apprendre ce qui existe hors du sien.
+      if (!task || task.parent_task_id !== parentId) return { refused: `no subtask ${taskId} belongs to your task` }
+      return task
+    }
+
+    return {
+      listAgents: () =>
+        this.store
+          .listAgents()
+          .filter((a) => a.kind !== 'orchestrator')
+          .map(
+            (a): DelegableAgent => ({
+              id: a.id,
+              name: a.name,
+              kind: a.kind,
+              description: a.description,
+              enabled: a.enabled,
+              disabled_reason: a.enabled ? null : this.whyDisabledForModel(a),
+              limits: a.limits,
+            }),
+          ),
+
+      delegate: (request) => {
+        const created = this.create({
+          objective: redact(request.objective.trim()),
+          agentId: request.agent_id,
+          context: request.context === undefined ? null : redact(request.context),
+          // Ignoré : `create` impose le dossier du parent à une sous-tâche.
+          projectDir: null,
+          requestedLimits: request.limits,
+          durationS: 20,
+          needsApproval: false,
+          parentTaskId: parentId,
+        })
+        if ('error' in created) return { refused: this.refusalForModel(created) }
+        return subtaskState(created.task)
+      },
+
+      wait: async (taskId, options) => {
+        const child = own(taskId)
+        if ('refused' in child) return child
+        const started = Date.now()
+        if (!isTerminal(child.status)) {
+          // Le statut du parent ne change pas (`running`) : sans cet événement,
+          // le dashboard montrerait un orchestrateur immobile sans dire qui il
+          // attend (décision 3).
+          const parent = this.store.getTask(parentId)
+          if (parent && !isTerminal(parent.status)) {
+            this.bus.record(parentId, null, {
+              type: 'subtask.waiting',
+              payload: { task_id: child.id, agent_id: child.agent_id, status: child.status },
+            })
+          }
+        }
+        const stopped = await this.waitForEnd(taskId, options.signal, options.deadline)
+        return { ...subtaskState(this.store.getTask(taskId)!), waited_ms: Date.now() - started, stopped_by: stopped }
+      },
+
+      cancel: (taskId, reason) => {
+        const child = own(taskId)
+        if ('refused' in child) return child
+        if (isTerminal(child.status)) return { refused: `subtask ${taskId} already ended (${child.status})` }
+        if (child.status === 'cancel_requested') return subtaskState(child)
+        const done = this.cancel(
+          taskId,
+          reason ? `annulée par l'orchestrateur : ${redact(reason)}` : 'annulée par l\'orchestrateur',
+        )
+        if ('error' in done) return { refused: this.refusalForModel(done) }
+        return subtaskState(done.task)
+      },
+    }
+  }
+
+  /**
+   * Attend qu'une tâche atteigne un statut final.
+   *
+   * **Une pause d'approbation n'interrompt pas l'attente** (décision 2) :
+   * l'orchestrateur n'a aucun moyen d'approuver, et lui rendre la main ne
+   * servirait qu'à lui faire payer une étape pour rappeler l'attente. Pas de
+   * tranches non plus — la coupure à 60 s est propre aux clients MCP.
+   *
+   * @param signal   arrêt de la tâche parente
+   * @param deadline échéance de la tâche parente, en millisecondes depuis l'époque
+   */
+  private waitForEnd(taskId: string, signal?: AbortSignal, deadline?: number): Promise<WaitStop> {
+    return new Promise<WaitStop>((resolve) => {
+      let settled = false
+      let timer: NodeJS.Timeout | undefined
+      const finish = (why: WaitStop) => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        unsubscribe()
+        signal?.removeEventListener('abort', onAbort)
+        resolve(why)
+      }
+      const unsubscribe = this.bus.subscribe(({ task }) => {
+        if (task.id === taskId && isTerminal(task.status)) finish('ended')
+      })
+      const onAbort = () => finish('parent_stopping')
+      signal?.addEventListener('abort', onAbort, { once: true })
+      if (deadline !== undefined) timer = setTimeout(() => finish('deadline'), Math.max(0, deadline - Date.now()))
+      // Relecture après abonnement, comme pour `wait` : une fin survenue entre
+      // la lecture de l'appelant et l'abonnement serait sinon manquée.
+      const now = this.store.getTask(taskId)
+      if (!now || isTerminal(now.status)) finish('ended')
+      else if (signal?.aborted) finish('parent_stopping')
+    })
+  }
+
+  /**
+   * Annule les sous-tâches actives d'une tâche qui s'arrête.
+   *
+   * Une sous-tâche déjà en `cancel_requested` est laissée à son moteur : la
+   * redemander serait un refus (`cancel_already_requested`), pas une action.
+   */
+  private cancelChildren(parentId: string, parentStatus: Task['status']): void {
+    for (const child of this.store.childTasks(parentId, { active: true })) {
+      if (child.status === 'cancel_requested') continue
+      const reason =
+        parentStatus === 'cancel_requested' || parentStatus === 'cancelled'
+          ? 'tâche parente annulée'
+          : `tâche parente terminée (${parentStatus}) : sous-tâche annulée`
+      const done = this.cancel(child.id, reason)
+      this.log(
+        `sous-tâche ${short(child.id)} de ${short(parentId)} : ` +
+          ('error' in done ? `annulation impossible (${done.error})` : `annulation ${done.task.status}`),
+      )
+    }
+  }
+
+  /** Pourquoi un profil est désactivé, en anglais : c'est l'orchestrateur qui le lit. */
+  private whyDisabledForModel(agent: Agent): string {
+    if (agent.provider_id === null) return 'no model provider is configured for this profile'
+    if (!this.store.getProvider(agent.provider_id)) return `its provider "${agent.provider_id}" no longer exists`
+    return 'the profile is disabled'
+  }
+
+  /** Traduit un refus du gérant en phrase pour le modèle : ce qui bloque, et quoi faire. */
+  private refusalForModel(refusal: Refusal): string {
+    const d = refusal.detail ?? {}
+    switch (refusal.error) {
+      case 'agent_not_found':
+        return `unknown profile "${String(d.agent_id)}": call list_agents to see the available ones`
+      case 'agent_disabled': {
+        const agent = this.store.getAgent(String(d.agent_id))
+        return `profile "${String(d.agent_id)}" is disabled: ${agent ? this.whyDisabledForModel(agent) : 'unknown reason'}`
+      }
+      case 'nested_orchestrator':
+        return 'you cannot delegate to an orchestrator profile: delegate to an executor instead'
+      case 'parent_not_active':
+        return 'your task is stopping: no new subtask can start'
+      case 'engine_unavailable':
+        return `profile "${String(d.agent_id)}" cannot run tasks in this version of the harness`
+      default:
+        return `refused by the harness (${refusal.error})`
+    }
+  }
+
   // --- Lecture et attente --------------------------------------------------
 
   /** Compose la vue d'une tâche : état, consigne, approbation en cours. */
@@ -490,6 +719,20 @@ export class TaskManager {
     })
 
     return { ...this.view(task), waited_ms: Date.now() - started }
+  }
+}
+
+/** Ce qu'une sous-tâche montre à son orchestrateur. */
+function subtaskState(task: Task): SubtaskState {
+  return {
+    task_id: task.id,
+    agent_id: task.agent_id,
+    status: task.status,
+    ended: isTerminal(task.status),
+    result: task.result,
+    error: task.error,
+    usage: task.usage,
+    limits: task.limits,
   }
 }
 
