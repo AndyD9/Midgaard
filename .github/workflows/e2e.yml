@@ -25,10 +25,6 @@ on:
       - 'docs/**'
   pull_request:
   workflow_dispatch:
-  # Appelé tel quel par la publication (publish.yml), sur le commit taggé :
-  # un tag peut viser un commit de documentation, que `paths-ignore` a laissé
-  # sans passage (Slice 4, étape 7).
-  workflow_call:
 
 jobs:
   e2e:
@@ -73,12 +69,6 @@ jobs:
       - name: test:ui
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: npm run test:ui
-      # Le paquet npm tel qu'un tiers l'installe : assemblé, installé dans un
-      # préfixe vierge avec un HOME vierge, puis init, doctor, un vrai client MCP,
-      # et la cohabitation avec un daemon des sources (Slice 4, étape 6).
-      - name: test:package
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: npm run test:package
       # La CLI telle qu'un tiers la lance : déclaration MCP, diagnostic d'une
       # installation neuve — qui vérifie au passage la déclaration que `init`
       # vient d'écrire —, puis état. Le dossier runtime est jetable, et le coffre

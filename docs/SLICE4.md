@@ -2,11 +2,14 @@
 
 **Date :** 2026-10-30 · **Objectif (PLAN §7) :** installable par un tiers en une
 commande, scénario de démo du document d'origine (§12) rejoué sans terminal
-intégré. En chemin : tests de sécurité ciblés, scénarios de crash et de reprise,
+intégré. *Révisé le 2026-11-01* : la distribution npm est abandonnée, Midgaard
+s'installe depuis un clone (§ « La distribution, abandonnée »). En chemin : tests de sécurité ciblés, scénarios de crash et de reprise,
 deux tâches concurrentes sur des worktrees distincts, README et guide de
 dépannage.
 
-**État : en cours.** Décisions prises, découpage arrêté ; étapes 1 à 7 livrées. Rien n'est publié.
+**État : en cours.** Étapes 1 à 5 livrées ; les étapes 6 et 7 (le paquet, la
+publication) livrées puis **retirées** le 2026-11-01 ; reste l'étape 8, depuis
+un clone frais. Rien n'a été publié.
 
 ---
 
@@ -20,6 +23,7 @@ Quatre questions posées avant d'écrire une ligne.
 | Qui publie ? | **La CI, sur tag `v…`**, par la publication de confiance npm (OIDC) avec attestation de provenance |
 | `edit_file` dans un dépôt CRLF ? | **Tolérer les fins de ligne** à la recherche ; le remplacement reprend celles du fichier |
 | L'essai d'acceptation sous Windows ? | **CI seulement.** Aucun poste Windows : l'essai réel n'y sera pas joué, et la documentation le dira |
+| *(2026-11-01)* Distribuer, finalement ? | **Non.** Projet personnel : la publication et le paquet sont retirés, Midgaard s'installe depuis un clone. Les deux premières décisions ne valent plus |
 
 **Un paquet plutôt que dix.** Le PLAN annonçait `npm i -g @midgaard/harness`,
 mais les dix paquets du workspace n'ont rien à faire séparément chez un tiers :
@@ -55,9 +59,9 @@ la règle de `dashboard_available` : ne rien annoncer qu'on n'a pas constaté.
 | 3 | La suite de sécurité du PLAN §8.4, point par point : chaque refus prouvé par un test qui l'observe directement, les trous comblés | ✅ livrée — quatre défauts réels trouvés |
 | 4 | Crash et concurrence : daemon tué en plein Developer (tâche `interrupted`, worktree conservé, branche au commit de départ) ; deux Developer concurrents sur deux worktrees | ✅ livrée — une commande survivait au daemon, et le diff perdait des modifications |
 | 5 | Le daemon de bout en bout, le dashboard et la CLI en CI sur macOS, Linux et Windows | ✅ livrée — trois postes au vert au deuxième passage |
-| 6 | Le paquet `midgaard` : tarball unique, `npm pack` installé dans un préfixe vierge puis `harness init`, `doctor` et un aller-retour MCP — sur les trois plateformes | ✅ livrée — 6/6 sur les trois plateformes du premier coup |
-| 7 | La publication : workflow sur tag, provenance ; README d'installation et guide de dépannage | ✅ livrée — répétition générale au vert sur GitHub au troisième passage ; deux conseils faux, un crash du coffre et deux échecs macOS expliqués en chemin |
-| 8 | L'essai d'acceptation : installé depuis npm sur un `HOME` vierge, le scénario §12 rejoué depuis Claude Code sous macOS | à faire |
+| 6 | Le paquet `midgaard` : tarball unique, `npm pack` installé dans un préfixe vierge puis `harness init`, `doctor` et un aller-retour MCP — sur les trois plateformes | ↩️ livrée — 6/6 sur les trois plateformes du premier coup —, puis **retirée** le 2026-11-01 |
+| 7 | La publication : workflow sur tag, provenance ; README d'installation et guide de dépannage | ↩️ livrée — répétition générale au vert au troisième passage —, puis **retirée** le 2026-11-01, sauf le guide de dépannage |
+| 8 | L'essai d'acceptation : **un clone frais** sur un `HOME` vierge, le scénario §12 rejoué depuis Claude Code sous macOS | à faire |
 
 L'ordre suit une règle : **rien n'est distribué avant d'être durci.** Les
 dettes que la Slice 3 a laissées d'abord (étapes 1 et 2), la preuve que les
@@ -69,7 +73,8 @@ livrable qu'on ne peut pas reprendre.
 
 - **Étape 8.** Un `HOME` vierge, pas seulement un `MIDGAARD_HOME` : c'est la
   seule façon de voir ce que voit un tiers (aucun fournisseur, aucun coffre
-  rempli, aucun `.mcp.json`).
+  rempli, aucun `.mcp.json`). Depuis le 2026-11-01, l'installation est celle du
+  README : `git clone`, `npm ci`, `npm run build`, `npm run init`.
 
 ---
 
@@ -664,10 +669,41 @@ qui accepte `midgaard@0.1.0`, 104 fichiers — sans jeton, le job a annoncé la
 voie OIDC. L'environnement `npm`, créé par la première répétition, n'a encore
 aucune protection : la relecture humaine n'a donc pas été exercée.
 
-Ce qui ne se constatera qu'à la première publication — l'étape 8 :
-l'authentification par jeton, puis par OIDC ; l'attestation de provenance ; la
-relecture humaine dans l'environnement ; et la comparaison d'après
-publication, qu'une répétition saute.
+Ce qui ne se serait constaté qu'à la première publication : l'authentification
+par jeton, puis par OIDC ; l'attestation de provenance ; la relecture humaine
+dans l'environnement ; et la comparaison d'après publication, qu'une
+répétition saute. **Rien de cela ne sera constaté** : la distribution a été
+abandonnée avant (§ suivant).
+
+---
+
+## La distribution, abandonnée
+
+**Le 2026-11-01**, la publication prête — environnement GitHub `npm` doté d'un
+relecteur, nom encore libre sur le registre, `release.ts check` au vert —,
+l'auteur a tranché : **pas de distribution.** C'est un projet personnel ;
+publier engageait à tenir un nom, des versions et une procédure de jeton pour
+un public qui n'existe pas. La décision est définitive, et le paquet part avec
+la publication : sans registre, il n'avait plus de lecteur.
+
+**Retiré :** `.github/workflows/publish.yml` et l'appel `workflow_call`
+d'`e2e.yml` ; `scripts/release.ts` et `tests/unit/release.test.ts` ;
+`scripts/pack.ts` (`npm run pack:npm`), `tests/package.ts`
+(`npm run test:package`) et son pas en CI ; `docs/INSTALLER.md` et
+`docs/PUBLIER.md` ; l'emplacement `dashboard/` que le daemon cherchait à côté
+de `dist/` ; l'environnement GitHub `npm`. Les récits des étapes 6 et 7
+restent ci-dessus : ce qu'ils ont appris vaut toujours.
+
+**Gardé :** l'identité d'installation et le remplacement d'un daemon oisif
+d'une autre installation — deux clones sur un même `~/.midgaard` la posent
+aussi ; `docs/DEPANNAGE.md`, réécrit pour un clone ; les correctifs trouvés en
+chemin (leçons 25 et 26), qui ne dépendaient pas du paquet.
+
+**Changé :** `cmd()`, `keyCommand` et `approvalCommand` ne rendent plus que
+`npm run harness -- …` : la forme `harness …`, pour le paquet installé, aurait
+cité une commande que personne ne peut lancer. En les relisant, un dernier
+conseil passait à côté de `cmd()` : `harness status` affichait
+`harness approve <id>` en dur, depuis les sources, depuis toujours.
 
 ---
 
@@ -702,7 +738,9 @@ publication, qu'une répétition saute.
   300 dans ces conditions (étape 7, leçon n° 28). Le fermer exigerait que la
   commande attende son inscription avant de s'exécuter — un changement du
   chemin `exec`, à décider.
-- **Le nom `midgaard` sur npm** était libre le 2026-10-30 ; rien ne le réserve
-  avant la première publication.
+- **Le remplacement d'un daemon d'une autre installation** n'est plus éprouvé
+  de bout en bout : il l'était par K6, dans `tests/package.ts`, retiré avec le
+  paquet. Restent les tests unitaires de l'identité et de `daemonCheck`. Deux
+  clones sur un même `MIDGAARD_HOME` suffiraient à le rejouer.
 - **Les deux dettes Gemini** (SLICE2) restent ouvertes tant qu'aucune clé
   Google n'est disponible.

@@ -3,9 +3,9 @@
  *
  * Décision de la Slice 4, étape 6 : un serveur MCP remplace le daemon d'une
  * autre installation s'il est oisif, et s'en sert sinon. Ce qui suit prouve
- * l'identité sur laquelle repose la comparaison ; le remplacement lui-même est
- * éprouvé de bout en bout par `tests/package.ts` (K6), avec un vrai paquet
- * installé et un vrai daemon des sources.
+ * l'identité sur laquelle repose la comparaison. Le remplacement lui-même
+ * était éprouvé de bout en bout par `tests/package.ts` (K6), retiré avec le
+ * paquet npm : il ne l'est plus (docs/SLICE4.md, « Ce qui restera ouvert »).
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'

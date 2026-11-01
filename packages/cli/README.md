@@ -19,13 +19,13 @@ harness exec allow [--yes] [--] <commande…>
 harness exec revoke [--] <commande…>
 ```
 
-Depuis les sources du dépôt, le binaire n'est pas installé : `npm run harness -- status`.
-**Chaque commande que la CLI conseille** passe par `cmd()` (`ui.ts`), qui l'écrit
-sous la forme que l'utilisateur peut taper : `harness …` depuis le paquet
-installé, `npm run harness -- …` depuis les sources. Elles disaient toutes la
-seconde, à tout le monde, jusqu'à ce qu'on installe le paquet dans un préfixe
-vierge (Slice 4, étape 6). `harness --version` lit la version dans le
-`package.json` de la CLI, que l'assemblage du paquet écrit.
+Midgaard ne s'installe que depuis un clone (la distribution npm a été
+abandonnée, docs/SLICE4.md) : aucun binaire `harness` n'est dans le `PATH`, et
+chaque ligne ci-dessus se lance à la racine du dépôt sous la forme
+`npm run harness -- status`. **Chaque commande que la CLI conseille** passe par
+`cmd()` (`ui.ts`), qui l'écrit sous cette forme : avant d'y passer, des
+conseils citaient un `harness` que personne ne pouvait lancer — le dernier,
+l'indice d'approbation de `status`, a été trouvé en retirant le paquet.
 
 ## Pourquoi l'approbation est ici et pas dans MCP
 

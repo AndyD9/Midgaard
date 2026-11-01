@@ -61,13 +61,14 @@ mise à jour du code a fait qu'une pause d'approbation n'a jamais été signalé
 
 Le deuxième date de la Slice 4 (étape 6, décision de l'auteur). Une installation,
 c'est le dossier du paquet `@midgaard/daemon` et sa version
-(`@midgaard/daemon/installation`) : un clone de développement et le paquet npm
-sur un même `~/.midgaard`, ou le paquet avant et après une mise à jour. À
+(`@midgaard/daemon/installation`) : deux clones sur un même `~/.midgaard`, ou
+un clone avant et après une montée de version. À
 protocole égal, on pouvait leur parler, et on le faisait — avec le code de
 l'autre, jusqu'à son arrêt sur inactivité. C'est le daemon qui décide s'il est
 oisif, sans `await` entre la lecture de son compteur et son arrêt : une tâche
 déléguée au même instant par une autre session n'est jamais interrompue.
-Éprouvé par `tests/package.ts` (K6).
+L'identité est éprouvée par `tests/unit/installation.test.ts` ; le remplacement
+de bout en bout l'était par `tests/package.ts` (K6), retiré avec le paquet npm.
 
 ## Trace
 

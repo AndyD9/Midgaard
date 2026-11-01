@@ -16,19 +16,19 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 /**
- * Commande d'approbation à donner à l'utilisateur, adaptée au mode d'exécution.
+ * Commande d'approbation à donner à l'utilisateur.
  *
- * Installé depuis npm, le binaire `harness` est dans le `PATH`. Lancé depuis les
- * sources du dépôt, il ne l'est pas : la commande passe alors par npm, avec le
- * chemin absolu du dépôt.
+ * Midgaard ne s'installe que depuis un clone : aucun binaire `harness` n'est
+ * dans le `PATH`, la commande passe par npm, avec le chemin absolu du dépôt —
+ * l'utilisateur la lance depuis le dossier où il travaille, pas depuis le clone.
  */
 export function approvalCommand(approvalId: string): string {
   // On se repère sur ce fichier-ci plutôt que sur le paquet `cli` : celui-ci
   // dépend du serveur MCP (il déclare son point d'entrée dans `.mcp.json`), et
   // l'inverse créerait un cycle entre les deux paquets.
   const self = fileURLToPath(import.meta.url)
-  if (!self.endsWith('.ts')) return `harness approve ${approvalId}`
-  // packages/mcp-server/src/instructions.ts → racine du dépôt
+  // packages/mcp-server/{src,dist}/instructions.* → racine du dépôt : même
+  // profondeur depuis les sources et depuis le build.
   const repoRoot = resolve(dirname(self), '..', '..', '..')
   return `cd ${JSON.stringify(repoRoot)} && npm run harness -- approve ${approvalId}`
 }

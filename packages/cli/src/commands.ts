@@ -137,7 +137,7 @@ export async function status(config: HarnessConfig, limit: number): Promise<numb
     if (pending.length) {
       console.log(`\n${yellow(bold(`${pending.length} approbation(s) en attente`))}`)
       for (const a of pending) console.log(`  ${a.id}  ${a.operation}`)
-      console.log(dim(`  harness approve ${pending[0]!.id}`))
+      console.log(dim(`  ${cmd(`approve ${pending[0]!.id}`)}`))
     }
     console.log(`\n${bold('Tâches')} (${tasks.length} sur ${store.countTasks().total})`)
     if (!tasks.length) console.log(dim('  aucune'))

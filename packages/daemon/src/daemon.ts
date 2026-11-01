@@ -22,8 +22,7 @@
  *  - **la configuration est injectée**, jamais lue au chargement du module.
  */
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import {
@@ -63,21 +62,15 @@ const IDLE_CHECK_MS = 30_000
 const HEALTH_BROADCAST_MS = 10_000
 
 /**
- * Emplacement par défaut des fichiers compilés du dashboard, relatif à ce paquet.
+ * Emplacement par défaut des fichiers compilés du dashboard, relatif à ce paquet :
+ * `apps/dashboard/dist/` du dépôt, à trois niveaux. Le calcul vaut aussi bien
+ * depuis `src/` que depuis `dist/`, à la même profondeur. (Le paquet npm, qui
+ * le rangeait ailleurs, a été abandonné : docs/SLICE4.md.)
  *
- * Deux emplacements, essayés dans l'ordre :
- *  - **le paquet publié** : l'assemblage (`scripts/pack.ts`) range le dashboard
- *    compilé dans `dashboard/`, à côté de `dist/` — `apps/` n'existe pas chez
- *    qui installe depuis npm ;
- *  - **le dépôt** : `apps/dashboard/dist/`, à trois niveaux. Le calcul vaut
- *    aussi bien depuis `src/` que depuis `dist/`, à la même profondeur.
- *
- * Exporté pour que `harness doctor` puisse constater la présence du dashboard
+ * Exporté pour que `doctor` puisse constater la présence du dashboard
  * **sans démarrer le daemon**.
  */
 export function defaultDashboardDir(): string {
-  const packaged = fileURLToPath(new URL('../dashboard/', import.meta.url))
-  if (existsSync(join(packaged, 'index.html'))) return packaged
   return fileURLToPath(new URL('../../../apps/dashboard/dist/', import.meta.url))
 }
 
@@ -196,7 +189,7 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
   const dashboardUrl = () => (files.available ? `http://127.0.0.1:${port}/` : null)
 
   // Calculée une fois : le dossier et la version ne changent pas pendant la vie
-  // du processus, même si `npm install -g` remplace les fichiers sous lui.
+  // du processus, même si un `git pull` remplace les fichiers sous lui.
   const install = installation()
   const health = (): Health => ({
     ok: true,

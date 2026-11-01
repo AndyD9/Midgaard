@@ -45,8 +45,8 @@ import type { EngineContext, TaskEngine } from './types.ts'
  * `--model`, et le binaire `harness` n'existe pas depuis les sources (Slice 4,
  * étape 7). Elle redit donc toute la déclaration, pour que la redéposer ne
  * change rien d'autre que la clé. Le daemon ne peut pas emprunter `cmd()` à la
- * CLI, qui dépend de lui ; il se repère comme le serveur MCP, sur l'extension
- * de son propre code.
+ * CLI, qui dépend de lui : il en redit la forme, `npm run harness -- …`, la
+ * seule qui existe depuis que Midgaard ne s'installe que depuis un clone.
  *
  * @param provider le fournisseur tel qu'il est déclaré
  */
@@ -54,7 +54,7 @@ export function keyCommand(provider: Pick<ProviderConfig, 'id' | 'preset' | 'def
   const args =
     `providers add ${provider.id} --preset ${provider.preset} --model ${provider.default_model}` +
     (provider.base_url ? ` --base-url ${provider.base_url}` : '')
-  return import.meta.url.endsWith('.ts') ? `npm run harness -- ${args}` : `harness ${args}`
+  return `npm run harness -- ${args}`
 }
 
 /** Ce que le moteur emprunte au daemon, en plus du contexte commun. */

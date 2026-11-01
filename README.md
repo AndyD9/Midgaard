@@ -27,7 +27,7 @@ et les coûts.
 | 1 | Squelette observable : persistance SQLite, dashboard temps réel, CLI `harness` | ✅ **Terminée**, 91 vérifications + essai en session réelle |
 | 2 | Agents réels (Researcher), providers, coûts, coffre système | ✅ **Terminée**, 167 vérifications + essai en session réelle ; coût **exact au microdollar** contre le solde Venice, trois fois |
 | 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | ✅ **Terminée** : un Developer a implémenté `/health` en vraie session, dans un worktree, sous approbation, coût **exact au microdollar** ; suites vertes sur macOS, Linux et Windows |
-| 4 | Durcissement sécurité, distribution npm | 🚧 **En cours**, étapes 1 à 7 sur 8 : suite de sécurité, crash et concurrence, toutes les suites en CI sur macOS, Linux et Windows, paquet npm assemblé et éprouvé, workflow de publication prêt — **pas encore publié** ([docs/SLICE4.md](docs/SLICE4.md)) |
+| 4 | Durcissement sécurité, installation depuis un clone | 🚧 **En cours**, étape 8 sur 8 : suite de sécurité, crash et concurrence, toutes les suites en CI sur macOS, Linux et Windows. La distribution npm a été **abandonnée** le 2026-11-01 : Midgaard s'installe depuis un clone ([docs/SLICE4.md](docs/SLICE4.md)) |
 | 5 | Orchestrateur intégré sur n'importe quel modèle, lancé du dashboard | 📋 **Planifiée**, démarre après la Slice 4 ([docs/SLICE5.md](docs/SLICE5.md)) |
 
 Le détail des slices est dans [docs/PLAN.md](docs/PLAN.md). Ce que chaque slice a
@@ -36,13 +36,10 @@ prouvé et appris : [docs/SLICE0.md](docs/SLICE0.md), [docs/SLICE1.md](docs/SLIC
 
 ## Installer
 
-Le paquet npm `midgaard` (binaire `harness`) est **prêt, pas encore publié** :
-`npm install -g midgaard` ne trouvera rien avant la première version. Son
-README, écrit pour qui installe, est [docs/INSTALLER.md](docs/INSTALLER.md) ;
-en cas de panne, [docs/DEPANNAGE.md](docs/DEPANNAGE.md). La procédure de
-publication est dans [docs/PUBLIER.md](docs/PUBLIER.md).
-
-## Démarrer depuis un clone
+Midgaard ne s'installe que **depuis un clone** : aucun paquet n'est publié sur
+npm, et aucun ne le sera (décision du 2026-11-01, [docs/SLICE4.md](docs/SLICE4.md)).
+Les commandes se lancent à la racine du clone, sous la forme
+`npm run harness -- …`. En cas de panne : [docs/DEPANNAGE.md](docs/DEPANNAGE.md).
 
 **Prérequis :** Node **24 ou plus**, Git, et Claude Code (app desktop ou CLI).
 
@@ -127,7 +124,6 @@ Depuis la racine du dépôt :
 | Commande | Rôle |
 |---|---|
 | `npm run build` | Compile les paquets (`dist/`) et le dashboard |
-| `npm run pack:npm` | Assemble le paquet npm `midgaard` dans `.pack/`, depuis un build propre |
 | `npm run typecheck` | Vérification des types, dashboard compris |
 | `npm run init` | Déclare le serveur MCP dans `.mcp.json` |
 | `npm run doctor` | Diagnostic : Node, dossier runtime, base, daemon, déclaration MCP |
@@ -152,7 +148,6 @@ Depuis la racine du dépôt :
 | `npm run test:restart` | ~45 s | Redémarrage, reprise WebSocket, sécurité, expiration, inactivité |
 | `npm run test:developer` | ~35 s | 13 scénarios : le Developer dans un vrai daemon, face à un faux fournisseur compatible OpenAI |
 | `npm run test:security` | ~3 s | 4 scénarios : le PLAN §8.4 de bout en bout — aucun secret dans la base ni le journal du daemon (lus octet pour octet), chaque refus tracé, `; rm -rf` reste un argument, API sur la seule boucle locale |
-| `npm run test:package` | ~1 min | 6 scénarios : le paquet assemblé, installé dans un préfixe vierge avec un `HOME` vierge — `init`, `doctor`, un vrai client MCP sur le serveur installé, une tâche, le dashboard servi, et la cohabitation avec un daemon des sources. Il faut le réseau |
 | `npm run test:ui` | ~1 min | 8 scénarios dans un vrai navigateur : direct, approbation au clic, reconnexion, diff d'une tâche Developer |
 | `npm run test:wait` | ~3 min | 12 scénarios de bout en bout avec le client MCP officiel |
 | `npm run test:live` | ~3 min | 5 scénarios **contre la vraie API** — opt-in, dépense ~0,003 $, s'abstient sans clé |
@@ -175,8 +170,6 @@ dashboard, que le daemon sert depuis `apps/dashboard/dist`.
 Midgaard/
 ├── CLAUDE.md                     consignes pour les sessions Claude Code sur ce dépôt
 ├── LICENSE                       MIT
-├── scripts/pack.ts               assemblage du paquet npm `midgaard`
-├── scripts/release.ts            contrôles d'avant et d'après publication
 ├── docs/
 │   ├── MVP_AGENT_HARNESS_PLAN.md spécification d'origine du MVP
 │   ├── PLAN.md                   plan révisé : décisions, architecture, slices
@@ -184,10 +177,9 @@ Midgaard/
 │   ├── SLICE1.md                 résultats de la Slice 1, écarts au plan, découvertes
 │   ├── SLICE2.md                 agents réels, coûts, coffre, et les dettes soldées
 │   ├── SLICE3.md                 Developer, worktrees, approbations : décisions, essai réel
-│   ├── SLICE4.md                 durcissement et distribution npm : décisions, étapes
-│   ├── INSTALLER.md              README du paquet npm : installer, premier essai, mettre à jour
-│   ├── DEPANNAGE.md              symptômes, causes et remèdes ; variables d'environnement
-│   └── PUBLIER.md                publier une version : environnement, jeton d'amorçage, tag
+│   ├── SLICE4.md                 durcissement : décisions, étapes, distribution abandonnée
+│   ├── SLICE5.md                 orchestrateur intégré : planifiée
+│   └── DEPANNAGE.md              symptômes, causes et remèdes ; variables d'environnement
 ├── packages/
 │   ├── contracts/                schémas Zod, machine à états, protocole — aucune dépendance
 │   ├── persistence/              SQLite (node:sqlite), migrations, dépôt
@@ -211,7 +203,6 @@ Chaque paquet a son `README.md`, qui explique son rôle et les invariants qu'il 
 | Fichier | Recréé par |
 |---|---|
 | `.mcp.json` | `npm run init` (chemins absolus propres à chaque machine) |
-| `.pack/` | `npm run pack:npm` |
 | Clés d'API | le coffre système — jamais le dépôt, jamais la base |
 | `node_modules/` | `npm ci` |
 | `dist/` | `npm run build` |

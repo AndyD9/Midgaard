@@ -2,8 +2,8 @@
  * @file L'installation d'où vient un daemon : son dossier et sa version.
  *
  * Un même dossier runtime (`~/.midgaard`) peut être servi par deux
- * installations — un clone de développement et le paquet npm, ou le paquet
- * avant et après `npm install -g midgaard@…`. `PROTOCOL_VERSION` ne les
+ * installations — deux clones du dépôt, ou un clone avant et après une montée
+ * de version. `PROTOCOL_VERSION` ne les
  * distingue que si le protocole a changé : à protocole égal, un serveur MCP
  * parlait au daemon de l'autre installation, avec son code, et une mise à jour
  * n'agissait qu'après l'arrêt sur inactivité (décision de la Slice 4, étape 6).

@@ -3,8 +3,8 @@
 Harness local qui laisse Claude Code déléguer des tâches à des agents exécutants,
 les observer et les soumettre à approbation humaine. **Lire d'abord** :
 [README.md](README.md) (état, commandes), [docs/PLAN.md](docs/PLAN.md) (décisions
-et slices), [docs/SLICE4.md](docs/SLICE4.md) (durcissement et distribution :
-décisions, étapes — la slice en cours), [docs/SLICE3.md](docs/SLICE3.md) (Developer, worktrees,
+et slices), [docs/SLICE4.md](docs/SLICE4.md) (durcissement, distribution
+abandonnée : décisions, étapes — la slice en cours), [docs/SLICE3.md](docs/SLICE3.md) (Developer, worktrees,
 approbations : décisions, étapes, essai réel, CI), [docs/SLICE2.md](docs/SLICE2.md),
 [docs/SLICE1.md](docs/SLICE1.md) et [docs/SLICE0.md](docs/SLICE0.md) (d'où
 viennent les invariants).
@@ -35,8 +35,6 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run doctor` | Diagnostic de l'installation |
 | `npm run typecheck` | Vérification des types, dashboard compris |
 | `npm run build` | Compile les paquets et le dashboard |
-| `npm run pack:npm` | Assemble le paquet npm `midgaard` dans `.pack/` (build propre) |
-| `node scripts/release.ts check` | Ce que la publication vérifiera : tag, version absente du registre, commit sur `main` |
 | `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `approve`, `reject` |
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho |
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
@@ -51,7 +49,6 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:developer` | ~35 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris |
 | `npm run test:security` | ~3 s — PLAN §8.4 de bout en bout : base et journal lus octet pour octet, refus tracés, API sur la seule boucle locale |
 | `npm run test:wait` | ~3 min — 12 scénarios de bout en bout MCP |
-| `npm run test:package` | ~1 min — le paquet installé dans un préfixe et un `HOME` vierges ; réseau requis |
 
 ## Invariants à ne pas casser
 
@@ -81,14 +78,14 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - **Un daemon d'une autre installation n'est remplacé que s'il est oisif**, et
   c'est lui qui le décide (`POST /api/shutdown` avec `if_idle`), sans `await`
   entre la lecture de son compteur et son arrêt. Une installation = dossier du
-  paquet `@midgaard/daemon` + version (décision de la Slice 4, étape 6).
-- **Une commande conseillée à l'utilisateur passe par `cmd()`** (CLI) : `harness
-  …` depuis le paquet, `npm run harness -- …` depuis les sources ; le daemon et
-  le serveur MCP, qui ne peuvent pas dépendre de la CLI, se repèrent de même
-  sur l'extension de leur propre fichier (`keyCommand`, `approvalCommand`). Le
-  paquet ne contient que `dist/` : rien n'y doit renvoyer vers le dépôt — son
-  README est `docs/INSTALLER.md`, que l'assemblage refuse avec un lien relatif
-  ou un `npm run`.
+  paquet `@midgaard/daemon` + version (décision de la Slice 4, étape 6) : deux
+  clones sur un même `~/.midgaard` sont deux installations.
+- **Une commande conseillée à l'utilisateur passe par `cmd()`** (CLI), qui
+  rend `npm run harness -- …` : Midgaard ne s'installe que depuis un clone,
+  aucun binaire `harness` n'est dans le `PATH`. Le daemon et le serveur MCP, qui
+  ne peuvent pas dépendre de la CLI, en redisent la forme (`keyCommand`,
+  `approvalCommand`). Un `harness …` écrit en dur est un conseil que personne
+  ne peut lancer — `status` en affichait un, trouvé le 2026-11-01.
 - **La configuration est injectée**, jamais lue au chargement d'un module. Seuls
   les `main.ts` lisent `process.env`.
 - **Une migration publiée ne se modifie plus** : toute évolution ajoute une entrée
@@ -203,7 +200,8 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   projet voit sinon ses propres fichiers refusés « hors du projet ».
 - Node exécute le TypeScript directement, **y compris pour les paquets du
   workspace** : il résout le lien symbolique avant d'appliquer la règle
-  `node_modules`. Le développement se passe donc de build ; la distribution non.
+  `node_modules`. Le développement se passe donc de build ; le dashboard servi par le daemon, non
+  (`npm run build`).
 - **`erasableSyntaxOnly` est activé** : pas de propriétés de paramètres de
   constructeur (`constructor(readonly x: string)`), pas d'`enum`.
 - **Les conditions d'export** (`midgaard-dev`) décident si un paquet se résout vers
@@ -223,21 +221,21 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
 
-## Slice 4 en cours — durcissement et distribution
+## Slice 4 en cours — durcissement
 
-Démarrée le 2026-10-30. Décisions (un seul paquet `midgaard` ; publication par
-la CI sur tag, avec provenance ; `edit_file` tolérant aux fins de ligne ;
+Démarrée le 2026-10-30. Décisions (`edit_file` tolérant aux fins de ligne ;
 Windows éprouvé en CI seulement) et découpage en huit étapes :
-[docs/SLICE4.md](docs/SLICE4.md). Règle d'ordre : rien n'est distribué avant
-d'être durci. Depuis l'étape 2 : migration 7 (`workspaces.submodules_json`),
-`PROTOCOL_VERSION` 8, puis 9 à l'étape 6. Depuis l'étape 5, **toutes** les suites tournent en CI sur
-macOS, Linux et Windows (`.github/workflows/e2e.yml`, passage `41182184282`).
-Depuis l'étape 7 : `.github/workflows/publish.yml` publie sur tag `v…` (procédure :
-[docs/PUBLIER.md](docs/PUBLIER.md)) ; le README du paquet est
-[docs/INSTALLER.md](docs/INSTALLER.md), pas celui du dépôt ; le guide de
-dépannage est [docs/DEPANNAGE.md](docs/DEPANNAGE.md) — à tenir à jour quand un
-message d'erreur change, il les cite mot pour mot. **Ne jamais pousser un tag
-`v…` sans demande explicite** : c'est une publication, irréversible.
+[docs/SLICE4.md](docs/SLICE4.md). Depuis l'étape 2 : migration 7
+(`workspaces.submodules_json`), `PROTOCOL_VERSION` 8, puis 9 à l'étape 6.
+Depuis l'étape 5, **toutes** les suites tournent en CI sur macOS, Linux et
+Windows (`.github/workflows/e2e.yml`, passage `41182184282`).
+
+**Pas de distribution** (décision du 2026-11-01, définitive) : le paquet npm et
+sa publication (étapes 6 et 7) ont été livrés puis retirés ; Midgaard
+s'installe depuis un clone. Ne pas les réintroduire sans demande. Reste
+l'étape 8 : le scénario §12 depuis un clone frais, sur un `HOME` vierge. Le
+guide de dépannage est [docs/DEPANNAGE.md](docs/DEPANNAGE.md) — à tenir à jour
+quand un message d'erreur change, il les cite mot pour mot.
 
 ## Slice 3 terminée
 
@@ -253,7 +251,8 @@ préparée ; le profil `developer` ; la carte « Fichiers et diff » ;
 `harness workspaces` et `harness exec` (liste blanche par dépôt). Migrations 4
 à 6, `PROTOCOL_VERSION` 7.
 
-**Slice 4** (PLAN §7) : durcissement et distribution npm. Ce que la Slice 3
+**Slice 4** (PLAN §7) : durcissement (la distribution npm, prévue, a été
+abandonnée). Ce que la Slice 3
 lui laisse, au § « Ce qui reste ouvert » de `docs/SLICE3.md` :
 
 - ~~`doctor` migre la base qu'il diagnostique~~ — réglé (Slice 4, étape 1) ;

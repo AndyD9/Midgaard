@@ -66,8 +66,7 @@ daemon). `POST /api/shutdown` accepte `{ "if_idle": true }`, qui rend `409`
 tant qu'une tâche est active : c'est ainsi qu'un serveur MCP d'une autre
 installation remplace ce daemon sans jamais interrompre de travail.
 
-Le dashboard est cherché d'abord dans `dashboard/`, à côté de `dist/` — là où
-l'assemblage du paquet npm le range —, puis dans `apps/dashboard/dist` du dépôt.
+Le dashboard est servi depuis `apps/dashboard/dist` du dépôt (`npm run build`).
 
 ## Instance unique
 

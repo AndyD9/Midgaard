@@ -1,6 +1,6 @@
 # Dépannage
 
-**Commence toujours par `harness doctor`** (depuis un clone : `npm run doctor`).
+**Commence toujours par `npm run doctor`**, à la racine du clone.
 Il examine Node, le dossier runtime, la base — sans jamais l'écrire —, le
 daemon, la déclaration MCP du dossier courant, le dashboard, le coffre, les
 tarifs, les fournisseurs, Git, les worktrees et la liste blanche `exec`, et
@@ -16,8 +16,8 @@ Ensuite, deux fichiers disent presque tout, dans `~/.midgaard` (ou
 | `mcp-trace.jsonl` | Ce que le serveur MCP a vu du client : capacités, attentes, coupures |
 
 Les messages cités ci-dessous sont ceux du code, tels qu'ils s'affichent. Les
-commandes sont écrites pour le paquet installé (`harness …`) ; depuis un clone,
-c'est `npm run harness -- …`, et `doctor` donne d'office la bonne forme.
+commandes se lancent à la racine du clone : Midgaard ne s'installe que depuis
+le dépôt, et aucun binaire `harness` n'est dans le `PATH`.
 
 ---
 
@@ -26,7 +26,7 @@ c'est `npm run harness -- …`, et `doctor` donne d'office la bonne forme.
 ### Les outils `harness_*` n'apparaissent pas dans Claude Code
 
 Claude Code ne relit `.mcp.json` **qu'à l'ouverture d'une session**. Après
-`harness init`, ouvre une **nouvelle** session sur ce dossier et accepte le
+`npm run init`, ouvre une **nouvelle** session sur ce dossier et accepte le
 serveur `midgaard` quand il est proposé. La déclaration est propre au dossier :
 une session ouverte ailleurs ne la voit pas.
 
@@ -34,23 +34,23 @@ une session ouverte ailleurs ne la voit pas.
 
 `init` écrit des **chemins absolus** — celui de `node` et celui du serveur MCP —
 parce que l'app desktop de Claude Code ne lance pas les serveurs avec le `PATH`
-d'un terminal. Un changement de version de Node (nvm, Homebrew), une
-réinstallation du paquet ailleurs ou un dépôt déplacé les rendent faux, et
-Claude Code échoue alors sans rien dire d'utile. Relance :
+d'un terminal. Un changement de version de Node (nvm, Homebrew) ou un clone
+déplacé les rendent faux, et Claude Code échoue alors sans rien dire d'utile.
+Relance :
 
 ```bash
-harness init
+npm run init
 ```
 
 « pointe vers une autre installation » dit la même chose en moins grave : la
-déclaration désigne un autre Midgaard (un clone, une autre version) que celui
-qui répond à `harness`.
+déclaration désigne un autre Midgaard (un autre clone, une autre version) que
+celui où tu lances la commande.
 
-### `harness init` : « … existe mais n'est pas du JSON valide »
+### `npm run init` : « … existe mais n'est pas du JSON valide »
 
 `init` ne réécrit pas un `.mcp.json` qu'il ne sait pas lire, pour ne pas perdre
 les autres serveurs qui y sont déclarés. Corrige le fichier ou supprime-le, puis
-relance `harness init`.
+relance `npm run init`.
 
 ### « le daemon n'a pas démarré en 8000 ms (voir …/daemon.log) »
 
@@ -89,7 +89,7 @@ attentes suivantes bloquent jusqu'à ta décision.
 
 Sans réglage, le daemon se rabat sur un port libre et l'écrit dans
 `daemon.log` (« port 7777 occupé, repli sur un port libre ») : le dashboard
-change alors d'adresse. `harness start` et `harness status` disent laquelle.
+change alors d'adresse. `npm run harness -- start` et `npm run harness -- status` disent laquelle.
 
 Si `MIDGAARD_PORT` est fixé, il n'y a **pas** de repli : un port occupé
 empêche le démarrage. Libère le port, ou retire la variable.
@@ -100,7 +100,7 @@ Le daemon refuse tout `Host` autre que `127.0.0.1:port` ou `localhost:port`,
 toute `Origin` étrangère, et toute requête intersite — c'est ce qui empêche une
 page web quelconque de piloter ton harness. Les réponses `forbidden_host`,
 `forbidden_origin` et `forbidden_fetch_site` viennent de là. Ouvre exactement
-l'adresse que donne `harness start`, sans proxy ni autre nom d'hôte.
+l'adresse que donne `npm run harness -- start`, sans proxy ni autre nom d'hôte.
 
 `401 unauthorized` : le jeton du daemon a changé (redémarrage). Recharge la page.
 
@@ -113,7 +113,7 @@ Un daemon **d'un autre protocole** est remplacé au prochain appel. Un daemon
 quel jusque-là. Pour le remplacer tout de suite :
 
 ```bash
-harness stop
+npm run harness -- stop
 ```
 
 ### Le daemon s'arrête tout seul
@@ -140,7 +140,7 @@ conservé. Délègue-la de nouveau.
 
 - `doctor` : « à migrer (rien n'a été écrit) » — la base vient d'une version
   plus ancienne. Le daemon de cette version la migrera à son démarrage :
-  `harness start`.
+  `npm run harness -- start`.
 - « base en version de schéma X, ce code en connaît Y » — la base vient d'une
   version **plus récente** de Midgaard. Mets Midgaard à jour, ou désigne une
   autre base avec `MIDGAARD_HOME`.
@@ -182,11 +182,11 @@ et recommence.
 ### « Delegation refused (agent_disabled) »
 
 Le profil demandé n'a pas de fournisseur (« aucun fournisseur de modèle n'est
-configuré pour ce profil »), ou son fournisseur a été retiré. `harness agents`
+configuré pour ce profil »), ou son fournisseur a été retiré. `npm run harness -- agents`
 dit pourquoi chaque profil est désactivé. Déclare un fournisseur :
 
 ```bash
-harness providers add venice --model deepseek-v4-flash-0731
+npm run harness -- providers add venice --model deepseek-v4-flash-0731
 ```
 
 ### « aucune clé d'API pour « … » »
@@ -231,7 +231,7 @@ Sans tarif, seul le nombre d'étapes borne la tâche, et le coût s'affiche
 Venice, relève-les :
 
 ```bash
-harness pricing refresh venice
+npm run harness -- pricing refresh venice
 ```
 
 ### `timed_out` : « aucune décision humaine en 10 minutes »
@@ -240,7 +240,7 @@ Une demande d'approbation expire au bout de 10 minutes
 (`MIDGAARD_APPROVAL_TTL_S`), et la tâche s'arrête plutôt que d'attendre
 indéfiniment. Une approbation arrivée après : `approval_already_resolved`.
 
-### `harness approve` ne fait rien
+### `npm run harness -- approve` ne fait rien
 
 - « Aucune demande d'approbation en attente. » — elle a été décidée, ou a expiré.
 - « Plusieurs demandes attendent, précise laquelle : » — chaque ligne qui suit
@@ -257,7 +257,7 @@ indéfiniment. Une approbation arrivée après : `approval_already_resolved`.
   dépôt Git. `git init`, puis un premier commit.
 - « le dépôt n'a encore aucun commit » : un premier commit suffit.
 - « git est introuvable dans le PATH du daemon » : installe Git (2.17 ou plus),
-  puis `harness stop` pour que le daemon relancé le trouve.
+  puis `npm run harness -- stop` pour que le daemon relancé le trouve.
 
 ### Mes modifications en cours ne sont pas dans le worktree
 
@@ -275,10 +275,10 @@ dit. Une commande `exec` peut encore y écrire, et ce travail sera perdu.
 
 Le harness ne commite que le travail d'une tâche **aboutie**. Une tâche qui
 échoue laisse sa branche au commit de départ — son travail reste lisible dans le
-worktree, que `harness workspaces` désigne. Et le harness **ne merge jamais** :
+worktree, que `npm run harness -- workspaces` désigne. Et le harness **ne merge jamais** :
 `git merge` est ta décision.
 
-### `harness exec allow` : « pas de terminal pour confirmer »
+### `npm run harness -- exec allow` : « pas de terminal pour confirmer »
 
 Une commande ajoutée à la liste blanche ne sera plus jamais montrée à un
 humain dans ce dépôt ; la CLI demande donc une confirmation, et refuse sans
@@ -295,7 +295,7 @@ terminal. `--yes` passe outre, en connaissance de cause.
 - **Windows et Linux** : éprouvés en CI seulement, face à un faux fournisseur.
   Une panne qui ne se voit que là mérite un ticket sur
   [GitHub](https://github.com/AndyD9/Midgaard/issues), avec la sortie de
-  `harness doctor` et la fin de `daemon.log`.
+  `npm run doctor` et la fin de `daemon.log`.
 
 ---
 
@@ -303,7 +303,7 @@ terminal. `--yes` passe outre, en connaissance de cause.
 
 Elles sont lues **au démarrage** de chaque processus. Le daemon hérite de
 l'environnement de celui qui le lance — le serveur MCP ou la CLI : une variable
-changée sous un daemon déjà lancé n'a d'effet qu'après `harness stop`.
+changée sous un daemon déjà lancé n'a d'effet qu'après `npm run harness -- stop`.
 
 | Variable | Effet | Défaut |
 |---|---|---|
