@@ -16,18 +16,23 @@
  * ses sous-tâches ; l'explorateur montre le worktree d'un Developer, ou le
  * dossier du projet.
  *
+ * L'onglet « Navigateur » (Slice 7) apparaît dès qu'un agent de l'arbre a
+ * ouvert un navigateur, et s'ouvre seul à chaque nouvelle session si l'on
+ * regardait les détails : l'humain doit voir ce que voit l'agent.
+ *
  * Le routage se fait par le fragment d'URL, sans bibliothèque : `#/tasks/<id>`,
  * `#/new` (le formulaire « Nouvelle tâche ») et `#/agents` (les profils). Le
  * daemon sert `index.html` pour toute route inconnue, donc un rechargement
  * fonctionne aussi. Rien ici n'écrit un fichier : le daemon n'en a pas les routes.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FileCode2, ListTree, MessagesSquare, Plus, SlidersHorizontal, SquareTerminal, X } from 'lucide-react'
+import { FileCode2, Globe, ListTree, MessagesSquare, Plus, SlidersHorizontal, SquareTerminal, X } from 'lucide-react'
 import type { Task } from '@midgaard/contracts'
 import { useHarness } from '@/lib/useHarness'
 import { speaker } from '@/lib/thread'
 import { cn } from '@/lib/utils'
 import { AgentsCard } from './components/AgentsCard'
+import { BrowserPanel, browserSources } from './components/BrowserPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { FileExplorer, type FileSourceOption } from './components/FileExplorer'
 import { FileView } from './components/FileView'
@@ -184,6 +189,25 @@ export function App() {
     }
   }, [task?.id, root?.id, children, explorerSource, state.events, loadEvents])
 
+  // Les sessions de navigateur de l'arbre. Une nouvelle ouverture amène
+  // l'onglet au premier plan, si l'on regardait les détails ; un fichier ouvert
+  // n'est pas arraché à qui le lit.
+  const tree = useMemo(() => (root ? [root, ...children] : []), [root, children])
+  const browsers = useMemo(() => browserSources(tree, state.events), [tree, state.events])
+  // Comparé à la séquence d'**ouverture**, pas à celle de la dernière action :
+  // l'onglet ne reprend pas le premier plan à chaque clic de l'agent. La
+  // première valeur vue est retenue sans basculer — une session déjà ouverte
+  // au chargement de la page n'est pas une nouvelle session.
+  const lastOpened = useRef<number | null>(null)
+  const newestOpen = browsers.filter((b) => b.open).reduce((max, b) => Math.max(max, b.openedSeq), 0)
+  useEffect(() => {
+    if (lastOpened.current !== null && newestOpen > lastOpened.current) {
+      setActiveTab((current) => (current === 'details' ? 'browser' : current))
+    }
+    if (newestOpen > 0) lastOpened.current = Math.max(lastOpened.current ?? 0, newestOpen)
+    else lastOpened.current ??= 0
+  }, [newestOpen])
+
   const terminalSources = useMemo(
     () => (root ? [root, ...children].map((t) => ({ taskId: t.id, label: speaker(t, t.id === root.id) })) : []),
     [root, children],
@@ -199,6 +223,7 @@ export function App() {
     setActiveTab((current) => (current === key ? 'details' : current))
   }
   const fileTab = tabs.find((t) => t.key === activeTab) ?? null
+  const showBrowser = activeTab === 'browser' && root !== null && browsers.length > 0
 
   // Largeurs effectives : celles retenues, bornées pour laisser à la zone
   // centrale au moins 40 % de la fenêtre.
@@ -266,6 +291,14 @@ export function App() {
             <Tab active={activeTab === 'details'} onClick={() => setActiveTab('details')} testId="tab-details">
               Détails
             </Tab>
+            {browsers.length > 0 && (
+              <Tab active={activeTab === 'browser'} onClick={() => setActiveTab('browser')} testId="tab-browser">
+                <span className="inline-flex items-center gap-1">
+                  <Globe className="size-3" /> Navigateur
+                  {browsers.some((b) => b.open) && <span className="size-1.5 rounded-full bg-running" aria-label="session ouverte" />}
+                </span>
+              </Tab>
+            )}
             {tabs.map((t) => (
               <Tab key={t.key} active={activeTab === t.key} onClick={() => setActiveTab(t.key)} onClose={() => closeTab(t.key)} title={`${t.path} — tâche ${t.taskId.slice(0, 8)}`} testId={`tab-file-${t.path}`}>
                 {t.path.split('/').at(-1)}
@@ -274,7 +307,9 @@ export function App() {
           </div>
 
           <section className="min-h-0 flex-1 overflow-hidden">
-            {fileTab ? (
+            {showBrowser ? (
+              <BrowserPanel tasks={tree} events={state.events} approvals={state.approvals} root={root!} onError={reportError} />
+            ) : fileTab ? (
               <FileView key={fileTab.key} taskId={fileTab.taskId} path={fileTab.path} hasBase={fileTab.hasBase} events={state.events[fileTab.taskId]} />
             ) : (
               <div className="h-full overflow-y-auto p-5">

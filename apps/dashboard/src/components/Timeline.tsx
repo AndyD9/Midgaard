@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import type { EventType, TaskEvent } from '@midgaard/contracts'
 import { formatCost, formatDateTime, formatTime } from '@/lib/utils'
+import { closedReasonText } from '@/lib/browser'
 
 /** Icône et libellé français de chaque type d'événement. */
 const EVENT_LOOK: Record<EventType, { icon: typeof Flag; label: string; className: string }> = {
@@ -73,7 +74,7 @@ function describe(event: TaskEvent): string | null {
     return typeof p.text === 'string' ? p.text : null
   }
   if (event.type === 'browser.opened') return `${String(p.start_url)} — ${String(p.objective)}`
-  if (event.type === 'browser.closed') return String(p.reason)
+  if (event.type === 'browser.closed') return closedReasonText(String(p.reason))
   if (event.type === 'task.interrupted') return `statut précédent : ${String(p.previous_status)}`
   if (event.type === 'subtask.waiting') {
     return `${String(p.agent_id)} · ${String(p.task_id).slice(0, 8)} (${String(p.status)})`

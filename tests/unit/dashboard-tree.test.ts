@@ -102,4 +102,10 @@ describe('disabledReason', () => {
     assert.match(disabledReason(agent({}), [])!, /aucun fournisseur/)
     assert.match(disabledReason(agent({ provider_id: 'parti' }), [venice])!, /« parti » n'existe plus/)
   })
+
+  it('reprend le motif calculé par le daemon quand il le rend (Slice 7)', () => {
+    // Un Navigator aveugle a un fournisseur : seul le daemon sait dire pourquoi il est refusé.
+    const blind = agent({ kind: 'navigator', provider_id: 'venice', disabled_reason: 'le modèle « m » ne lit pas les images' })
+    assert.equal(disabledReason(blind, [venice]), 'le modèle « m » ne lit pas les images')
+  })
 })

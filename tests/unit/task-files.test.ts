@@ -21,7 +21,10 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import {
+  daemonFetch,
   daemonJson,
   loadConfig,
   readRuntime,
@@ -43,6 +46,7 @@ let researcher: Task
 let worktree: string
 
 const ORIGINAL = 'export const a = 1\n'
+const ICON = readFileSync(new URL('../../apps/desktop/src-tauri/icons/icon.png', import.meta.url))
 const CHANGED = 'export const a = 2\n'
 
 before(async () => {
@@ -59,6 +63,11 @@ before(async () => {
   writeFileSync(join(repo, 'src', 'a.ts'), ORIGINAL)
   writeFileSync(join(repo, 'image.bin'), Buffer.from([0x89, 0x50, 0x00, 0x01]))
   writeFileSync(join(repo, 'gros.txt'), 'x'.repeat(1024 * 1024 + 10))
+  // Les images du fil (Slice 7) : une vraie, un SVG qui porte un script, un
+  // texte déguisé en PNG.
+  writeFileSync(join(repo, 'maquette.png'), ICON)
+  writeFileSync(join(repo, 'dessin.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
+  writeFileSync(join(repo, 'faux.png'), 'pas une image')
   git('add', '-A')
   git('commit', '-q', '-m', 'initial')
 
@@ -235,3 +244,31 @@ describe('chemins hostiles', () => {
     assert.equal((await content(developer, 'src/a.ts')).body.text, CHANGED, 'rien n\'a changé')
   })
 })
+
+describe('une image lue par un agent, pour le fil (Slice 7)', () => {
+  /** L'image d'une tâche, en octets. */
+  const image = (task: Task, path: string) =>
+    daemonFetch(rt, `/api/tasks/${task.id}/files/image?path=${encodeURIComponent(path)}`)
+
+  it('rend les octets, le type lu dans les octets, l\'empreinte, et rien qui puisse devenir une page', async () => {
+    const res = await image(researcher, 'maquette.png')
+    assert.equal(res.status, 200)
+    assert.equal(res.headers.get('content-type'), 'image/png')
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff')
+    assert.equal(res.headers.get('content-security-policy'), "default-src 'none'")
+    assert.equal(res.headers.get('x-midgaard-sha256'), createHash('sha256').update(ICON).digest('hex'))
+    assert.ok(Buffer.from(await res.arrayBuffer()).equals(ICON))
+  })
+
+  it('refuse un SVG, un texte déguisé, un absent, et les chemins hostiles', async () => {
+    assert.equal((await image(researcher, 'dessin.svg')).status, 415, 'un SVG est du texte, qui peut porter un script')
+    assert.equal((await image(researcher, 'faux.png')).status, 415, 'le type se lit dans les octets')
+    assert.equal((await image(researcher, 'absente.png')).status, 404)
+    for (const path of ['../maquette.png', '/etc/hosts', '.git/config', '']) {
+      const res = await image(developer, path)
+      assert.equal(res.status, 400, path)
+      assert.equal(((await res.json()) as { error?: string }).error, 'path_refused')
+    }
+  })
+})
+

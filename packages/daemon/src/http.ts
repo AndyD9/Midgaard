@@ -28,7 +28,9 @@
  * | GET  | `/api/tasks/:id/workspace` | Worktree et diff, calculé à la demande | 200, 404 |
  * | GET  | `/api/tasks/:id/files` | Arbre des fichiers de la tâche, en lecture seule, sans `.git` | 200, 404 |
  * | GET  | `/api/tasks/:id/files/content?path=&rev=work\|base` | Un fichier, sur le disque ou au commit de départ | 200, 400, 404, 409 |
- * | GET  | `/api/tasks/:id/browser` | Session de navigateur ouverte de la tâche, sans capture | 200, 404 |
+ * | GET  | `/api/tasks/:id/files/image?path=` | Une image de la tâche, en octets, type lu dans les octets | 200, 400, 404, 409, 413, 415 |
+ * | GET  | `/api/tasks/:id/browser` | Session de navigateur ouverte de la tâche, et ce que montre sa dernière capture | 200, 404 |
+ * | GET  | `/api/tasks/:id/browser/frame` | La dernière capture, en JPEG, depuis la mémoire du daemon | 200, 404 |
  * | POST | `/api/tasks/:id/browser/close` | L'humain coupe la session de navigateur | 200, 404, 409 |
  * | GET  | `/api/workspaces` | Tous les worktrees, état sur le disque, orphelins | 200 |
  * | POST | `/api/workspaces/:id/remove` | Retire un worktree (la branche reste) | 200, 404, 409 |
@@ -78,7 +80,7 @@ import {
 } from './providers.ts'
 import { checkEnvelope, checkToken, type SecurityContext } from './security.ts'
 import { execAllowFor, listWorkspaces, removeWorkspace, workspaceView } from './workspaces.ts'
-import { FileAccessError, taskFileContent, taskFileTree } from './files.ts'
+import { FileAccessError, taskFileContent, taskFileTree, taskImage } from './files.ts'
 import { updateAgentModel } from './agents.ts'
 import { checkProjectDir } from './project-dir.ts'
 
@@ -108,6 +110,26 @@ export interface HttpDeps {
   config: HarnessConfig
   /** Sessions de navigateur des tâches (Slice 7) : l'humain peut en couper une. */
   browsers?: BrowserSessions | undefined
+}
+
+/**
+ * Envoie des octets — une image —, sans qu'ils puissent devenir une page.
+ *
+ * `nosniff` interdit au navigateur de deviner un autre type que celui annoncé,
+ * et la politique de contenu vide fait qu'un document servi ici n'exécuterait
+ * rien : l'image vient d'un worktree écrit par l'agent, ou d'une page web.
+ */
+function sendBytes(res: ServerResponse, type: string, bytes: Buffer, headers: Record<string, string> = {}): void {
+  if (res.writableEnded || res.destroyed) return
+  res.writeHead(200, {
+    'content-type': type,
+    'content-length': String(bytes.length),
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+    'content-security-policy': "default-src 'none'",
+    ...headers,
+  })
+  res.end(bytes)
 }
 
 /** Envoie une réponse JSON, sauf si la connexion est déjà close — cas normal
@@ -326,6 +348,17 @@ async function handleTasks(
   if (method === 'GET' && action === 'files') {
     const sub = url.pathname.split('/').filter(Boolean)[4]
     if (sub === undefined) return send(res, 200, await taskFileTree(deps.store, view.task))
+    // Une image lue par un agent, pour le fil (Slice 7). L'empreinte complète
+    // accompagne les octets : le fil la compare à celle que l'outil a journalisée.
+    if (sub === 'image') {
+      try {
+        const image = await taskImage(deps.store, view.task, url.searchParams.get('path') ?? '')
+        return sendBytes(res, image.mediaType, image.bytes, { 'x-midgaard-sha256': image.sha256 })
+      } catch (e) {
+        if (e instanceof FileAccessError) return send(res, e.status, { error: e.code, reason: e.message })
+        throw e
+      }
+    }
     if (sub !== 'content') return send(res, 404, { error: 'not_found' })
     const path = url.searchParams.get('path') ?? ''
     const rev = url.searchParams.get('rev') ?? 'work'
@@ -360,13 +393,28 @@ async function handleTasks(
   // action suivante, avec le motif.
   if (action === 'browser') {
     const sub = url.pathname.split('/').filter(Boolean)[4]
-    if (method === 'GET' && sub === undefined) return send(res, 200, { session: deps.browsers?.info(id) ?? null })
+    if (method === 'GET' && sub === undefined) {
+      // Ce que montre la dernière capture, sans elle : l'adresse et le titre,
+      // écrits par la page, que le dashboard affiche comme du texte.
+      const frame = deps.browsers?.frame(id) ?? null
+      return send(res, 200, {
+        session: deps.browsers?.info(id) ?? null,
+        frame: frame ? { url: frame.url, title: frame.title, at: new Date(frame.at).toISOString() } : null,
+      })
+    }
+    // La capture elle-même, depuis la mémoire : aucune n'est écrite en base.
+    if (method === 'GET' && sub === 'frame') {
+      const frame = deps.browsers?.frame(id) ?? null
+      if (!frame) return send(res, 404, { error: 'no_frame' })
+      return sendBytes(res, 'image/jpeg', frame.jpeg)
+    }
     if (method === 'POST' && sub === 'close') {
       const closed = (await deps.browsers?.close(id, 'cut by the human operator')) ?? false
       if (!closed) return send(res, 409, { error: 'no_browser_session' })
       return send(res, 200, { closed: true })
     }
-    return send(res, sub === undefined || sub === 'close' ? 405 : 404, { error: sub === undefined || sub === 'close' ? 'method_not_allowed' : 'not_found' })
+    const known = sub === undefined || sub === 'close' || sub === 'frame'
+    return send(res, known ? 405 : 404, { error: known ? 'method_not_allowed' : 'not_found' })
   }
 
   if (method === 'POST' && action === 'cancel') {

@@ -6,7 +6,7 @@ navigateur** : ouvrir une page ou une application web, la regarder, cliquer,
 saisir. Le tout dans un navigateur que le daemon lance à part, sous des
 sessions que l'humain approuve et surveille en direct dans l'atelier.
 
-**État : en cours.** Étapes 1 à 5 faites (2026-11-03) ; l'étape 1 constatée
+**État : en cours.** Étapes 1 à 6 faites (2026-11-03) ; l'étape 1 constatée
 contre l'API réelle de Venice, les étapes 1 à 3 en CI sur trois plateformes.
 
 ---
@@ -105,7 +105,7 @@ font rien ; le navigateur ensuite, qui agit.
 | 3 | Le paquet `browser` : Chromium jetable par Playwright, garde réseau, sans téléchargement ni permission, processus tués à la fin et après `SIGKILL` | **fait** |
 | 4 | Les outils et la session : `browser_open` (session approuvée), `browser_screenshot`, `browser_goto`, `browser_click`, `browser_scroll`, `browser_type` et Entrée (approuvés chacun), `browser_close` ; captures non fiables | **fait** |
 | 5 | Le profil `navigator` : consigne, outils, limites ; désactivé sans modèle à vision, avec son motif | **fait** — et le moteur, la coupure humaine et la fermeture avant conclusion, exercés dans un vrai daemon |
-| 6 | L'atelier : onglet « Navigateur » (dernière capture en direct, adresse, bouton « Couper la session »), l'image lue montrée dans le fil | à faire |
+| 6 | L'atelier : onglet « Navigateur » (dernière capture en direct, adresse, bouton « Couper la session »), l'image lue montrée dans le fil | **fait** — et la case « lit les images » aux Profils |
 | 7 | Preuves : unitaires, de bout en bout sur une page locale servie par le test, `test:security` (adresse privée depuis le navigateur, saisie sans approbation, aucun Chromium vivant après `SIGKILL`, aucune image en base), CI sur trois plateformes | à faire |
 | 8 | L'essai réel : un agent lit une maquette, puis navigue dans une application web, sous session approuvée, coût comparé à la facture | à faire |
 
@@ -483,4 +483,65 @@ fait échouer son seul test).
 `test:orchestrator`, `test:security`, `test:developer`, `test:restart`,
 `test:ui` et `test:wait` (le serveur MCP et le dashboard lisent le nouveau
 type et le motif).
+
+### Étape 6 — l'atelier voit ce que voit l'agent (2026-11-03)
+
+**L'onglet « Navigateur ».** Il apparaît dès qu'un agent de l'arbre a ouvert un
+navigateur. Il s'ouvre **seul à chaque nouvelle session** si l'on regardait
+les détails, jamais à chaque action : le premier jet comparait la séquence de
+la dernière action, et l'onglet aurait repris le premier plan après chaque clic
+de l'agent. Relu avant de tester, il compare désormais la séquence d'ouverture.
+L'onglet montre :
+- l'objectif approuvé, l'adresse et l'échéance ;
+- la dernière capture, redemandée à chaque événement du navigateur ;
+- la demande d'approbation de la tâche, **au-dessus** de la capture : on lit
+  le texte à saisir en regardant la page où il partira ;
+- **« Couper la session »**, sans confirmation : arrêter doit être plus simple
+  que laisser faire.
+
+**La capture vient de la mémoire du daemon** (`GET /api/tasks/:id/browser/frame`,
+404 dès la session fermée). Une balise `<img>` ne porte pas de jeton : le
+dashboard lit les octets authentifiés et en fait une URL `blob:`. Une session
+fermée ne rend plus rien : l'onglet garde la dernière vue, et le dit.
+
+**L'image lue dans le fil.** Rien d'une image n'est gardé. Le fil la relit donc
+**sur le disque** (`GET /api/tasks/:id/files/image`) et ne la montre que si son
+SHA-256 commence comme celui que `read_image` a journalisé. Sinon, ce ne serait
+pas l'image que l'agent a vue, et le fil dit que le fichier a changé. La route
+reprend les règles de l'outil : type lu dans les octets, jamais un SVG (du
+texte, qui peut porter un script), 4 Mo au plus, chemins des routes de
+fichiers, `.git` refusé. Les octets d'image sont servis avec `nosniff` et une
+politique de contenu vide.
+
+**Les Profils** déclarent si un modèle lit les images. Le motif d'un profil
+refusé vient du daemon. La commande `providers add` n'y est plus conseillée à
+un Navigator aveugle, qui a un fournisseur et à qui il faut un modèle.
+
+**Vérifié :**
+- `npm run typecheck` ; `npm run build` ;
+- la route d'image (`tests/unit/task-files.test.ts`) :
+  - octets, type, empreinte, `nosniff` et politique de contenu ;
+  - un SVG et un texte déguisé refusés (415), un absent (404) ;
+  - les chemins hostiles refusés ;
+- la capture dans le vrai daemon (`navigator.test.ts`) : servie en JPEG
+  pendant la session, 404 après la coupure ;
+- les fonctions pures (`dashboard-workbench.test.ts`, `dashboard-tree.test.ts`) :
+  - l'état de la session depuis le journal, et la capture qui ne bouge
+    qu'après un événement du navigateur ;
+  - le motif en français, et un motif inconnu laissé tel quel ;
+  - l'image au fil, sans un échec ;
+  - le motif rendu par le daemon ;
+- **D14 dans `test:ui`**, sur un second daemon lancé dans le processus du test
+  pour lui passer une garde qui admet la page locale :
+  - le Navigator montré refusé avec son motif, puis rendu disponible par la
+    case des Profils ;
+  - l'image lue affichée dans le fil, décodée ;
+  - l'onglet ouvert seul sur une capture décodée, avec l'adresse ;
+  - la saisie à approuver lue dans l'onglet, puis la coupure au clic ;
+  - la saisie approuvée ensuite **non tapée** ;
+- les 14 scénarios de `test:ui` passent.
+
+**Vu à l'écran** (capture prise pendant D14) : la demande d'approbation pousse
+la capture sous le pli, et il faut défiler pour la voir entière. À reprendre
+si l'essai réel le confirme gênant.
 

@@ -215,7 +215,14 @@ qui ne lit pas les images. Une session se ferme :
 
 Le journal reçoit `browser.opened` et `browser.closed`, expurgés ; les actions
 y sont comme appels d'outil. La dernière capture reste **en mémoire**
-(`frame`) pour l'atelier ; aucune n'est écrite. La garde réseau est celle
+(`frame`) : l'atelier la lit par `GET /api/tasks/:id/browser/frame`, qui rend
+404 dès la session fermée. Aucune n'est écrite.
+
+Les octets d'image (cette capture, et une image du projet par
+`GET /api/tasks/:id/files/image`, type lu dans les octets, jamais un SVG) sont
+servis avec `nosniff` et une politique de contenu vide : ils viennent d'une page
+web ou d'un worktree écrit par l'agent, et ne doivent pas pouvoir devenir une
+page. La garde réseau est celle
 d'`http_fetch`, plus la liste blanche quand la politique HTTP est `allowlist`
 (`defaultBrowserGuard`). Playwright n'est chargé qu'à la première session.
 

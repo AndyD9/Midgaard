@@ -13,7 +13,11 @@
  *  - **chaque sous-tâche** : sa délégation, ses questions et propositions, les
  *    réponses et verdicts du parent, sa fin. Les notes d'exécution du harness
  *    (relances, avertissements) restent dans la timeline : le fil raconte qui a
- *    dit quoi à qui, pas le fonctionnement interne.
+ *    dit quoi à qui, pas le fonctionnement interne ;
+ *  - **pour toutes, les images lues** par `read_image` (Slice 7) : l'élément
+ *    porte le chemin et le début de l'empreinte que l'outil a journalisés ; le
+ *    panneau relit l'image sur le disque et dit si ce n'est plus la même.
+ *    Les captures du navigateur n'y sont pas : aucune n'est gardée.
  */
 import type { Task, TaskEvent } from '@midgaard/contracts'
 
@@ -28,6 +32,7 @@ export type ThreadKind =
   | 'verdict'
   | 'result'
   | 'ended'
+  | 'image'
 
 /** Un élément du fil, tel qu'il s'affiche. */
 export interface ThreadItem {
@@ -45,6 +50,25 @@ export interface ThreadItem {
   text: string
   /** Détail affiché sous le texte : la branche d'un résultat, le motif d'une fin. */
   detail?: string | undefined
+  /** Pour une image lue : son chemin dans la tâche et le début de son SHA-256 au moment de la lecture. */
+  image?: { path: string; sha256Prefix: string } | undefined
+}
+
+/** Le résumé que `read_image` journalise : « chemin · type · n octets · sha256 <16 hex> ». */
+const READ_IMAGE_SUMMARY = /^(.+) · image\/[a-z]+ · \d+ octets · sha256 ([0-9a-f]{16})$/
+
+/** Les images lues par une tâche, dans son journal. */
+function imagesRead(events: readonly TaskEvent[], from: string, base: (e: TaskEvent) => Omit<ThreadItem, 'kind' | 'from' | 'text'>): ThreadItem[] {
+  const reads = new Set<string>()
+  const out: ThreadItem[] = []
+  for (const e of events) {
+    if (e.type === 'tool.requested' && e.payload.name === 'read_image') reads.add(String(e.payload.tool_call_id))
+    if (e.type !== 'tool.completed' || !reads.has(String(e.payload.tool_call_id)) || e.payload.status !== 'succeeded') continue
+    const match = READ_IMAGE_SUMMARY.exec(String(e.payload.summary ?? ''))
+    if (!match) continue
+    out.push({ ...base(e), kind: 'image', from, text: match[1]!, image: { path: match[1]!, sha256Prefix: match[2]! } })
+  }
+  return out
 }
 
 /** Libellés des statuts de fin, en français. */
@@ -80,6 +104,7 @@ export function buildThread(root: Task, children: Task[], events: Record<string,
   const rootName = speaker(root, true)
   const base = (e: TaskEvent) => ({ key: String(e.seq), seq: e.seq, at: e.at, taskId: e.task_id })
 
+  items.push(...imagesRead(events[root.id] ?? [], rootName, base))
   for (const e of events[root.id] ?? []) {
     if (e.type === 'task.created') {
       items.push({ ...base(e), kind: 'user', from: 'Vous', to: rootName, text: root.objective })
@@ -105,6 +130,7 @@ export function buildThread(root: Task, children: Task[], events: Record<string,
 
   for (const child of children) {
     const name = speaker(child, false)
+    items.push(...imagesRead(events[child.id] ?? [], name, base))
     for (const e of events[child.id] ?? []) {
       if (e.type === 'task.created') {
         items.push({ ...base(e), kind: 'delegation', from: rootName, to: name, text: child.objective })

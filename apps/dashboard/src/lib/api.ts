@@ -220,3 +220,50 @@ export function fetchFileContent(taskId: string, path: string, rev: 'work' | 'ba
   return api(`/api/tasks/${taskId}/files/content?path=${encodeURIComponent(path)}&rev=${rev}`)
 }
 
+
+/**
+ * Appelle une route qui rend des octets — une image —, authentifiée comme les
+ * autres. Une balise `<img src>` ne sait pas porter le jeton : le dashboard
+ * lit les octets ici et en fait une URL `blob:` locale.
+ *
+ * @throws {ApiError} sur réponse non 2xx, avec le motif du daemon
+ */
+async function apiBytes(path: string): Promise<{ blob: Blob; headers: Headers }> {
+  if (!token) await bootstrap()
+  const res = await fetch(path, { headers: token ? { authorization: `Bearer ${token}` } : {} })
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string; reason?: unknown }
+    throw new ApiError(res.status, body.error ?? `erreur ${res.status}`, typeof body.reason === 'string' ? body.reason : null)
+  }
+  return { blob: await res.blob(), headers: res.headers }
+}
+
+/** La session de navigateur d'une tâche, et ce que montre sa dernière capture (Slice 7). */
+export interface BrowserInfo {
+  session: { objective: string; start_url: string; expires_at: number } | null
+  frame: { url: string; title: string; at: string } | null
+}
+
+/** La session de navigateur d'une tâche, sans capture. */
+export function fetchBrowser(taskId: string): Promise<BrowserInfo> {
+  return api(`/api/tasks/${taskId}/browser`)
+}
+
+/** La dernière capture du navigateur d'une tâche, gardée en mémoire par le daemon. */
+export async function fetchBrowserFrame(taskId: string): Promise<Blob> {
+  return (await apiBytes(`/api/tasks/${taskId}/browser/frame`)).blob
+}
+
+/** Coupe la session de navigateur d'une tâche : un acte humain, que l'agent apprend à son action suivante. */
+export function closeBrowser(taskId: string): Promise<{ closed: true }> {
+  return api(`/api/tasks/${taskId}/browser/close`, { method: 'POST', body: '{}' })
+}
+
+/**
+ * Une image de la tâche, lue sur le disque maintenant, et son SHA-256 : le fil
+ * le compare à celui que `read_image` a journalisé.
+ */
+export async function fetchTaskImage(taskId: string, path: string): Promise<{ blob: Blob; sha256: string | null }> {
+  const { blob, headers } = await apiBytes(`/api/tasks/${taskId}/files/image?path=${encodeURIComponent(path)}`)
+  return { blob, sha256: headers.get('x-midgaard-sha256') }
+}

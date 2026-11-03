@@ -10,7 +10,12 @@
  *  - **le fil suit l'ordre du journal** et dit qui parle à qui, sans inventer
  *    d'élément — les notes du harness n'y entrent pas ;
  *  - **la saisie ne s'ouvre que lorsque la conversation attend** l'utilisateur ;
- *  - l'arbre de fichiers ne perd aucune entrée, même coupé.
+ *  - l'arbre de fichiers ne perd aucune entrée, même coupé ;
+ *  - **le navigateur** (Slice 7) : l'état de la session se lit dans le
+ *    journal, la capture n'est redemandée qu'après un événement qui l'a changée,
+ *    et l'onglet ne reprend le premier plan qu'à une **nouvelle** session ;
+ *  - **une image lue** entre au fil avec l'empreinte journalisée, que le panneau
+ *    compare à celle du fichier relu.
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
@@ -18,6 +23,7 @@ import { DEFAULT_RESEARCHER_LIMITS, emptyUsage, type Task, type TaskEvent } from
 import { buildThread, composerState } from '../../apps/dashboard/src/lib/thread.ts'
 import { buildTerminal, sanitizeOutput } from '../../apps/dashboard/src/lib/terminal.ts'
 import { buildFileTree, languageFor, lastWrittenPath } from '../../apps/dashboard/src/lib/files.ts'
+import { browserSummary, closedReasonText } from '../../apps/dashboard/src/lib/browser.ts'
 
 const ROOT = '00000000-0000-4000-8000-000000000001'
 const CHILD = '00000000-0000-4000-8000-000000000002'
@@ -151,3 +157,62 @@ describe('explorateur', () => {
     assert.equal(lastWrittenPath([]), null)
   })
 })
+
+describe('le navigateur d\'une tâche (Slice 7)', () => {
+  const NAV = '00000000-0000-4000-8000-000000000003'
+  const action = (id: string, name: string, summary: string, status = 'succeeded') => [
+    ev(NAV, 'tool.requested', { tool_call_id: id, name, decision: 'allow' }),
+    ev(NAV, 'tool.completed', { tool_call_id: id, status, summary }),
+  ]
+
+  it('rien sans session ; ouverte, l\'adresse suit les actions, et la capture ne bouge qu\'après un événement du navigateur', () => {
+    assert.equal(browserSummary(NAV, [ev(NAV, 'task.created')]), null)
+    const opened = ev(NAV, 'browser.opened', {
+      objective: 'lire', start_url: 'https://a.example/', max_duration_s: 60, expires_at: '2026-11-03T10:01:00.000Z',
+    })
+    const events = [opened, ...action('c1', 'browser_click', 'clicked (1, 2) → https://a.example/b')]
+    const s = browserSummary(NAV, events)!
+    assert.equal(s.open, true)
+    assert.equal(s.lastUrl, 'https://a.example/b')
+    assert.equal(s.actions, 1)
+    assert.equal(s.openedSeq, opened.seq)
+    const frameSeq = s.frameSeq
+    // Un outil qui n'est pas du navigateur ne change pas la capture.
+    const more = [...events, ...action('f1', 'read_file', 'src/a.ts')]
+    assert.equal(browserSummary(NAV, more)!.frameSeq, frameSeq)
+    // Une action refusée ne compte pas, mais peut avoir changé l'écran.
+    const denied = [...more, ...action('t1', 'browser_type', 'x', 'failed')]
+    assert.equal(browserSummary(NAV, denied)!.actions, 1)
+  })
+
+  it('fermée, elle dit pourquoi, en français ; une nouvelle session a une autre séquence d\'ouverture', () => {
+    const first = ev(NAV, 'browser.opened', { objective: 'o', start_url: 'https://a.example/' })
+    const closed = browserSummary(NAV, [first, ev(NAV, 'browser.closed', { reason: 'cut by the human operator' })])!
+    assert.equal(closed.open, false)
+    assert.equal(closed.closedReason, 'coupée par vous')
+    const second = ev(NAV, 'browser.opened', { objective: 'o2', start_url: 'https://b.example/' })
+    const again = browserSummary(NAV, [first, ev(NAV, 'browser.closed', { reason: 'the task ended' }), second])!
+    assert.equal(again.open, true)
+    assert.equal(again.objective, 'o2')
+    assert.ok(again.openedSeq > closed.openedSeq)
+    assert.equal(closedReasonText('something new'), 'something new', 'un motif inconnu reste tel quel, rien d\'inventé')
+  })
+
+  it('le fil montre une image lue, avec son chemin et le début de son empreinte ; pas un échec', () => {
+    const root = task(ROOT, { agent_id: 'navigator', mode: 'oneshot' })
+    const events = {
+      [ROOT]: [
+        ev(ROOT, 'task.created'),
+        ev(ROOT, 'tool.requested', { tool_call_id: 'i1', name: 'read_image' }),
+        ev(ROOT, 'tool.completed', { tool_call_id: 'i1', status: 'succeeded', summary: 'docs/maquette.png · image/png · 1401 octets · sha256 0123456789abcdef' }),
+        ev(ROOT, 'tool.requested', { tool_call_id: 'i2', name: 'read_image' }),
+        ev(ROOT, 'tool.completed', { tool_call_id: 'i2', status: 'failed', summary: null }),
+      ],
+    }
+    const images = buildThread(root, [], events).filter((i) => i.kind === 'image')
+    assert.equal(images.length, 1)
+    assert.deepEqual(images[0]!.image, { path: 'docs/maquette.png', sha256Prefix: '0123456789abcdef' })
+    assert.equal(images[0]!.from, 'Navigator')
+  })
+})
+

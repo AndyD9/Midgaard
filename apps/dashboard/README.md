@@ -179,3 +179,35 @@ par `tests/unit/dashboard-workbench.test.ts`. Le paquet compilé pèse 1,2 Mo
 (387 Ko compressés), CodeMirror et xterm compris : servi en local, il n'est pas
 découpé.
 
+## Ce que voit un agent (Slice 7)
+
+- **Onglet « Navigateur »** (`BrowserPanel`, `lib/browser.ts`). Il apparaît
+  dès qu'un agent de l'arbre a ouvert un navigateur. Il s'ouvre seul à chaque
+  **nouvelle** session si l'on regardait « Détails », jamais à chaque action :
+  la comparaison se fait sur la séquence d'ouverture. Il montre :
+  - l'objectif approuvé, l'adresse et l'échéance ;
+  - la dernière capture, redemandée à chaque événement du navigateur. Elle est
+    lue dans la **mémoire du daemon**, en octets authentifiés changés en URL
+    `blob:`, puisqu'une balise `<img>` ne porte pas de jeton ;
+  - la demande d'approbation de la tâche, **au-dessus de la capture** : on lit
+    le texte à saisir en regardant la page où il partira.
+
+  Une session fermée ne rend plus de capture : l'onglet garde la dernière vue,
+  et le dit. L'adresse et le titre sont du texte, jamais un lien. **« Couper la
+  session »** est sans confirmation : arrêter doit être plus simple que laisser
+  faire.
+- **L'image lue dans le fil.** Une image lue par `read_image` apparaît dans la
+  conversation. Elle est relue **sur le disque** (`/api/tasks/:id/files/image`),
+  puisque rien n'en est gardé, et montrée seulement si son SHA-256 commence comme
+  celui que l'outil a journalisé. Sinon, le fil dit que le fichier a changé.
+- **Profils.** Une case déclare si le modèle d'un profil à outils d'image lit
+  les images ; le catalogue du fournisseur l'emporte quand il le publie. Le
+  motif d'un profil refusé vient du daemon (`disabled_reason`). La commande
+  `providers add` n'est conseillée que lorsqu'il manque un fournisseur.
+
+Prouvé par `test:ui` (D14, sur un second daemon lancé dans le processus du test,
+pour lui passer une garde qui admet la page locale) et par
+`tests/unit/dashboard-workbench.test.ts`. Vu à l'écran : la demande
+d'approbation pousse la capture sous le pli ; il faut défiler pour la voir
+entière.
+

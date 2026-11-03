@@ -40,7 +40,14 @@
  *    message part, et la conversation se ferme sur son résultat ;
  *  - D13 l'atelier suit un Developer : le fichier écrit s'ouvre seul, son diff
  *    se met à jour à l'écriture suivante **sans recharger**, et le terminal
- *    montre la sortie d'une commande **pendant** qu'elle tourne.
+ *    montre la sortie d'une commande **pendant** qu'elle tourne ;
+ *  - D14 l'atelier montre ce que voit un Navigator (Slice 7) : la vision se
+ *    déclare dans « Profils », l'image lue s'affiche dans le fil, l'onglet
+ *    « Navigateur » s'ouvre seul sur la capture, la saisie à approuver s'y
+ *    lit, et « Couper la session » coupe — la saisie approuvée ensuite ne part
+ *    pas. Il tourne sur un second daemon, **dans ce processus**, pour lui
+ *    passer une garde qui admet la page locale du test : `main.ts` n'en pose
+ *    jamais, et la vraie refuse la boucle locale.
  *
  * Playwright est employé en **bibliothèque**, pas en lanceur : les suites de ce
  * dépôt ont leur forme (`scenario`, `summarize`, verdicts), et ajouter un second
@@ -56,7 +63,11 @@ import { chromium, type Browser, type ConsoleMessage, type Page } from 'playwrig
 import {
   daemonJson, pidAlive, readRuntime, type Agent, type Approval, type RuntimeInfo, type Task, type TaskView,
 } from '@midgaard/contracts'
-import { StaticFiles, defaultDashboardDir } from '@midgaard/daemon'
+import { NAVIGATOR_AGENT_ID, StaticFiles, defaultDashboardDir, reconcileAgents, startDaemon as startInProcess } from '@midgaard/daemon'
+import { assertPublicHost } from '@midgaard/tools'
+import { createServer } from 'node:http'
+import { readFileSync } from 'node:fs'
+import { loadConfig } from '@midgaard/contracts'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -690,6 +701,149 @@ await scenario(outcomes, 'D13 l’atelier suit un Developer : fichier, diff et t
     return { verdict: 'PASS', detail: 'fichier ouvert seul, diff v1 puis v2 sans rechargement, sortie au terminal pendant la commande' }
   } finally {
     provider.server.close()
+    dispose()
+  }
+})
+
+// --- D14 ---------------------------------------------------------------------
+
+/**
+ * Vrai quand l'image désignée est chargée **et** décodée : un `<img>` présent
+ * dont l'URL `blob:` ne mène à rien a une largeur naturelle nulle.
+ */
+async function imageLoaded(testId: string): Promise<boolean> {
+  return until(async () =>
+    page
+      .getByTestId(testId)
+      .first()
+      .evaluate((el) => {
+        const img = el as unknown as { complete: boolean; naturalWidth: number }
+        return img.complete && img.naturalWidth > 0
+      })
+      .catch(() => false),
+  )
+}
+
+await scenario(outcomes, 'D14 l’atelier montre ce que voit un Navigator, et l’humain coupe', async () => {
+  const provider = await startFakeProvider()
+  const { repo, dispose } = makeRepo({ 'README.md': '# Projet\n' })
+  writeFileSync(join(repo, 'maquette.png'), readFileSync(new URL('../apps/desktop/src-tauri/icons/icon.png', import.meta.url)))
+  const site = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+    res.end('<!doctype html><title>Formulaire</title><h1>Inscription</h1><input id="q" name="q" autofocus>')
+  })
+  await new Promise<void>((r) => site.listen(0, '127.0.0.1', r))
+  const address = site.address()
+  const origin = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}/`
+  const second = tempHome('ui-navigateur')
+  const nav = await startInProcess(loadConfig({ MIDGAARD_HOME: second.home, MIDGAARD_PORT: '0' }), {
+    log: () => {},
+    env: { MIDGAARD_VAULT: 'file', MIDGAARD_PROVIDER_API_KEY: 'sk-faux-navigateur' },
+    browserGuard: async (host) => (host === '127.0.0.1' ? ['127.0.0.1'] : assertPublicHost(host)),
+  })
+  try {
+    if (!nav) return { verdict: 'FAIL', detail: 'second daemon non démarré' }
+    const rt2 = readRuntime(second.config.runtimeFile)!
+    nav.store.upsertProvider({
+      id: 'faux', name: 'faux', kind: 'openai-compatible', preset: 'custom', baseUrl: provider.url,
+      defaultModel: 'faux-1', secretRef: null, webSearch: 'off',
+    })
+    reconcileAgents(nav.store)
+    await nav.tasks.probeVision()
+    const tag = '[D14]'
+    provider.scripts.set(tag, [
+      [{ tool: 'read_image', args: { path: 'maquette.png' } }],
+      [{ tool: 'browser_open', args: { objective: 'remplir l’inscription', url: origin } }],
+      [{ tool: 'browser_type', args: { text: 'bonjour' } }],
+      [{ tool: 'submit_result', args: { summary: 'session coupée par l’humain' } }],
+    ])
+
+    // 1. La vision se déclare dans « Profils » : le Navigator, refusé, devient disponible.
+    await page.goto(`${rt2.dashboard_url}#/agents`, { waitUntil: 'domcontentloaded' })
+    const card = page.getByTestId(`agent-${NAVIGATOR_AGENT_ID}`)
+    try {
+      await card.getByText(/rien ne dit que le modèle « faux-1 » lit les images/).waitFor({ timeout: UI_TIMEOUT })
+    } catch {
+      return { verdict: 'FAIL', detail: 'le Navigator aveugle n’est pas montré refusé avec son motif' }
+    }
+    await page.getByTestId(`vision-${NAVIGATOR_AGENT_ID}`).selectOption('yes')
+    try {
+      await card.getByText('disponible', { exact: true }).waitFor({ timeout: UI_TIMEOUT })
+    } catch {
+      return { verdict: 'FAIL', detail: 'la déclaration n’a pas rendu le Navigator disponible' }
+    }
+
+    const { status, body } = await daemonJson<TaskView>(rt2, '/api/tasks', {
+      method: 'POST',
+      body: JSON.stringify({ objective: `${tag} inscris-toi`, agent_id: NAVIGATOR_AGENT_ID, project_dir: repo }),
+    })
+    if (status !== 201) return { verdict: 'FAIL', detail: `création refusée : ${JSON.stringify(body)}` }
+    const id = body.task.id
+    const pending = async () => (await daemonJson<{ approvals: Approval[] }>(rt2, '/api/approvals')).body.approvals.find((a) => a.task_id === id)
+    const taskOf = async () => (await daemonJson<TaskView>(rt2, `/api/tasks/${id}`)).body.task
+    await page.goto(`${rt2.dashboard_url}#/tasks/${id}`, { waitUntil: 'domcontentloaded' })
+
+    // 2. L'image lue s'affiche dans le fil, relue sur le disque.
+    const shown = page.getByTestId('chat-panel').getByTestId('chat-image')
+    try {
+      await shown.waitFor({ timeout: UI_TIMEOUT })
+      if (!(await imageLoaded('chat-image'))) throw new Error('image vide')
+    } catch {
+      return { verdict: 'FAIL', detail: 'l’image lue par l’agent ne s’affiche pas dans le fil' }
+    }
+
+    // 3. La session approuvée, l'onglet s'ouvre seul sur la capture.
+    if (!(await until(async () => (await pending()) !== undefined))) return { verdict: 'FAIL', detail: 'pas de demande de session' }
+    const session = (await pending())!
+    await daemonJson(rt2, `/api/approvals/${session.id}/approve`, { method: 'POST', body: JSON.stringify({ by: 'test' }) })
+    const panel = page.getByTestId('browser-panel')
+    try {
+      await panel.waitFor({ timeout: UI_TIMEOUT })
+      if (!(await imageLoaded('browser-frame'))) throw new Error('image vide')
+    } catch {
+      return { verdict: 'FAIL', detail: 'l’onglet Navigateur ne s’est pas ouvert seul sur une capture' }
+    }
+    const url = (await page.getByTestId('browser-url').textContent()) ?? ''
+    if (!url.startsWith(origin)) return { verdict: 'FAIL', detail: `adresse affichée : « ${url} »` }
+
+    // 4. La saisie à approuver se lit au-dessus de la capture ; l'humain coupe.
+    try {
+      await panel.getByText(/saisir "bonjour" dans input#q\[name="q"\]/).waitFor({ timeout: UI_TIMEOUT })
+    } catch {
+      return { verdict: 'FAIL', detail: 'la saisie à approuver n’apparaît pas dans l’onglet Navigateur' }
+    }
+    await page.getByTestId('browser-cut').click()
+    try {
+      await page.getByTestId('browser-state').getByText('fermée — coupée par vous').waitFor({ timeout: UI_TIMEOUT })
+    } catch {
+      return { verdict: 'FAIL', detail: 'la coupure ne se voit pas dans l’onglet' }
+    }
+    const typing = await pending()
+    if (!typing) return { verdict: 'FAIL', detail: 'la saisie n’attend plus de décision' }
+    await daemonJson(rt2, `/api/approvals/${typing.id}/approve`, { method: 'POST', body: JSON.stringify({ by: 'test' }) })
+    if (!(await until(async () => (await taskOf()).status === 'completed'))) {
+      const t = await taskOf()
+      return { verdict: 'FAIL', detail: `tâche non terminée : ${t.status} — ${t.error}` }
+    }
+    const typed = (await daemonJson<{ tool_calls: { name: string; status: string; error: string | null }[] }>(rt2, `/api/tasks/${id}/tools`))
+      .body.tool_calls.find((c) => c.name === 'browser_type')
+    if (typed?.status !== 'failed' || !/cut by the human operator/.test(typed.error ?? '')) {
+      return { verdict: 'FAIL', detail: `la saisie approuvée après la coupure est partie : ${JSON.stringify(typed)}` }
+    }
+    return {
+      verdict: 'PASS',
+      detail: 'vision déclarée aux Profils, image lue au fil, onglet ouvert seul sur la capture, saisie lue puis coupée, rien tapé',
+    }
+  } finally {
+    if (nav) {
+      nav.close('fin de D14')
+      await nav.stopped
+    }
+    // D7 attend la page sur le daemon principal.
+    await page.goto(rt.dashboard_url ?? '', { waitUntil: 'domcontentloaded' }).catch(() => {})
+    site.close()
+    provider.server.close()
+    second.cleanup()
     dispose()
   }
 })

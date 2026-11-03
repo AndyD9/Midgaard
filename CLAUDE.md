@@ -50,7 +50,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:worktrees` | ~8 s — worktrees, écriture et `exec` seuls, sortie en direct et lecture des fichiers d'une tâche comprises (rejoués en CI sur trois plateformes) |
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
-| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer, arbre d'un orchestrateur et atelier (conversation, éditeur, terminal) compris (`npx playwright install chromium` au préalable) |
+| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer, arbre d'un orchestrateur, atelier (conversation, éditeur, terminal) et onglet « Navigateur » compris (`npx playwright install chromium` au préalable) |
 | `npm run test:developer` | ~35 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris |
 | `npm run test:orchestrator` | ~10 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL`, conversation qui pilote une revue, `SIGKILL` pendant une attente |
 | `npm run test:security` | ~4 s — PLAN §8.4 de bout en bout : base et journal lus octet pour octet (conversation, questions, propositions et sortie en direct comprises), refus tracés, API sur la seule boucle locale |
@@ -309,7 +309,12 @@ refusé avec son motif** : le gérant retient la vision constatée par le moteur
 (démarrage, réglage, départ de tâche), et `GET /api/agents` rend la **vue**
 d'un profil (`enabled` utilisable maintenant, `disabled_reason`), pas sa ligne
 en base. `tests/unit/navigator.test.ts` l'éprouve dans un vrai daemon,
-coupure humaine et Chromium compté compris.
+coupure humaine et Chromium compté compris. Étape 6 faite : l'onglet
+« Navigateur » de l'atelier (dernière capture lue dans la mémoire du daemon,
+`GET /api/tasks/:id/browser/frame`, approbation au-dessus, « Couper la
+session »), l'image lue dans le fil (relue sur le disque, montrée seulement si
+son SHA-256 est celui journalisé), la case « lit les images » aux Profils
+(D14 dans `test:ui`).
 
 ## Slice 6 terminée — un atelier façon VS Code
 

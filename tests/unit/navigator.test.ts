@@ -32,7 +32,7 @@ import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { after, before, describe, it } from 'node:test'
 import { chromium } from 'playwright'
-import { daemonJson, loadConfig, readRuntime, type Agent, type RuntimeInfo, type Task } from '@midgaard/contracts'
+import { daemonFetch, daemonJson, loadConfig, readRuntime, type Agent, type RuntimeInfo, type Task } from '@midgaard/contracts'
 import { NAVIGATOR_AGENT_ID, reconcileAgents, startDaemon, type Daemon } from '@midgaard/daemon'
 import { assertPublicHost } from '@midgaard/tools'
 import type { HostGuard } from '@midgaard/browser'
@@ -179,13 +179,23 @@ describe('le Navigator dans un vrai daemon', () => {
 
     const typing = await nextApproval(taskId, known)
     assert.match(typing.operation, /^browser_type — saisir "bonjour" dans input#q\[name="q"\] de http:\/\/127\.0\.0\.1/)
-    const open = await api<{ session: { objective: string; start_url: string } | null }>(`/api/tasks/${taskId}/browser`)
+    const open = await api<{ session: { objective: string; start_url: string } | null; frame: { title: string } | null }>(
+      `/api/tasks/${taskId}/browser`,
+    )
     assert.equal(open.body.session?.objective, 'remplir le champ')
+    assert.equal(open.body.frame?.title, 'Formulaire', 'ce que montre la dernière capture, sans elle')
+    // La capture, depuis la mémoire du daemon, servie sans pouvoir devenir une page.
+    const frame = await daemonFetch(rt, `/api/tasks/${taskId}/browser/frame`)
+    assert.equal(frame.status, 200)
+    assert.equal(frame.headers.get('content-type'), 'image/jpeg')
+    assert.equal(frame.headers.get('x-content-type-options'), 'nosniff')
+    assert.equal(Buffer.from(await frame.arrayBuffer()).subarray(0, 3).toString('hex'), 'ffd8ff')
     if (posix) assert.ok(chromiumDescendants() > 0, 'Chromium vit pendant la session : le compte voit quelque chose')
 
     // L'humain coupe pendant que la saisie attend sa décision…
     assert.equal((await post(`/api/tasks/${taskId}/browser/close`)).status, 200)
     assert.equal((await post(`/api/tasks/${taskId}/browser/close`)).status, 409, 'plus rien à couper')
+    assert.equal((await daemonFetch(rt, `/api/tasks/${taskId}/browser/frame`)).status, 404, 'session coupée : plus de capture')
     // … puis l'approuve par erreur : elle ne doit pas partir.
     assert.equal((await post(`/api/approvals/${typing.id}/approve`, { by: 'test' })).status, 200)
 

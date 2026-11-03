@@ -14,6 +14,11 @@
  * **Ce qui s'y règle, depuis la Slice 5** (`editable`, vue « Profils ») : le
  * fournisseur et le modèle de chaque profil, par `PATCH /api/agents/:id`. Rien
  * d'autre — les limites restent hors de portée de l'API, et donc d'ici.
+ *
+ * **Depuis la Slice 7**, aussi la déclaration « ce modèle lit les images », pour
+ * un profil qui a des outils d'image, quand le fournisseur ne publie pas la
+ * capacité. Le catalogue du fournisseur, quand il la publie, l'emporte : la case
+ * le dit, et le motif d'un Navigator refusé vient du daemon, qui l'a constaté.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Bot, Save } from 'lucide-react'
@@ -81,15 +86,25 @@ export function AgentsCard({ editable = false }: { editable?: boolean }) {
               </div>
               <p className="text-xs text-muted">{agent.description}</p>
               {!agent.enabled && (
-                <p className="text-xs text-waiting">
-                  {disabledReason(agent, data.providers)}. Dans un terminal, à la racine du dépôt :{' '}
-                  <code className="rounded bg-canvas px-1 font-mono">
-                    npm run harness -- providers add venice --model deepseek-v4-flash-0731
-                  </code>
+                <p className="text-xs text-waiting" data-testid={`agent-${agent.id}-reason`}>
+                  {disabledReason(agent, data.providers)}
+                  {/* La commande ne vaut que pour un fournisseur absent : un
+                      Navigator aveugle a un fournisseur, il lui faut un modèle. */}
+                  {(agent.provider_id === null || !data.providers.some((p) => p.id === agent.provider_id)) && (
+                    <>
+                      . Dans un terminal, à la racine du dépôt :{' '}
+                      <code className="rounded bg-canvas px-1 font-mono">
+                        npm run harness -- providers add venice --model deepseek-v4-flash-0731
+                      </code>
+                    </>
+                  )}
                 </p>
               )}
               {editable && agent.kind !== 'simulated' && data.providers.length > 0 && (
                 <ModelEditor agent={agent} providers={data.providers} onSaved={load} />
+              )}
+              {editable && agent.provider_id !== null && agent.tools.some((t) => t === 'read_image' || t.startsWith('browser_')) && (
+                <VisionEditor agent={agent} onSaved={load} />
               )}
             </li>
           ))}
@@ -204,6 +219,53 @@ function ModelEditor({
           {message.text}
         </span>
       )}
+    </div>
+  )
+}
+
+/**
+ * La déclaration « ce modèle lit les images » d'un profil (Slice 7), réglée par
+ * `PATCH /api/agents/:id` avec `vision`. Elle porte sur le modèle du profil, et
+ * le daemon l'efface quand il change.
+ */
+function VisionEditor({ agent, onSaved }: { agent: Agent; onSaved: () => void }) {
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
+  const value = agent.vision === null ? 'unset' : agent.vision ? 'yes' : 'no'
+
+  async function save(next: string): Promise<void> {
+    setSaving(true)
+    setMessage(null)
+    try {
+      await updateAgent(agent.id, { vision: next === 'unset' ? null : next === 'yes' })
+      setMessage({ ok: true, text: 'déclaration enregistrée' })
+      onSaved()
+    } catch (e) {
+      setMessage({ ok: false, text: e instanceof ApiError && e.reason ? e.reason : (e as Error).message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <label htmlFor={`vision-${agent.id}`} className="text-muted">
+        Le modèle lit les images :
+      </label>
+      <select
+        id={`vision-${agent.id}`}
+        className="rounded border border-border bg-surface px-1.5 py-1"
+        value={value}
+        disabled={saving}
+        onChange={(e) => void save(e.target.value)}
+        data-testid={`vision-${agent.id}`}
+      >
+        <option value="unset">non déclaré</option>
+        <option value="yes">oui, je le déclare</option>
+        <option value="no">non, je le déclare</option>
+      </select>
+      <span className="text-muted">— le catalogue du fournisseur l'emporte quand il le publie</span>
+      {message && <span className={message.ok ? 'text-done' : 'text-danger'}>{message.text}</span>}
     </div>
   )
 }

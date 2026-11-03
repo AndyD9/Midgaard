@@ -12,11 +12,16 @@
  *  - **une conversation ne survit pas au daemon**, et le panneau le dit tant
  *    qu'elle est en cours : la règle `interrupted` est un invariant, pas un
  *    défaut à cacher.
+ *
+ * Une image lue par un agent (Slice 7) est relue **sur le disque** et montrée
+ * dans le fil. Aucune image n'est gardée par le daemon : si le fichier a changé
+ * depuis, son empreinte diffère de celle journalisée, et le fil le dit plutôt
+ * que de montrer une autre image comme celle que l'agent a vue.
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { CircleCheck, CircleX, CornerDownRight, MessageCircleQuestion, Send, Sparkles, User } from 'lucide-react'
+import { CircleCheck, CircleX, CornerDownRight, Image as ImageIcon, MessageCircleQuestion, Send, Sparkles, User } from 'lucide-react'
 import type { Task, TaskEvent } from '@midgaard/contracts'
-import { ApiError, postMessage } from '@/lib/api'
+import { ApiError, fetchTaskImage, postMessage } from '@/lib/api'
 import { buildThread, composerState, type ThreadItem, type ThreadKind } from '@/lib/thread'
 import { cn, formatTime } from '@/lib/utils'
 import { Badge, toneForStatus } from './ui/badge'
@@ -33,6 +38,7 @@ const LOOK: Record<ThreadKind, { icon: typeof User; className: string; label?: s
   verdict: { icon: CircleCheck, className: 'border-done/40 bg-done/10', label: 'accepte' },
   result: { icon: CircleCheck, className: 'border-done/40 bg-done/10', label: 'résultat' },
   ended: { icon: CircleX, className: 'border-danger/40 bg-danger/10' },
+  image: { icon: ImageIcon, className: 'border-border bg-surface', label: 'regarde' },
 }
 
 export function ChatPanel({
@@ -118,9 +124,43 @@ function ThreadEntry({ item, onSelect }: { item: ThreadItem; onSelect: (taskId: 
         </time>
       </div>
       <p className="break-words whitespace-pre-wrap">{item.text}</p>
+      {item.image && <ReadImage taskId={item.taskId} path={item.image.path} sha256Prefix={item.image.sha256Prefix} />}
       {item.detail && <p className="mt-1 text-[11px] text-muted">{item.detail}</p>}
     </li>
   )
+}
+
+/**
+ * L'image qu'un agent a lue, relue sur le disque. Montrée seulement si son
+ * empreinte est celle que `read_image` a journalisée : sinon, ce ne serait pas
+ * l'image que l'agent a vue, et le fil le dit.
+ */
+function ReadImage({ taskId, path, sha256Prefix }: { taskId: string; path: string; sha256Prefix: string }) {
+  const [state, setState] = useState<{ url: string } | { note: string } | null>(null)
+  useEffect(() => {
+    let abandoned = false
+    let made: string | null = null
+    fetchTaskImage(taskId, path)
+      .then(({ blob, sha256 }) => {
+        if (abandoned) return
+        if (!sha256?.startsWith(sha256Prefix)) {
+          setState({ note: 'Le fichier a changé depuis que l\'agent l\'a lu : il n\'est pas montré.' })
+          return
+        }
+        made = URL.createObjectURL(blob)
+        setState({ url: made })
+      })
+      .catch((e: unknown) => {
+        if (!abandoned) setState({ note: e instanceof ApiError && e.reason ? `Image illisible : ${e.reason}.` : 'Image illisible.' })
+      })
+    return () => {
+      abandoned = true
+      if (made) URL.revokeObjectURL(made)
+    }
+  }, [taskId, path, sha256Prefix])
+  if (!state) return null
+  if ('note' in state) return <p className="mt-1 text-[11px] text-muted" data-testid="chat-image-note">{state.note}</p>
+  return <img src={state.url} alt={`Image lue par l'agent : ${path}`} className="mt-1.5 max-h-48 rounded border border-border" data-testid="chat-image" />
 }
 
 /** La saisie : ouverte seulement quand la conversation attend votre réponse. */

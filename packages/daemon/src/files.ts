@@ -23,13 +23,24 @@
  *  - **la version de départ se lit par `git cat-file blob`**, qui ne lance
  *    aucun filtre ni `textconv` désigné par l'arbre, et par `git()`, qui
  *    neutralise les hooks : l'arbre est écrit par l'agent.
+ *
+ * Une troisième lecture, depuis la Slice 7 : **une image** (`taskImage`), pour
+ * montrer dans le fil celle qu'un agent a lue par `read_image`. Mêmes règles de
+ * chemin, et celles de l'outil : le type se lit dans les octets (PNG, JPEG,
+ * WebP, GIF — jamais un SVG, qui est du texte et peut porter un script), 4 Mo
+ * au plus. Elle est lue **sur le disque, maintenant** : aucune image n'est
+ * gardée en base, et son empreinte dit si c'est encore celle que l'agent a vue.
  */
+import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { lstat, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { FileContentResponse, FileTreeEntry, FileTreeResponse, Task, Workspace } from '@midgaard/contracts'
 import type { HarnessStore } from '@midgaard/persistence'
-import { canonicalRoot, openUnderRoot, resolveUnderRoot, toolPath, ToolError } from '@midgaard/tools'
+import type { ImageMediaType } from '@midgaard/contracts'
+import {
+  canonicalRoot, MAX_IMAGE_BYTES, openUnderRoot, resolveUnderRoot, sniffImageType, toolPath, ToolError,
+} from '@midgaard/tools'
 import { git } from '@midgaard/workspace'
 
 /** Entrées de l'arbre au plus. Au-delà, il est coupé, et la réponse le dit. */
@@ -202,6 +213,49 @@ export async function taskFileContent(
     const raw = buffer.subarray(0, bytesRead)
     if (raw.includes(0)) return { ...empty, exists: true, size: opened.size, binary: true }
     return { ...empty, exists: true, size: opened.size, text: raw.toString('utf8') }
+  } finally {
+    await opened.handle.close().catch(() => {})
+  }
+}
+
+/**
+ * Lit une image de la tâche, sur le disque (Slice 7).
+ *
+ * @returns ses octets, son type lu dans les octets et son SHA-256 complet
+ * @throws {FileAccessError} 400 pour un chemin refusé, 404 pour un fichier
+ *         absent, 409 sans racine lisible, 413 au-delà de 4 Mo, 415 si ce
+ *         n'est pas une image admise
+ */
+export async function taskImage(
+  store: HarnessStore,
+  task: Task,
+  given: string,
+): Promise<{ bytes: Buffer; mediaType: ImageMediaType; sha256: string }> {
+  const rel = checkRequestedPath(given)
+  const found = await sourceOf(store, task)
+  if ('unavailable' in found) throw new FileAccessError(409, 'files_unavailable', found.unavailable)
+  let opened: Awaited<ReturnType<typeof openUnderRoot>>
+  try {
+    opened = await openUnderRoot(found.root, rel)
+  } catch (e) {
+    if (e instanceof ToolError && /^no such path/.test(e.message)) {
+      throw new FileAccessError(404, 'file_not_found', 'ce fichier n\'existe plus')
+    }
+    throw refusal(e)
+  }
+  try {
+    if (touchesGit(toolPath(found.root, opened.path))) {
+      throw new FileAccessError(400, 'path_refused', 'rien ne se lit sous .git')
+    }
+    if (opened.size > MAX_IMAGE_BYTES) {
+      throw new FileAccessError(413, 'image_too_large', `image de ${opened.size} octets, plus que ${MAX_IMAGE_BYTES}`)
+    }
+    const buffer = Buffer.alloc(opened.size)
+    const { bytesRead } = await opened.handle.read(buffer, 0, opened.size, 0)
+    const bytes = buffer.subarray(0, bytesRead)
+    const mediaType = sniffImageType(bytes)
+    if (!mediaType) throw new FileAccessError(415, 'not_an_image', 'ni PNG, ni JPEG, ni WebP, ni GIF')
+    return { bytes, mediaType, sha256: createHash('sha256').update(bytes).digest('hex') }
   } finally {
     await opened.handle.close().catch(() => {})
   }
