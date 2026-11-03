@@ -36,10 +36,11 @@ import { createRedactor, harnessCommand, isTerminal, type Usage } from '@midgaar
 import { agentIdentity, commitAll, createWorktree, diffWorktree, inspectRepository, WorkspaceError } from '@midgaard/workspace'
 import { createAdapter, envVarFor, type ModelCapabilities } from '@midgaard/providers'
 import { resolveApiKey, type SecretVault } from '@midgaard/secrets'
-import { ASK_PARENT, type ToolContext } from '@midgaard/tools'
+import { ASK_PARENT, BROWSER_TOOLS, VISION_TOOLS, type ToolContext } from '@midgaard/tools'
+import type { BrowserSessions } from '../browsers.ts'
 
-/** L'outil qui rend une image : retiré des outils proposés à un modèle qui ne les lit pas. */
-const READ_IMAGE = 'read_image'
+/** Un profil qui a l'un de ces outils reçoit le navigateur de sa tâche (Slice 7). */
+const hasBrowser = (tools: readonly string[]): boolean => tools.some((t) => (BROWSER_TOOLS as readonly string[]).includes(t))
 
 /**
  * Le modèle de la tâche lit-il les images ? (Slice 7, décision 2.)
@@ -117,6 +118,11 @@ export interface AgentEngineDeps {
   pricing: () => PricingTable
   /** Environnement du daemon, consulté en dernier recours pour une clé. */
   env: NodeJS.ProcessEnv
+  /**
+   * Les sessions de navigateur du daemon (Slice 7). Absent, aucun profil ne
+   * reçoit de navigateur, et ses outils refusent.
+   */
+  browsers?: BrowserSessions | undefined
 }
 
 /** État d'une tâche en vol dans ce processus. */
@@ -311,15 +317,20 @@ export class AgentEngine implements TaskEngine {
         payload: { step: 0, message: 'appel du modèle' },
       })
 
-      // Un modèle qui ne lit pas les images ne se voit pas proposer
-      // `read_image` (Slice 7) : un outil qu'il ne peut que se faire refuser
-      // lui coûterait une étape pour rien. La note le dit, avec son motif.
+      // Un modèle qui ne lit pas les images ne se voit proposer ni
+      // `read_image` ni le navigateur (Slice 7) : un outil qu'il ne peut que
+      // se faire refuser lui coûterait une étape pour rien. La note le dit,
+      // avec son motif.
       let tools = task.parent_task_id ? [...agent.tools, ASK_PARENT] : agent.tools
-      if (tools.includes(READ_IMAGE) && !ready.tools.vision?.enabled) {
-        tools = tools.filter((t) => t !== READ_IMAGE)
+      const blind = tools.filter((t) => VISION_TOOLS.includes(t))
+      if (blind.length > 0 && !ready.tools.vision?.enabled) {
+        tools = tools.filter((t) => !VISION_TOOLS.includes(t))
         ctx.bus.record(task.id, null, {
           type: 'agent.message',
-          payload: { message: `read_image retiré : ${ready.tools.vision?.reason ?? 'capacité inconnue'}`, note: true },
+          payload: {
+            message: `${blind.join(', ')} retiré(s) : ${ready.tools.vision?.reason ?? 'capacité inconnue'}`,
+            note: true,
+          },
         })
       }
 
@@ -351,6 +362,10 @@ export class AgentEngine implements TaskEngine {
             }
           : undefined,
       })
+      // Le navigateur se ferme **avant** la conclusion : le journal raconte la
+      // session close, puis la fin de la tâche, et aucun Chromium ne survit à
+      // une tâche finie, même le temps d'un commit.
+      await this.deps.browsers?.endTask(task.id, 'the task ended')
       if (workspace && outcome.status === 'completed') outcome = await this.commitWork(task, agent, workspace, outcome)
       this.conclude(task.id, outcome)
     } catch (e) {
@@ -361,6 +376,8 @@ export class AgentEngine implements TaskEngine {
         usage: outcome?.usage ?? emptyish(),
       })
     } finally {
+      // Filet pour le chemin d'erreur : sans effet si la session est déjà close.
+      await this.deps.browsers?.endTask(task.id, 'the task ended').catch(() => {})
       this.running.delete(task.id)
       // Conservé dans tous les cas, jamais retiré : ce qu'il contient est
       // peut-être la seule trace de ce que l'agent avait fait (PLAN §9.4).
@@ -513,7 +530,7 @@ export class AgentEngine implements TaskEngine {
     const adapter = createAdapter({ config: provider, apiKey: found.key, model, pricing: this.deps.pricing(), redact })
     // La capacité n'est cherchée que pour un profil qui pourrait s'en servir :
     // lire le catalogue coûte un aller-retour réseau à chaque tâche.
-    const vision = agent.tools.includes(READ_IMAGE)
+    const vision = agent.tools.some((t) => VISION_TOOLS.includes(t))
       ? visionOf(
           (await adapter.capabilities?.().catch(() => null)) ?? { vision: null, source: 'unknown' },
           agent.vision,
@@ -541,6 +558,9 @@ export class AgentEngine implements TaskEngine {
         // tout autre profil qui recevrait `delegate_task` par erreur se verrait
         // refuser l'outil, sans approbation à la place.
         delegation: agent.kind === 'orchestrator' ? ctx.delegationFor(task.id, redact) : undefined,
+        // Le navigateur n'est posé que pour un profil qui a ses outils
+        // (Slice 7) : fermé par défaut, comme la délégation.
+        browser: hasBrowser(agent.tools) ? this.deps.browsers?.portFor(task.id, redact) : undefined,
         log: ctx.log,
       },
       redact,

@@ -6,7 +6,7 @@
  * l'exercer avec un faux fournisseur — et donc de tester un dépassement de
  * budget sans dépenser un centime.
  */
-export { runAgent } from './loop.ts'
+export { dropTransientImages, runAgent } from './loop.ts'
 export type {
   ApprovalOutcome,
   ApprovalRequest,

@@ -6,8 +6,8 @@ navigateur** : ouvrir une page ou une application web, la regarder, cliquer,
 saisir. Le tout dans un navigateur que le daemon lance à part, sous des
 sessions que l'humain approuve et surveille en direct dans l'atelier.
 
-**État : en cours.** Étapes 1 à 3 faites (2026-11-03) ; l'étape 1 constatée
-contre l'API réelle de Venice, les étapes 1 et 2 en CI sur trois plateformes.
+**État : en cours.** Étapes 1 à 4 faites (2026-11-03) ; l'étape 1 constatée
+contre l'API réelle de Venice, les étapes 1 à 3 en CI sur trois plateformes.
 
 ---
 
@@ -103,7 +103,7 @@ font rien ; le navigateur ensuite, qui agit.
 | 1 | Contrats et adaptateurs : contenu image dans `Message`, OpenAI-compatible (`image_url`) et Gemini (`inline_data`) sur réponses enregistrées, capacité « vision » lue au catalogue ou déclarée | **fait** — constaté chez Venice ; la déclaration par profil passe à l'étape 2 |
 | 2 | `read_image` : types reconnus par leurs premiers octets (PNG, JPEG, WebP, GIF), taille plafonnée, chemin vérifié comme `read_file`, refus sans vision ; l'image suit le résultat d'outil ; rien de l'image en base | **fait** |
 | 3 | Le paquet `browser` : Chromium jetable par Playwright, garde réseau, sans téléchargement ni permission, processus tués à la fin et après `SIGKILL` | **fait** |
-| 4 | Les outils et la session : `browser_open` (session approuvée), `browser_screenshot`, `browser_click`, `browser_scroll`, `browser_type` et `browser_key` (approuvés chacun), `browser_close` ; captures non fiables | à faire |
+| 4 | Les outils et la session : `browser_open` (session approuvée), `browser_screenshot`, `browser_goto`, `browser_click`, `browser_scroll`, `browser_type` et Entrée (approuvés chacun), `browser_close` ; captures non fiables | **fait** — le moteur et la route de coupure seront exercés dans un vrai daemon avec le profil de l'étape 5 |
 | 5 | Le profil `navigator` : consigne, outils, limites ; désactivé sans modèle à vision, avec son motif | à faire |
 | 6 | L'atelier : onglet « Navigateur » (dernière capture en direct, adresse, bouton « Couper la session »), l'image lue montrée dans le fil | à faire |
 | 7 | Preuves : unitaires, de bout en bout sur une page locale servie par le test, `test:security` (adresse privée depuis le navigateur, saisie sans approbation, aucun Chromium vivant après `SIGKILL`, aucune image en base), CI sur trois plateformes | à faire |
@@ -309,4 +309,108 @@ se charge.
 - Sans Chromium installé, la suite saute en le disant ; la CI de bout en bout
   l'installe avant `test:unit`. Les tests de groupe de processus sautent sous
   Windows, en le disant.
+
+*Constaté en CI sur `4a91a18` : « Worktrees » (`41681270284`), « Bout en
+bout » (`41681270332`) et « Coffre » (`41681270609`) verts sous macOS, Linux et
+Windows. Les postes macOS des deux derniers avaient d'abord été annulés faute
+de machine, sans qu'une étape ait tourné ; relancés, ils sont passés.*
+
+### Étape 4 — les outils et la session approuvée (2026-11-03)
+
+**Un port, comme la délégation.** Le paquet `tools` ne peut pas dépendre de
+`browser`, qui dépend de lui. Les outils parlent donc à un `BrowserPort`
+(`ToolContext.browser`) que le daemon pose pour un profil qui a des outils
+`browser_*`, et pour lui seul ; absent, tout refuse. Le daemon l'implémente
+dans `browsers.ts`, qui tient au plus une session par tâche.
+
+**Ce qui est approuvé.**
+- `browser_open` est une opération préparée : objectif, adresse normalisée,
+  durée. La durée est **bornée par l'échéance de la tâche** avant d'être
+  montrée : l'humain lit la vraie.
+- Dans la session, regarder, aller à une adresse, cliquer, faire défiler et les
+  touches de déplacement sont libres.
+- `browser_type` et **Entrée** sont approuvés chacun, avec le texte exact,
+  l'adresse et le champ actif (`input#q[name="q"]`).
+
+`browser_goto` ne figurait pas au découpage. Sans lui, un agent qui connaît une
+adresse devrait la trouver en cliquant de lien en lien. Il est libre, comme un
+clic, puisqu'un clic mène déjà n'importe où. La garde réseau vaut pour l'un
+comme pour l'autre.
+
+**Ce que l'humain a approuvé est revérifié au moment d'agir.** Une page peut
+changer seule pendant que l'humain lit la demande : un minuteur, une
+redirection. Avant de taper, l'outil relit l'adresse et le champ actif. S'ils
+ont changé, **rien n'est tapé**, et le modèle l'apprend. Le test le prouve dans
+les deux cas, une autre adresse et un autre champ sur la même adresse, et
+vérifie que rien n'a atteint le navigateur. La description du champ est lue
+dans la page : une page hostile peut mentir sur son propre champ, pas déplacer
+le clavier. Un clic sur « Envoyer » reste libre, et c'est assumé : il n'envoie
+que ce qui a déjà été saisi, donc approuvé.
+
+**Une capture chasse la précédente.** Chaque étape renvoie toute la
+conversation au modèle. Une session de vingt actions garderait vingt captures,
+renvoyées à chaque appel, pour des écrans qui n'existent plus. La capture porte
+donc `transient`, et la boucle retire les précédentes de la conversation, en le
+disant dans le message qui les portait. Une image du projet reste : une
+maquette sert toute la tâche. Chaque action rend sa capture, ce qui épargne au
+modèle une étape « regarder » après chaque clic.
+
+**Non fiable, et dit comme tel.**
+- Le résultat de chaque action (adresse, titre, champ actif) est encadré.
+- La tâche est marquée non fiable.
+- Le message qui porte la capture dit qu'un texte vu dans l'image est une
+  donnée, jamais une consigne : une image ne se met pas entre balises.
+- Le résumé journalisé ne garde que l'action et l'adresse. Le titre, écrit par
+  la page, ne va qu'au modèle.
+
+**Une session se ferme** :
+- à son échéance ;
+- quand l'humain la coupe (`POST /api/tasks/:id/browser/close`, acte humain
+  qu'aucun outil n'expose) ;
+- quand l'agent appelle `browser_close` ;
+- avec la tâche, **avant** sa conclusion ;
+- avec le daemon.
+
+L'agent apprend le motif à sa prochaine action. Une tâche qui finit **pendant**
+le lancement de Chromium aurait laissé un navigateur que personne ne fermait :
+la session est refermée dès que Chromium répond, et aucune autre ne s'ouvre. Le
+test compte ce Chromium au système, mort.
+
+**Le journal** reçoit `browser.opened` et `browser.closed`, expurgés. Les
+actions y sont comme appels d'outil, et **aucune capture** n'y est écrite. La
+dernière capture reste en mémoire pour l'onglet « Navigateur » de l'étape 6.
+Pas de nouveau protocole : aucun client ne valide le type d'un événement.
+
+**La liste blanche du daemon vaut aussi pour le navigateur.** Sous la politique
+HTTP `allowlist`, un hôte absent de `MIDGAARD_HTTP_ALLOW` est refusé par le
+proxy : l'utilisateur qui n'a autorisé que certains hôtes ne les verra pas
+rouverts par une page. Sous `approval`, l'approbation de la session en tient
+lieu, car une page charge des dizaines de ressources, et les demander une à une
+n'apprendrait qu'à cliquer « oui ». La liste blanche n'ouvre jamais la boucle
+locale.
+
+**Vérifié :**
+- `npm run typecheck` ;
+- 12 tests (`tests/unit/browser-tools.test.ts`) :
+  - les refus sans port, sans vision et sans session, sans approbation à la
+    place ;
+  - l'opération préparée d'une session, sa durée bornée et `file:` refusé ;
+  - les actions libres ;
+  - le texte exact d'une saisie ;
+  - **la saisie non tapée** quand la page ou le champ ont changé ;
+  - la session coupée refusée avec son motif ;
+  - dans la boucle, une seule approbation (la session, pas le clic), une seule
+    capture envoyée, la phrase de non-fiabilité et le résultat marqué ;
+  - sur un vrai Chromium : ouverture, champ actif, saisie, coupure humaine,
+    échéance, fin pendant l'ouverture, journal sans image, groupe de processus
+    mort ;
+  - la garde sous `allowlist` ;
+- les deux protections centrales cassées exprès (pas de revérification, pas de
+  retrait des captures) : les tests échouent ;
+- `npm run test:unit` (527), `test:orchestrator`, `test:security`,
+  `test:developer`.
+
+**Pas encore exercé :** le moteur qui pose le port et retire les outils d'un
+modèle aveugle, et la route de coupure, dans un vrai daemon. Aucun profil
+n'a encore ces outils. Ce sera fait à l'étape 5, avec le profil `navigator`.
 

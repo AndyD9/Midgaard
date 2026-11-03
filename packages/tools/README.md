@@ -341,6 +341,36 @@ résumé journalisé n'en garde que le chemin, le type, la taille et le début d
 SHA-256. **Sans `ToolContext.vision.enabled`, l'outil refuse**, avec le motif
 que le moteur a posé — fermé par défaut, comme `writable`.
 
+## Le navigateur : une session approuvée, des saisies approuvées (Slice 7)
+
+Huit outils (`browser.ts`), sur le navigateur isolé de la tâche, que le daemon
+remet par `ToolContext.browser` — un `BrowserPort`, posé pour un profil qui a
+ces outils et pour lui seul. Absent, ou sans `ToolContext.vision.enabled`, tous
+**refusent avec leur motif**, sans approbation à la place.
+
+| Outil | Décision |
+|---|---|
+| `browser_open` | **Approbation** : l'opération préparée porte l'objectif, l'adresse normalisée (`http:`/`https:` seulement) et la durée, bornée par l'échéance de la tâche. Refusé si une session est déjà ouverte |
+| `browser_screenshot`, `browser_goto`, `browser_click`, `browser_scroll`, `browser_close` | Libres dans la session |
+| `browser_key` | Libre, **sauf Entrée** : approbation, puisqu'elle envoie un formulaire |
+| `browser_type` | **Approbation**, avec le texte exact, l'adresse et le champ actif |
+
+**Ce que l'humain a approuvé est revérifié au moment d'agir.** Une saisie ou
+une Entrée approuvées ne partent pas si l'adresse ou le champ actif ont changé
+pendant la décision : une page peut se rediriger seule. Le test le prouve, et
+vérifie que rien n'a été tapé. Un clic sur « Envoyer » reste libre : il
+n'envoie que ce qui a déjà été saisi, donc approuvé.
+
+Chaque action rend une **capture** JPEG et l'adresse, le titre et le champ
+actif de la page. Le résultat est **non fiable** : encadré, et la tâche marquée.
+L'image porte `transient` : la boucle retire la précédente de la conversation
+(`dropTransientImages`). Le résumé journalisé ne garde que l'action et
+l'adresse ; le titre, écrit par la page, ne va qu'au modèle.
+
+`BROWSER_KEYS` est la liste fermée des touches, que le paquet `browser`
+réexporte ; `VISION_TOOLS` (`read_image` et les huit) sont les outils retirés
+d'un modèle qui ne lit pas les images.
+
 ## `submit_result` : la fin est un acte
 
 Une boucle qui s'arrêterait sur « le modèle n'a demandé aucun outil » s'arrêterait

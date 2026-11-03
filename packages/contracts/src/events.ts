@@ -69,6 +69,18 @@ import { taskStatusSchema } from './task.ts'
  * Comme pour `subtask.waiting`, aucun ne demande à lui seul un nouveau
  * protocole ; c'est le statut `waiting_input` qui l'impose (`PROTOCOL_VERSION`).
  *
+ * La Slice 7 ajoute deux types, qui encadrent une session de navigateur :
+ *
+ *  - `browser.opened` — la session approuvée est ouverte,
+ *    `{ objective, start_url, max_duration_s, expires_at }` ;
+ *  - `browser.closed` — elle est fermée, `{ reason }` : par l'agent, à son
+ *    échéance, par l'humain, ou avec la tâche.
+ *
+ * Les actions entre les deux sont au journal comme appels d'outil. **Aucune
+ * capture n'y est écrite** : une image peut montrer un secret, et
+ * l'expurgation ne sait pas la lire. Pas de nouveau protocole non plus, pour
+ * la raison de `subtask.waiting`.
+ *
  * `artifact.created`, prévu au plan, n'est pas créé : le diff d'un worktree se
  * calcule à la demande contre son commit de départ, et un artefact figé en
  * serait une seconde copie, vraie au moment de l'écrire seulement.
@@ -97,6 +109,8 @@ export const EVENT_TYPES = [
   'message.user',
   'message.agent',
   'exec.output',
+  'browser.opened',
+  'browser.closed',
 ] as const
 export type EventType = (typeof EVENT_TYPES)[number]
 

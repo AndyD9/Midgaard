@@ -9,6 +9,7 @@
     { "path": "../providers" },
     { "path": "../workspace" },
     { "path": "../tools" },
+    { "path": "../browser" },
     { "path": "../agent-runtime" }
   ]
 }

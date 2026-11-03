@@ -25,8 +25,21 @@
  */
 import { execFileSync } from 'node:child_process'
 import { chromium, type Browser, type BrowserContext, type BrowserServer, type Page } from 'playwright'
-import { assertPublicHost, guardGroup } from '@midgaard/tools'
+import { assertPublicHost, BROWSER_KEYS, guardGroup, type BrowserKey } from '@midgaard/tools'
 import { startGuardedProxy, type GuardedProxy, type HostGuard, type ProxyRefusal } from './proxy.ts'
+
+/**
+ * Le `document` de la page, pour la seule fonction évaluée dans la page par
+ * {@link BrowserSession.focused}. Le paquet tourne sous Node, sans la
+ * bibliothèque DOM : ce type minimal décrit ce que cette fonction touche.
+ */
+interface FocusTarget {
+  id: string
+  tagName: string
+  isContentEditable?: boolean
+  getAttribute(name: string): string | null
+}
+declare const document: { activeElement: FocusTarget | null; body: unknown; documentElement: unknown }
 
 /** Taille de la fenêtre : celle d'un portable courant, lisible dans une capture. */
 export const DEFAULT_VIEWPORT = { width: 1280, height: 800 }
@@ -35,15 +48,11 @@ export const NAVIGATION_TIMEOUT_MS = 30_000
 /** Attente maximale d'une navigation déclenchée par une action, avant de relire la page. */
 const SETTLE_MS = 1_000
 /**
- * Touches qu'un agent peut presser. Une liste fermée : un raccourci du
- * navigateur (ouvrir les outils de développement, imprimer) n'a rien à faire
- * dans une tâche.
+ * Touches qu'un agent peut presser : la liste fermée des outils
+ * (`BROWSER_KEYS`, paquet `tools`), une seule pour les deux paquets.
  */
-export const ALLOWED_KEYS = [
-  'Enter', 'Tab', 'Escape', 'Backspace', 'Delete', 'Space',
-  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown',
-] as const
-export type AllowedKey = (typeof ALLOWED_KEYS)[number]
+export const ALLOWED_KEYS = BROWSER_KEYS
+export type AllowedKey = BrowserKey
 
 /** Un refus de la session, à rendre à l'agent tel quel. En anglais : c'est le modèle qui le lit. */
 export class BrowserError extends Error {
@@ -193,6 +202,39 @@ export class BrowserSession {
     const refused = this.refusals.slice(before).find((r) => r.host === parsed.hostname)
     if (refused) throw new BrowserError(refused.reason)
     return this.state()
+  }
+
+  /**
+   * Décrit l'élément qui a le focus, en une ligne : `input[type=search][name=q]`,
+   * `textarea#message`, `[contenteditable]`. `null` si aucun champ ne l'a.
+   *
+   * C'est ce que l'humain lit pour approuver une saisie, et ce qui est
+   * revérifié avant de taper. La description est lue **dans la page** : une
+   * page hostile peut mentir sur son propre champ, pas déplacer le clavier —
+   * la saisie va au vrai focus. Elle est bornée, pour qu'un attribut géant
+   * n'envahisse pas la demande d'approbation.
+   */
+  async focused(): Promise<string | null> {
+    this.ensureOpen()
+    const described = await this.page
+      .evaluate(() => {
+        const el = document.activeElement
+        if (!el || el === document.body || el === document.documentElement) return null
+        const attr = (name: string) => {
+          const v = el.getAttribute(name)
+          return v ? `[${name}=${JSON.stringify(v.slice(0, 40))}]` : ''
+        }
+        const id = el.id ? `#${el.id.slice(0, 40)}` : ''
+        const editable = el.isContentEditable ? '[contenteditable]' : ''
+        return `${el.tagName.toLowerCase()}${id}${attr('type')}${attr('name')}${attr('aria-label')}${attr('placeholder')}${editable}`
+      })
+      .catch(() => null)
+    return described ? described.slice(0, 200) : null
+  }
+
+  /** Taille de la fenêtre, en pixels : le repère des clics. */
+  viewport(): { width: number; height: number } {
+    return this.page.viewportSize() ?? DEFAULT_VIEWPORT
   }
 
   /** Une capture de la page visible, en JPEG : quatre fois plus léger qu'un PNG, donc moins de jetons. */

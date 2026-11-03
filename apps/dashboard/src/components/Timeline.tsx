@@ -8,7 +8,7 @@
  */
 import {
   Archive, CircleCheck, CircleSlash, CircleX, Coins, Flag, FolderGit2, FolderX, Hourglass, MessageCircleQuestion,
-  MessageSquare, MessagesSquare, Play, ShieldCheck, ShieldQuestion, SquareTerminal, TimerOff, User, Wallet, Wrench,
+  Globe, MessageSquare, MessagesSquare, Play, ShieldCheck, ShieldQuestion, SquareTerminal, TimerOff, User, Wallet, Wrench,
 } from 'lucide-react'
 import type { EventType, TaskEvent } from '@midgaard/contracts'
 import { formatCost, formatDateTime, formatTime } from '@/lib/utils'
@@ -38,6 +38,8 @@ const EVENT_LOOK: Record<EventType, { icon: typeof Flag; label: string; classNam
   'message.user': { icon: User, label: 'Message de l\'utilisateur', className: 'text-running' },
   'message.agent': { icon: MessagesSquare, label: 'Message de la tâche parente', className: 'text-running' },
   'exec.output': { icon: SquareTerminal, label: 'Sortie de commande', className: 'text-muted' },
+  'browser.opened': { icon: Globe, label: 'Navigateur ouvert', className: 'text-running' },
+  'browser.closed': { icon: Globe, label: 'Navigateur fermé', className: 'text-muted' },
 }
 
 /** Ce qu'attend une tâche en `waiting_input`, dit à l'utilisateur. */
@@ -70,6 +72,8 @@ function describe(event: TaskEvent): string | null {
   if (event.type === 'message.user' || event.type === 'message.agent' || event.type === 'exec.output') {
     return typeof p.text === 'string' ? p.text : null
   }
+  if (event.type === 'browser.opened') return `${String(p.start_url)} — ${String(p.objective)}`
+  if (event.type === 'browser.closed') return String(p.reason)
   if (event.type === 'task.interrupted') return `statut précédent : ${String(p.previous_status)}`
   if (event.type === 'subtask.waiting') {
     return `${String(p.agent_id)} · ${String(p.task_id).slice(0, 8)} (${String(p.status)})`

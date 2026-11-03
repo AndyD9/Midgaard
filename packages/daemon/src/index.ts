@@ -28,6 +28,8 @@ export {
 export { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'
 export { WS_PATH } from './ws.ts'
 export { checkProjectDir } from './project-dir.ts'
+export { BrowserSessions, defaultBrowserGuard } from './browsers.ts'
+export type { BrowserFrame, BrowserSessionsDeps } from './browsers.ts'
 export { StaticFiles } from './static-files.ts'
 export { installation, sameInstallation } from './installation.ts'
 export type { Installation } from './installation.ts'

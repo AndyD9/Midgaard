@@ -116,6 +116,25 @@ La boucle en crée un par appel d'outil et livre ses lots à
 `LoopHooks.onToolOutput`, que le moteur écrit en `exec.output`. Le modèle ne
 lit rien de tout cela.
 
+## Images (Slice 7)
+
+Les images rendues par les outils d'une étape rejoignent le modèle dans **un**
+message utilisateur, après tous les résultats de l'étape : aucune API n'en
+admet dans un message de rôle `tool`, et l'API Chat Completions refuse un
+message utilisateur glissé entre deux résultats. Elles ne passent pas par
+l'expurgation, qui ne sait pas les lire, et ne sont jamais journalisées.
+
+Deux règles pour les captures du navigateur :
+
+- **une capture chasse la précédente** : une image marquée `transient` est
+  retirée de la conversation dès qu'une autre arrive (`dropTransientImages`),
+  et le message qui la portait le dit. Chaque étape renvoie toute la
+  conversation ; vingt captures gardées coûteraient vingt images à chaque
+  appel. Une image du projet (`read_image`) reste ;
+- **le message qui porte une capture la dit non fiable** : une image ne se met
+  pas entre balises, la phrase qui l'accompagne le dit à sa place. Le résultat
+  de l'outil, lui, est encadré, et la tâche marquée.
+
 ## Statuts d'arrêt
 
 | Raison | Statut | Pourquoi pas `failed` |

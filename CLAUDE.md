@@ -196,7 +196,9 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   tuer : sans elle, une commande continuait d'écrire dans le worktree.
 - **Une approbation porte sur l'opération préparée, et son empreinte sur le
   détail structuré** (`operation_detail`, JSON canonique), jamais sur le texte
-  affiché. Le détail est expurgé avant d'être persisté.
+  affiché. Le détail est expurgé avant d'être persisté. Ce qui a été approuvé se
+  revérifie au moment d'agir : un binaire `exec`, la page et le champ d'une
+  saisie au navigateur (Slice 7).
 - **Une phrase de documentation est une affirmation à prouver.** À l'étape 3,
   « binaire résolu avant la demande » a été écrit sans être vrai, et le test du
   même sujet vérifiait le défaut (docs/SLICE3.md, leçon n° 10).
@@ -296,6 +298,13 @@ l'image jointe après tous les résultats de l'étape, la vision décidée par l
 catalogue puis la déclaration du profil (migration 10, `PROTOCOL_VERSION` 12).
 Étape 3 faite : le paquet `browser`, un Chromium jetable derrière un proxy
 gardé (qui se connecte à l'adresse jugée), aucun processus survivant.
+Étape 4 faite : huit outils `browser_*` derrière `ToolContext.browser`
+(`BrowserPort`, posé par `packages/daemon/src/browsers.ts`). La session et
+chaque saisie ou Entrée sont approuvées. **Une saisie approuvée n'est pas
+tapée si la page ou le champ ont changé** pendant la décision. Une capture
+chasse la précédente de la conversation (`transient`). L'humain coupe par
+`POST /api/tasks/:id/browser/close`. Aucun profil n'a encore ces outils :
+c'est l'étape 5.
 
 ## Slice 6 terminée — un atelier façon VS Code
 

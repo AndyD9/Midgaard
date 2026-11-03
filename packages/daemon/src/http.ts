@@ -28,6 +28,8 @@
  * | GET  | `/api/tasks/:id/workspace` | Worktree et diff, calculé à la demande | 200, 404 |
  * | GET  | `/api/tasks/:id/files` | Arbre des fichiers de la tâche, en lecture seule, sans `.git` | 200, 404 |
  * | GET  | `/api/tasks/:id/files/content?path=&rev=work\|base` | Un fichier, sur le disque ou au commit de départ | 200, 400, 404, 409 |
+ * | GET  | `/api/tasks/:id/browser` | Session de navigateur ouverte de la tâche, sans capture | 200, 404 |
+ * | POST | `/api/tasks/:id/browser/close` | L'humain coupe la session de navigateur | 200, 404, 409 |
  * | GET  | `/api/workspaces` | Tous les worktrees, état sur le disque, orphelins | 200 |
  * | POST | `/api/workspaces/:id/remove` | Retire un worktree (la branche reste) | 200, 404, 409 |
  * | GET  | `/api/exec-allow?project_dir=` | Liste blanche `exec` du dépôt, et la globale | 200, 400 |
@@ -63,6 +65,7 @@ import {
   type Health,
 } from '@midgaard/contracts'
 import type { EventBus } from './bus.ts'
+import type { BrowserSessions } from './browsers.ts'
 import type { HarnessStore } from '@midgaard/persistence'
 import type { TaskManager } from './task-manager.ts'
 import type { StaticFiles } from './static-files.ts'
@@ -103,6 +106,8 @@ export interface HttpDeps {
   /** Bus d'écriture : le retrait d'un worktree s'écrit avec son événement. */
   bus: EventBus
   config: HarnessConfig
+  /** Sessions de navigateur des tâches (Slice 7) : l'humain peut en couper une. */
+  browsers?: BrowserSessions | undefined
 }
 
 /** Envoie une réponse JSON, sauf si la connexion est déjà close — cas normal
@@ -348,6 +353,20 @@ async function handleTasks(
     const result = await deps.tasks.wait(id, timeoutMs, known, aborter.signal)
     if (!result) return send(res, 404, { error: 'task_not_found' })
     return send(res, 200, result)
+  }
+
+  // Le navigateur d'une tâche (Slice 7). Couper est un acte humain, comme
+  // approuver : aucun outil ne l'expose à un modèle. L'agent l'apprend à son
+  // action suivante, avec le motif.
+  if (action === 'browser') {
+    const sub = url.pathname.split('/').filter(Boolean)[4]
+    if (method === 'GET' && sub === undefined) return send(res, 200, { session: deps.browsers?.info(id) ?? null })
+    if (method === 'POST' && sub === 'close') {
+      const closed = (await deps.browsers?.close(id, 'cut by the human operator')) ?? false
+      if (!closed) return send(res, 409, { error: 'no_browser_session' })
+      return send(res, 200, { closed: true })
+    }
+    return send(res, sub === undefined || sub === 'close' ? 405 : 404, { error: sub === undefined || sub === 'close' ? 'method_not_allowed' : 'not_found' })
   }
 
   if (method === 'POST' && action === 'cancel') {

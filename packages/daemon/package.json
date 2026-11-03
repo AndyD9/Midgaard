@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@midgaard/agent-runtime": "*",
+    "@midgaard/browser": "*",
     "@midgaard/contracts": "*",
     "@midgaard/persistence": "*",
     "@midgaard/providers": "*",

@@ -104,7 +104,71 @@ export interface ToolContext {
    * `reason` — fermé par défaut, comme `writable`.
    */
   vision?: { enabled: boolean; reason: string } | undefined
+  /**
+   * Le navigateur isolé de la tâche (Slice 7, étape 4). Posé par le daemon pour
+   * un profil qui a des outils `browser_*`, et pour lui seul.
+   *
+   * Absent, les outils du navigateur **refusent** — fermé par défaut, comme
+   * {@link ToolContext.delegation}.
+   */
+  browser?: BrowserPort | undefined
   log: (...a: unknown[]) => void
+}
+
+/** Ce que l'agent voit de la page après une action. Écrit par la page : **non fiable**. */
+export interface BrowserPageView {
+  url: string
+  title: string
+  /** Description courte de l'élément qui a le focus (`input[name=q]`), ou `null`. */
+  focused: string | null
+}
+
+/** Une capture de la page visible, avec ce qu'elle montre. */
+export interface BrowserCapture extends BrowserPageView {
+  jpeg: Buffer
+  /** Taille de la fenêtre, en pixels : le repère des clics. */
+  viewport: { width: number; height: number }
+}
+
+/** La session ouverte d'une tâche, telle que l'humain l'a approuvée. */
+export interface BrowserSessionInfo {
+  objective: string
+  start_url: string
+  /** Échéance, en millisecondes depuis l'époque : la session se ferme seule à cette heure. */
+  expires_at: number
+}
+
+/** Ce que le port dit d'une tâche sans session ouverte : pourquoi, s'il y en a eu une. */
+export interface BrowserNoSession {
+  /** Motif de la fermeture de la dernière session, `null` si aucune n'a été ouverte. */
+  closed_reason: string | null
+}
+
+/**
+ * Le navigateur d'une tâche, et **tout** ce qu'elle peut en faire.
+ *
+ * Le port est lié à une tâche : une session au plus, qui meurt avec elle. Il
+ * exécute et ne décide rien — la politique (session approuvée, saisie
+ * approuvée) est celle des outils. Chaque méthode qui agit lève une
+ * {@link ToolError} lisible par le modèle si la session est fermée ou si la
+ * page refuse.
+ */
+export interface BrowserPort {
+  /** La session ouverte, ou pourquoi il n'y en a pas. */
+  session(): BrowserSessionInfo | BrowserNoSession
+  /** Ouvre la session approuvée et charge son adresse de départ. */
+  open(request: { objective: string; url: string; max_duration_s: number }): Promise<BrowserCapture>
+  /** Ce que montre la page, sans capture : l'empreinte d'une saisie à approuver. */
+  view(): Promise<BrowserPageView>
+  screenshot(): Promise<BrowserCapture>
+  /** Charge une autre adresse dans la session. */
+  goto(url: string): Promise<BrowserCapture>
+  click(x: number, y: number): Promise<BrowserCapture>
+  scroll(dy: number): Promise<BrowserCapture>
+  type(text: string): Promise<BrowserCapture>
+  press(key: string): Promise<BrowserCapture>
+  /** Ferme la session ; sans effet s'il n'y en a pas. */
+  close(reason: string): Promise<void>
 }
 
 /** Un profil tel qu'un orchestrateur le voit pour choisir à qui déléguer. */

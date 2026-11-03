@@ -24,10 +24,15 @@ import {
 } from './delegation.ts'
 import { askParentTool } from './ask.ts'
 import { readImageTool } from './image.ts'
+import {
+  browserClickTool, browserCloseTool, browserGotoTool, browserKeyTool, browserOpenTool, browserScreenshotTool,
+  browserScrollTool, browserTypeTool, BROWSER_TOOLS,
+} from './browser.ts'
 
 export type {
   Tool, ToolContext, HttpPolicy, PreparedOperation,
   DelegableAgent, DelegateRequest, DelegationPort, DelegationRefusal, SubtaskAwaiting, SubtaskState, WaitStop,
+  BrowserCapture, BrowserNoSession, BrowserPageView, BrowserPort, BrowserSessionInfo,
 } from './types.ts'
 export { ToolError, HTTP_POLICIES, MAX_TOOL_RESULT_BYTES, truncate } from './types.ts'
 export { canonicalRoot, isUnder, openUnderRoot, resolveUnderRoot, toolPath } from './paths.ts'
@@ -48,6 +53,16 @@ export type { SubmitResultArgs } from './result.ts'
 export { ASK_PARENT, askParentSchema } from './ask.ts'
 export { MAX_IMAGE_BYTES, sniffImageType } from './image.ts'
 export type { AskParentArgs } from './ask.ts'
+export {
+  BROWSER_DEFAULT_DURATION_S, BROWSER_KEYS, BROWSER_MAX_DURATION_S, BROWSER_MAX_TYPE_CHARS, BROWSER_TOOLS,
+} from './browser.ts'
+export type { BrowserKey } from './browser.ts'
+
+/**
+ * Outils qui montrent une image au modèle : retirés des outils proposés à un
+ * modèle qui ne les lit pas (Slice 7), refusés s'il les appelle quand même.
+ */
+export const VISION_TOOLS: readonly string[] = ['read_image', ...BROWSER_TOOLS]
 
 /**
  * Outils de délégation : réservés au profil `orchestrator`. Les quatre premiers
@@ -86,6 +101,14 @@ export const TOOLBOX: Readonly<Record<string, Tool<never>>> = Object.freeze({
   send_message: sendMessageTool as Tool<never>,
   accept_result: acceptResultTool as Tool<never>,
   ask_parent: askParentTool as Tool<never>,
+  browser_open: browserOpenTool as Tool<never>,
+  browser_screenshot: browserScreenshotTool as Tool<never>,
+  browser_goto: browserGotoTool as Tool<never>,
+  browser_click: browserClickTool as Tool<never>,
+  browser_scroll: browserScrollTool as Tool<never>,
+  browser_type: browserTypeTool as Tool<never>,
+  browser_key: browserKeyTool as Tool<never>,
+  browser_close: browserCloseTool as Tool<never>,
   submit_result: submitResultTool as Tool<never>,
 })
 

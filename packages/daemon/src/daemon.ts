@@ -41,6 +41,7 @@ import { ensureBuiltinAgents } from './agents.ts'
 import { EventBus } from './bus.ts'
 import { installation } from './installation.ts'
 import { AgentEngine } from './engines/agent.ts'
+import { BrowserSessions } from './browsers.ts'
 import type { ProviderServiceDeps } from './providers.ts'
 import { createRequestHandler } from './http.ts'
 import { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'
@@ -166,6 +167,10 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
     log,
   }
 
+  // Les navigateurs isolés des tâches (Slice 7) : un par tâche au plus, fermés
+  // avec elle, et tous à l'arrêt du daemon.
+  const browsers = new BrowserSessions({ bus, config, log })
+
   // Researcher, Developer et Orchestrator partagent la boucle : une instance du
   // même moteur par type de profil. Seul le Developer crée un worktree ; seul
   // l'Orchestrator reçoit le port de délégation.
@@ -177,6 +182,7 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
         vault,
         pricing: () => pricing,
         env: options.env ?? {},
+        browsers,
       }),
     )
   }
@@ -234,6 +240,7 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
       providers,
       bus,
       config,
+      browsers,
     }),
   )
   stream.attach(server)
@@ -262,6 +269,10 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
     clearInterval(idle)
     clearInterval(heartbeat)
     tasks.stop()
+    // Sans attendre : l'arrêt reste synchrone. Chaque fermeture tue le groupe
+    // de Chromium d'abord ; un processus qui sortirait avant serait rattrapé
+    // par la garde des processus, comme après un `SIGKILL`.
+    void browsers.closeAll('the harness stopped')
     stream.close()
     server.closeAllConnections()
     server.close()

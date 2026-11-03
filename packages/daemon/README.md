@@ -176,6 +176,28 @@ dit dans la timeline. Une déclaration tombe quand le modèle du profil change.
 Aucune image n'est écrite en base (`tests/unit/vision.test.ts` lit la base et
 son WAL).
 
+## Les sessions de navigateur (Slice 7)
+
+`browsers.ts` tient le navigateur isolé de chaque tâche : une session au plus,
+ouverte par `browser_open` une fois approuvée, remise aux outils par un
+`BrowserPort` (`portFor`). Le moteur ne pose ce port que pour un profil qui a
+des outils `browser_*`, et retire ces outils, comme `read_image`, d'un modèle
+qui ne lit pas les images. Une session se ferme :
+
+- à son **échéance**, par un minuteur, que l'agent agisse ou non ;
+- quand **l'humain la coupe** (`POST /api/tasks/:id/browser/close`) — un acte
+  humain, qu'aucun outil n'expose ; l'agent l'apprend à son action suivante ;
+- quand l'agent appelle `browser_close` ;
+- avec **la tâche**, avant sa conclusion (`endTask`) : une ouverture encore en
+  cours est refermée dès que Chromium répond, et aucune autre ne s'ouvre ;
+- avec **le daemon** (`closeAll`) ; tué net, c'est la garde des processus.
+
+Le journal reçoit `browser.opened` et `browser.closed`, expurgés ; les actions
+y sont comme appels d'outil. La dernière capture reste **en mémoire**
+(`frame`) pour l'atelier ; aucune n'est écrite. La garde réseau est celle
+d'`http_fetch`, plus la liste blanche quand la politique HTTP est `allowlist`
+(`defaultBrowserGuard`). Playwright n'est chargé qu'à la première session.
+
 ## Installation
 
 `/api/health` annonce `install` : le dossier canonique du paquet

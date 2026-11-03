@@ -121,6 +121,14 @@ export interface ToolImage {
   mediaType: ImageMediaType
   /** Les octets de l'image, en base64, sans préfixe `data:`. */
   data: string
+  /**
+   * Vrai pour une capture du navigateur : la suivante la **chasse** de la
+   * conversation (Slice 7, étape 4). Chaque étape renvoie toute la
+   * conversation au modèle ; vingt captures gardées coûteraient vingt images
+   * à chaque appel, pour un écran qui n'existe plus. Une image du projet, elle,
+   * reste : une maquette sert pendant toute la tâche.
+   */
+  transient?: boolean
 }
 
 export interface ToolResult {
