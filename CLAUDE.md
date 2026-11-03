@@ -51,8 +51,8 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
 | `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer, arbre d'un orchestrateur et atelier (conversation, éditeur, terminal) compris (`npx playwright install chromium` au préalable) |
 | `npm run test:developer` | ~35 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris |
-| `npm run test:orchestrator` | ~6 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL` |
-| `npm run test:security` | ~3 s — PLAN §8.4 de bout en bout : base et journal lus octet pour octet, refus tracés, API sur la seule boucle locale |
+| `npm run test:orchestrator` | ~10 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL`, conversation qui pilote une revue, `SIGKILL` pendant une attente |
+| `npm run test:security` | ~4 s — PLAN §8.4 de bout en bout : base et journal lus octet pour octet (conversation, questions, propositions et sortie en direct comprises), refus tracés, API sur la seule boucle locale |
 | `npm run test:wait` | ~3 min — 13 scénarios de bout en bout MCP |
 
 ## Invariants à ne pas casser
@@ -292,6 +292,8 @@ agents, explorateur et éditeur (CodeMirror, lecture seule, diff), terminal
 (xterm, lecture seule, séquences d'échappement réduites aux couleurs). Étape 7
 faite : la coque Tauri (`apps/desktop`), qui ouvre la fenêtre sur
 `http://127.0.0.1:<port>/` sans aucune capacité Tauri, et ne navigue que là.
+Étape 8 faite : O5 et O6 (`test:orchestrator`), X6 (`test:security`), la coque
+compilée et testée en CI sur trois plateformes (`.github/workflows/desktop.yml`).
 
 ## Slice 5 terminée — un orchestrateur intégré
 

@@ -20,7 +20,15 @@
  *  - O3 un daemon tué net (`SIGKILL`) laisse un arbre entièrement
  *       `interrupted` au redémarrage — jamais repris, approbations expirées ;
  *  - O4 ni profondeur 2, ni limite relevée : déléguer à un orchestrateur est
- *       refusé, et une délégation qui demande plus que le profil reçoit le profil.
+ *       refusé, et une délégation qui demande plus que le profil reçoit le profil ;
+ *  - O5 une **conversation** pilote une **revue**, de bout en bout par l'API
+ *       (Slice 6) : l'orchestrateur délègue, demande l'avis de l'utilisateur,
+ *       renvoie la proposition, l'accepte au second passage, puis conclut quand
+ *       on le lui demande. Un seul commit, qui contient les deux passes ;
+ *  - O6 un daemon tué net pendant que **tout l'arbre attend** — l'orchestrateur
+ *       l'utilisateur, le Developer son verdict : au redémarrage, tout est
+ *       `interrupted`, rien n'a été commité, rien n'attend plus, et un message de
+ *       l'utilisateur est refusé.
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -381,6 +389,144 @@ await scenario(outcomes, 'O4 ni profondeur 2, ni limite relevée par une délég
     detail: problems.length
       ? problems.join(' ; ')
       : `délégation à « orchestrator » refusée ; 1 000 $ demandés, ${profile.limits.max_cost_usd} $ appliqués (plafond du profil)`,
+  }
+})
+
+// --- O5 ----------------------------------------------------------------------
+
+/** Ouvre une conversation avec l'orchestrateur, comme le formulaire du dashboard. */
+async function converse(tag: string, repo: string, script: Turn[]): Promise<Task> {
+  provider.scripts.set(tag, script)
+  const res = await daemonJson<TaskView & { error?: string }>(rt, '/api/tasks', {
+    method: 'POST',
+    body: JSON.stringify({ objective: `${tag} aide-moi`, agent_id: 'orchestrator', project_dir: repo, conversation: true }),
+  })
+  if (res.status !== 201) throw new Error(`conversation refusée : ${JSON.stringify(res.body)}`)
+  return res.body.task
+}
+
+/** Écrit à une conversation, comme la saisie du dashboard. */
+async function say(id: string, text: string, conclude = false): Promise<number> {
+  const res = await daemonJson(rt, `/api/tasks/${id}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ text, conclude, by: 'test' }),
+  })
+  return res.status
+}
+
+/** Une tâche lue en base, sur une connexion en lecture seule. */
+function inDb(id: string): Task | null {
+  const store = HarnessStore.openReadOnly(main.config)
+  try {
+    return store.getTask(id)
+  } finally {
+    store.close()
+  }
+}
+
+await scenario(outcomes, 'O5 une conversation pilote la revue d\'un Developer, de bout en bout', async () => {
+  const repo = makeRepo('o5')
+  provider.scripts.set('[O5-dev]', [
+    [{ tool: 'write_file', args: { path: 'src/health.ts', content: 'export const health = () => "ok"\n' } }],
+    submit('route ajoutée'),
+    [{ tool: 'write_file', args: { path: 'src/health.test.ts', content: 'import "./health.ts"\n' } }],
+    submit('route et test ajoutés'),
+  ])
+  const parent = await converse('[O5]', repo, [
+    [{ tool: 'delegate_task', args: { agent_id: 'developer', objective: '[O5-dev] ajoute /health' } }],
+    [{ tool: 'wait_for_task', args: { task_id: '{{task_id}}' } }],
+    { text: 'Le Developer propose la route sans test. Je l\'accepte ?' },
+    [{ tool: 'send_message', args: { task_id: '{{task_id}}', message: 'Ajoute un test.' } }],
+    [{ tool: 'wait_for_task', args: { task_id: '{{task_id}}' } }],
+    [{ tool: 'accept_result', args: { task_id: '{{task_id}}' } }],
+    { text: 'C\'est commité sur sa branche.' },
+    submit('route et test sur la branche du Developer'),
+  ])
+
+  const problems: string[] = []
+  const awaitsUser = () => inDb(parent.id)?.status === 'waiting_input' && inDb(parent.id)?.awaiting_input === 'chat'
+  if (!(await until(awaitsUser))) return { verdict: 'FAIL', detail: `pas d'attente de l'utilisateur : ${inDb(parent.id)?.status}` }
+  const [dev] = childrenInDb(parent.id)
+  if (dev?.status !== 'waiting_input' || dev.awaiting_input !== 'proposal') {
+    problems.push(`Developer ${dev?.status}/${dev?.awaiting_input} pendant que l'orchestrateur attend`)
+  }
+  if ((await say(parent.id, 'Non, demande-lui un test.')) !== 200) problems.push('premier message refusé')
+  if (!(await until(awaitsUser))) return { verdict: 'FAIL', detail: [...problems, 'seconde attente jamais atteinte'].join(' ; ') }
+  if ((await say(parent.id, '', true)) !== 200) problems.push('« conclure » refusé')
+  if (!(await until(async () => TERMINAL.has((await task(parent.id)).status)))) problems.push('conversation jamais conclue')
+
+  const done = await task(parent.id)
+  const child = await task(dev!.id)
+  if (done.status !== 'completed') problems.push(`orchestrateur ${done.status} — ${done.error}`)
+  if (child.status !== 'completed') problems.push(`Developer ${child.status} — ${child.error}`)
+  const branch = child.result?.workspace?.branch
+  if (!branch) problems.push('aucune branche')
+  else {
+    const commits = git(repo, 'rev-list', '--count', `main..${branch}`).trim()
+    const files = git(repo, 'diff', '--name-only', 'main', branch).trim().split('\n').sort()
+    if (commits !== '1') problems.push(`${commits} commit(s) sur ${branch}, un seul attendu`)
+    if (files.join(',') !== 'src/health.test.ts,src/health.ts') problems.push(`fichiers commités : ${files.join(', ')}`)
+  }
+  const said = (await events(parent.id)).filter((e) => e.type === 'message.user')
+  if (said.length !== 2 || said[1]!.payload.conclude !== true) problems.push(`${said.length} message(s) de l'utilisateur au journal`)
+  const exchange = (await events(dev!.id)).filter((e) => e.type === 'input.requested' || e.type === 'message.agent')
+  const shape = exchange.map((e) => (e.type === 'input.requested' ? 'proposition' : e.payload.verdict === 'accepted' ? 'accepte' : 'renvoi'))
+  if (shape.join(',') !== 'proposition,renvoi,proposition,accepte') problems.push(`échange : ${shape.join(', ')}`)
+  if (childrenInDb(parent.id, { active: true }).length !== 0) problems.push('sous-tâche active en base')
+  return {
+    verdict: problems.length ? 'FAIL' : 'PASS',
+    detail: problems.length
+      ? problems.join(' ; ')
+      : `deux tours de conversation, proposition renvoyée puis acceptée, 1 commit (2 fichiers) sur ${branch}, 0 active`,
+  }
+})
+
+// --- O6 ----------------------------------------------------------------------
+
+await scenario(outcomes, 'O6 un daemon tué net pendant que tout l\'arbre attend ne reprend rien', async () => {
+  const repo = makeRepo('o6')
+  provider.scripts.set('[O6-dev]', [
+    [{ tool: 'write_file', args: { path: 'src/x.ts', content: 'export const x = 1\n' } }],
+    submit('x ajouté'),
+  ])
+  const parent = await converse('[O6]', repo, [
+    [{ tool: 'delegate_task', args: { agent_id: 'developer', objective: '[O6-dev] propose' } }],
+    [{ tool: 'wait_for_task', args: { task_id: '{{task_id}}' } }],
+    { text: 'Je l\'accepte ?' },
+  ])
+  const bothWait = await until(() => {
+    const kid = childrenInDb(parent.id)[0]
+    return inDb(parent.id)?.awaiting_input === 'chat' && kid?.awaiting_input === 'proposal'
+  })
+  if (!bothWait) return { verdict: 'FAIL', detail: 'l\'arbre n\'a jamais attendu en entier' }
+  const devId = childrenInDb(parent.id)[0]!.id
+
+  child.kill('SIGKILL')
+  await new Promise((r) => child.once('exit', r))
+  ;({ child, rt } = await startDaemon(main.config, main.home))
+  await sleep(2000)
+
+  const problems: string[] = []
+  for (const [label, id] of [['orchestrateur', parent.id], ['Developer', devId]] as const) {
+    const t = inDb(id)
+    if (t?.status !== 'interrupted') problems.push(`${label} ${t?.status}`)
+    if (t?.awaiting_input !== null) problems.push(`${label} attend encore (${t?.awaiting_input})`)
+  }
+  if (childrenInDb(parent.id, { active: true }).length !== 0) problems.push('sous-tâche active en base')
+  const worktree = await worktreeOf(devId)
+  if (!worktree || !existsSync(worktree)) problems.push('worktree effacé : il devait être conservé')
+  else if (!existsSync(join(worktree, 'src', 'x.ts'))) problems.push('le travail non commité a disparu du worktree')
+  const ws = (await daemonJson<{ workspace: { branch: string } | null }>(rt, `/api/tasks/${devId}/workspace`)).body.workspace
+  if (ws && git(repo, 'rev-parse', ws.branch).trim() !== git(repo, 'rev-parse', 'main').trim()) {
+    problems.push('la branche a bougé : une proposition non acceptée a été commitée')
+  }
+  const late = await say(parent.id, 'je suis revenu')
+  if (late !== 409) problems.push(`message à une conversation interrompue : HTTP ${late}`)
+  return {
+    verdict: problems.length ? 'FAIL' : 'PASS',
+    detail: problems.length
+      ? problems.join(' ; ')
+      : 'orchestrateur et Developer interrupted, plus rien n\'attend, 0 active, branche au départ, travail lisible, message refusé (409)',
   }
 })
 

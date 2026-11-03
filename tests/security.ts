@@ -20,7 +20,11 @@
  *       sont lisibles que de l'utilisateur ;
  *  - X5 un orchestrateur qui recopie une clé tierce dans ce qu'il délègue —
  *       objectif, contexte, motif d'annulation — ne la fait pas persister
- *       (Slice 5) : ces textes sont écrits par un modèle, puis rangés en base.
+ *       (Slice 5) : ces textes sont écrits par un modèle, puis rangés en base ;
+ *  - X6 les canaux de la Slice 6 n'en font pas persister non plus : le message
+ *       de l'utilisateur, la question d'un enfant et la réponse du parent, la
+ *       proposition, et la sortie d'une commande qui écrit une clé **en deux
+ *       fois** — dont même la première moitié ne doit pas être écrite.
  *
  * Ce qui est déjà prouvé ailleurs n'est pas rejoué : `Host` et `Origin`
  * étrangers, WebSocket comprise (`restart.ts`, R4) ; approbation à usage
@@ -374,6 +378,102 @@ await scenario(outcomes, 'X5 un orchestrateur ne fait pas persister une clé rec
     detail: problems.length
       ? problems.join(' ; ')
       : 'objectif, contexte et motif d\'annulation expurgés ; base et journal lus octet pour octet : aucune clé',
+  }
+})
+
+await scenario(outcomes, 'X6 conversation, questions, propositions et sortie en direct ne font persister aucune clé', async () => {
+  const repo = makeRepo('x6')
+  // La clé tierce écrite en deux morceaux, à 300 ms d'écart : seule la découpe
+  // par ligne les réunit avant l'expurgation (étape 4). La commande la lit dans
+  // le dépôt plutôt que de la recevoir en argument : coupée dans l'argv, chaque
+  // moitié serait écrite telle quelle avec la commande approuvée — le premier
+  // jet de ce scénario l'a fait, et c'est le test qui fuyait, pas le harness.
+  const half = THIRD_PARTY.slice(0, 20)
+  const speak =
+    "const k = require('fs').readFileSync('config/secrets.env', 'utf8').trim().split('=')[1];" +
+    " process.stdout.write('jeton ' + k.slice(0, 20));" +
+    " setTimeout(() => process.stdout.write(k.slice(20) + '\\n'), 300)"
+  provider.scripts.set('[X6-enfant]', [
+    [{ tool: 'ask_parent', args: { question: `faut-il le jeton ${THIRD_PARTY} ?` } }],
+    [{ tool: 'exec', args: { command: 'node', args: ['-e', speak] } }],
+    submit(`jeton ${THIRD_PARTY} configuré`, `clé ${PROVIDER_KEY}`),
+  ])
+  provider.scripts.set('[X6]', [
+    [{ tool: 'delegate_task', args: { agent_id: 'developer', objective: '[X6-enfant] configure' } }],
+    [{ tool: 'wait_for_task', args: { task_id: '{{task_id}}' } }],
+    [{ tool: 'send_message', args: { task_id: '{{task_id}}', message: `oui, prends ${THIRD_PARTY}` } }],
+    [{ tool: 'wait_for_task', args: { task_id: '{{task_id}}' } }],
+    [{ tool: 'accept_result', args: { task_id: '{{task_id}}' } }],
+    { text: 'Je conclus ?' },
+    submit('fini'),
+  ])
+  const res = await daemonJson<TaskView>(rt, '/api/tasks', {
+    method: 'POST',
+    body: JSON.stringify({ objective: '[X6] configure le dépôt', agent_id: 'orchestrator', project_dir: repo, conversation: true }),
+  })
+  const parentId = res.body.task.id
+  const problems: string[] = []
+
+  // L'humain approuve la commande de l'enfant, puis répond à l'orchestrateur.
+  const deadline = Date.now() + 30_000
+  let parent = await view(parentId)
+  while (Date.now() < deadline && !(parent.task.status === 'waiting_input' && parent.task.awaiting_input === 'chat')) {
+    const all = (await daemonJson<{ tasks: TaskView['task'][] }>(rt, '/api/tasks?limit=50')).body.tasks
+    for (const kid of all.filter((t) => t.parent_task_id === parentId && t.status === 'waiting_approval')) {
+      const v = await view(kid.id)
+      if (v.approval) await daemonJson(rt, `/api/approvals/${v.approval.id}/approve`, { method: 'POST', body: JSON.stringify({ by: 'test' }) })
+    }
+    await sleep(100)
+    parent = await view(parentId)
+  }
+  if (parent.task.awaiting_input !== 'chat') return { verdict: 'FAIL', detail: `l'orchestrateur n'attend pas l'utilisateur : ${parent.task.status}` }
+  const said = await daemonJson(rt, `/api/tasks/${parentId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ text: `ma clé ${PROVIDER_KEY} et le jeton ${THIRD_PARTY}`, conclude: true, by: 'test' }),
+  })
+  if (said.status !== 200) problems.push(`message refusé : HTTP ${said.status}`)
+  const done = await finish(parentId)
+  if (done.task.status !== 'completed') problems.push(`orchestrateur ${done.task.status} — ${done.task.error}`)
+
+  const all = (await daemonJson<{ tasks: TaskView['task'][] }>(rt, '/api/tasks?limit=50')).body.tasks
+  const kid = all.find((t) => t.parent_task_id === parentId)
+  if (!kid) return { verdict: 'FAIL', detail: [...problems, 'aucune sous-tâche'].join(' ; ') }
+  // Chaque canal a bien été emprunté, et expurgé : sans cela, l'absence de clé
+  // pourrait venir d'un texte jamais écrit.
+  const parentEvents = await events(parentId)
+  const kidEvents = await events(kid.id)
+  const text = (e: TaskEvent | undefined) => String(e?.payload.text ?? '')
+  const channels: [string, TaskEvent | undefined][] = [
+    ['message de l\'utilisateur', parentEvents.find((e) => e.type === 'message.user')],
+    ['question', kidEvents.find((e) => e.type === 'input.requested' && e.payload.request === 'question')],
+    ['réponse du parent', kidEvents.find((e) => e.type === 'message.agent' && e.payload.in_reply_to === 'question')],
+    ['proposition', kidEvents.find((e) => e.type === 'input.requested' && e.payload.request === 'proposal')],
+  ]
+  for (const [label, event] of channels) {
+    if (!event) problems.push(`${label} absent du journal`)
+    else if (!text(event).includes(REDACTED)) problems.push(`${label} non expurgé : « ${text(event)} »`)
+  }
+  const output = kidEvents.filter((e) => e.type === 'exec.output').map(text).join('')
+  if (!/jeton /.test(output)) problems.push('aucune sortie de commande au journal')
+  if (!output.includes(REDACTED)) problems.push(`sortie non expurgée : « ${output} »`)
+
+  for (const name of ['harness.db', 'harness.db-wal', 'daemon.log']) {
+    const path = join(main.home, name)
+    if (!existsSync(path)) continue
+    const bytes = readFileSync(path)
+    if (bytes.includes(PROVIDER_KEY)) problems.push(`clé du fournisseur en clair dans ${name}`)
+    if (bytes.includes(THIRD_PARTY)) problems.push(`clé tierce en clair dans ${name}`)
+    if (bytes.includes(half)) problems.push(`moitié de la clé tierce en clair dans ${name}`)
+  }
+  for (const needle of [PROVIDER_KEY, THIRD_PARTY, half]) {
+    const columns = whereInDatabase(main.config.dbPath, needle)
+    if (columns.length) problems.push(`${needle.slice(0, 8)}… dans ${columns.join(', ')}`)
+  }
+  return {
+    verdict: problems.length ? 'FAIL' : 'PASS',
+    detail: problems.length
+      ? problems.join(' ; ')
+      : 'message, question, réponse, proposition et sortie en direct expurgés ; base et journal lus octet pour octet : ni clé ni moitié de clé',
   }
 })
 

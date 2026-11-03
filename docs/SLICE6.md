@@ -7,7 +7,7 @@ façon VS Code. Cet atelier comprend un chat, le fil des échanges entre agents,
 fichiers écrits en direct et la sortie des commandes. Il tourne dans une app
 desktop Tauri.
 
-**État : en cours.** Étapes 1 à 7 faites (2026-11-03).
+**État : en cours.** Étapes 1 à 8 faites (2026-11-03) ; reste l'essai réel.
 
 ---
 
@@ -94,7 +94,7 @@ lancent les agents, et n'expose aucun shell.
 | 5 | Routes de fichiers en lecture seule (arbre, contenu de travail et de départ) | **fait** |
 | 6 | Dashboard façon VS Code : explorateur, éditeur et diff, chat et fil des agents, terminal | **fait** |
 | 7 | Coque Tauri | **fait** |
-| 8 | Preuves : unitaires, `test:orchestrator`, `test:security`, `test:ui`, CI sur trois plateformes | à faire |
+| 8 | Preuves : unitaires, `test:orchestrator`, `test:security`, `test:ui`, CI sur trois plateformes | **fait** — CI à constater après la poussée |
 | 9 | Essai réel, dans l'app, contre un vrai fournisseur | à faire |
 
 ## Récit
@@ -555,4 +555,65 @@ reste dans `src-tauri/target/release/`.
 
 **Pas encore là :** `cargo check` de la coque en CI sur les trois plateformes
 (étape 8).
+
+### Étape 8 — les preuves (2026-11-03)
+
+Les étapes 1 à 7 ont chacune apporté leurs tests. L'étape 8 ajoute ce qu'aucune
+ne pouvait prouver seule : l'enchaînement complet, la chute du daemon au pire
+moment, et les octets en base.
+
+**O5 — une conversation qui pilote une revue, par l'API, dans un vrai daemon.**
+L'orchestrateur délègue et demande l'avis de l'utilisateur pendant que son
+Developer attend son verdict. Il renvoie la proposition, l'accepte au second
+passage, puis conclut sur la demande de l'utilisateur. Le scénario vérifie, en
+base et dans Git :
+- un seul commit, qui contient les deux passes ;
+- deux messages de l'utilisateur, le second avec `conclude` ;
+- l'échange de l'enfant dans l'ordre : proposition, renvoi, proposition,
+  acceptation ;
+- aucune tâche active.
+
+**O6 — un daemon tué net pendant que tout l'arbre attend.** L'orchestrateur
+attend l'utilisateur, le Developer son verdict, et le daemon reçoit `SIGKILL`.
+Au redémarrage :
+- les deux tâches sont `interrupted`, et `awaiting_input` est effacé ;
+- aucune tâche n'est active ;
+- la branche est au commit de départ, rien n'ayant été accepté ;
+- le travail est lisible dans le worktree conservé ;
+- un message de l'utilisateur est refusé (409) : rien ne reprend.
+
+**X6 — les canaux de la Slice 6, lus octet pour octet.** Des clés passent par :
+- le message de l'utilisateur, et sa demande de conclure ;
+- la question de l'enfant et la réponse du parent ;
+- la proposition ;
+- la sortie d'une commande qui écrit une clé **en deux fois**, à 300 ms
+  d'écart.
+
+Chaque canal est vérifié expurgé au journal. La base, son WAL et le journal du
+daemon ne contiennent ni les clés, ni même la première moitié de la clé coupée.
+Vu échouer sans la découpe par ligne : la clé apparaît en clair dans la sortie.
+
+**Ce que X6 a d'abord montré : un test qui fuyait.** Le premier jet faisait
+écrire la clé coupée par la commande elle-même, ses deux moitiés **en
+arguments**. Ces moitiés, trop courtes pour être reconnues, étaient alors
+écrites avec la commande approuvée et l'appel d'outil : c'était le test qui
+fuyait, pas le harness. La commande lit désormais la clé dans le dépôt, comme le
+ferait un vrai programme, et seule sa sortie la porte.
+
+**CI.**
+- `.github/workflows/desktop.yml` compile et teste la coque (`cargo test
+  --locked`) sur macOS, Windows et Linux, avec les bibliothèques de WebKitGTK.
+  Il ne prouve pas qu'une fenêtre s'ouvre : aucun poste n'a d'écran, et le
+  fichier le dit.
+- Le filtre de `worktrees.yml` ne couvrait pas les fichiers qu'éprouvent ses
+  deux nouvelles suites (sortie en direct, fichiers d'une tâche). Une
+  modification de `output.ts` ou de `files.ts` n'aurait relancé aucun poste.
+  Il les couvre désormais.
+
+**Vérifié localement :**
+- `test:orchestrator` : 6 scénarios ;
+- `test:security` : 6 scénarios, X6 vu échouer puis passer ;
+- les deux workflows sont du YAML valide.
+
+La CI est à constater après la poussée.
 

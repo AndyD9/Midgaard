@@ -30,6 +30,14 @@ on:
       - 'tests/unit/write-tools.test.ts'
       - 'tests/unit/exec.test.ts'
       - 'tests/unit/dashboard-patch.test.ts'
+      # Slice 6 : la sortie d'`exec` en direct et les fichiers d'une tâche,
+      # éprouvés par la même suite — leurs tubes et leurs chemins dépendent de
+      # la plateforme.
+      - 'packages/agent-runtime/src/**'
+      - 'packages/daemon/src/**'
+      - 'tests/unit/exec-output.test.ts'
+      - 'tests/unit/task-files.test.ts'
+      - 'tests/fake-provider.ts'
       - '.github/workflows/worktrees.yml'
       - 'package-lock.json'
   pull_request:
