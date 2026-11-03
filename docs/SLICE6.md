@@ -615,5 +615,13 @@ ferait un vrai programme, et seule sa sortie la porte.
 - `test:security` : 6 scénarios, X6 vu échouer puis passer ;
 - les deux workflows sont du YAML valide.
 
-La CI est à constater après la poussée.
+**Constaté en CI** (passage sur `46ec658`) : « Worktrees », « Bout en bout »
+— O5, O6 et X6 compris — et « Coffre », verts sur les trois plateformes. « Coque
+desktop » est verte sous macOS et Linux, **rouge sous Windows** (`41656649127`) :
+`tauri-build` y exige `icons/icon.ico` pour la ressource de l'exécutable, que
+macOS et Linux ne demandent pas. Le premier jet ne fournissait que le PNG. L'ICO
+est désormais engendré du même PNG, qu'il contient tel quel (format admis
+depuis Windows Vista), et déclaré dans `bundle.icon`. C'est précisément le genre
+de panne que ce workflow existe pour trouver : invisible depuis le Mac qui a
+écrit la coque.
 

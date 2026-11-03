@@ -51,5 +51,6 @@ version de Node, ou déplacer le clone, demande de reconstruire.
 | `src-tauri/src/main.rs` | Démarrage du daemon, lecture de l'adresse, fenêtre |
 | `src-tauri/build.rs` | Contexte Tauri, chemin de `node` et racine du clone gravés |
 | `src-tauri/tauri.conf.json` | Aucune fenêtre ni capacité déclarée : la fenêtre est créée par le code |
+| `src-tauri/icons/` | `icon.png`, et `icon.ico` qui le contient tel quel : Windows exige l'ICO pour la ressource de l'exécutable |
 | `ui/index.html` | Dossier d'interface exigé par Tauri, jamais affiché |
 | `packages/cli/src/desktop.ts` | `harness desktop`, le lanceur |
