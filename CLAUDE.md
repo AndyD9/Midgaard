@@ -3,7 +3,8 @@
 Harness local qui laisse Claude Code déléguer des tâches à des agents exécutants,
 les observer et les soumettre à approbation humaine. **Lire d'abord** :
 [README.md](README.md) (état, commandes), [docs/PLAN.md](docs/PLAN.md) (décisions
-et slices), [docs/SLICE6.md](docs/SLICE6.md) (atelier façon VS Code, essais réels),
+et slices), [docs/SLICE7.md](docs/SLICE7.md) (images et navigateur isolé, décidée),
+[docs/SLICE6.md](docs/SLICE6.md) (atelier façon VS Code, essais réels),
 [docs/SLICE5.md](docs/SLICE5.md) (orchestrateur intégré, essai réel), [docs/SLICE4.md](docs/SLICE4.md) (durcissement,
 distribution abandonnée, essai depuis un clone), [docs/SLICE3.md](docs/SLICE3.md) (Developer, worktrees,
 approbations : décisions, étapes, essai réel, CI), [docs/SLICE2.md](docs/SLICE2.md),
@@ -269,6 +270,18 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
+
+## Slice 7 décidée — les agents voient
+
+Décidée le 2026-11-03, pas commencée : lire des images d'abord, puis piloter
+un **navigateur isolé** (Chromium jetable lancé par le daemon, jamais le
+bureau de l'utilisateur) sous des **sessions approuvées et surveillées**, la
+saisie de texte approuvée à chaque fois. Décisions, découpage en huit étapes et
+points de vigilance : [docs/SLICE7.md](docs/SLICE7.md). À retenir avant d'y
+toucher : **aucune image n'est écrite en base**, la capacité « vision » d'un
+modèle est **constatée** au catalogue du fournisseur (sinon déclarée, et dite
+comme telle), et une capture d'une page rend la tâche non fiable. Le modèle des
+essais de la Slice 6 ne lit pas les images.
 
 ## Slice 6 terminée — un atelier façon VS Code
 
