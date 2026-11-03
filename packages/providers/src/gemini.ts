@@ -12,6 +12,7 @@
  * | Consigne système | un message | un champ à part, `systemInstruction` |
  * | Appel d'outil | `tool_calls[].function.arguments`, **chaîne JSON** | `functionCall.args`, **objet déjà désérialisé** |
  * | Retour d'outil | message de rôle `tool`, avec `tool_call_id` | `functionResponse` dans un `Content` de rôle `user`, **sans identifiant** |
+ * | Image (Slice 7) | partie `image_url`, URL `data:` | partie `inlineData` du `Content` utilisateur |
  * | Jetons de raisonnement | inclus dans `completion_tokens` | `thoughtsTokenCount`, **en plus** de `candidatesTokenCount` |
  *
  * La dernière ligne est un piège à coût : additionner naïvement
@@ -55,6 +56,8 @@ export interface GeminiAdapterOptions {
 interface WirePart {
   text?: string
   functionCall?: { name?: string; args?: Record<string, unknown> }
+  /** Une image jointe (Slice 7), en base64. */
+  inlineData?: { mimeType: string; data: string }
 }
 
 interface WireResponse {
@@ -217,7 +220,10 @@ function toContents(messages: Message[]): Record<string, unknown>[] {
   for (const message of messages) {
     if (message.role === 'system') continue
     if (message.role === 'user') {
-      out.push({ role: 'user', parts: [{ text: message.content }] })
+      // Une image est une partie de plus du même `Content`, à côté du texte.
+      const parts: WirePart[] = message.content ? [{ text: message.content }] : []
+      for (const image of message.images ?? []) parts.push({ inlineData: { mimeType: image.mediaType, data: image.data } })
+      out.push({ role: 'user', parts: parts.length ? parts : [{ text: '' }] })
       continue
     }
     if (message.role === 'assistant') {

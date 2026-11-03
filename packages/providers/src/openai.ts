@@ -17,6 +17,8 @@
  * | Recherche web | outil à part, non câblé | `venice_parameters.enable_web_search` |
  * | Coût | non annoncé → estimé | objet `cost.usd` → **la facture** |
  * | Citations | — | `venice_parameters.web_search_citations` |
+ * | Images (Slice 7) | `image_url` en URL `data:` | idem |
+ * | Capacité « vision » | non publiée → inconnue | `model_spec.capabilities.supportsVision` |
  */
 import type { ConnectionTest, ModelPrice, ProviderPreset, Usage } from '@midgaard/contracts'
 import { addUsage, costFromTable, emptyUsage, settleCost } from '@midgaard/contracts'
@@ -25,6 +27,7 @@ import type {
   CompletionResponse,
   FinishReason,
   Message,
+  ModelCapabilities,
   ProviderAdapter,
   ToolCallRequest,
 } from './adapter.ts'
@@ -272,6 +275,13 @@ export function createOpenAiAdapter(options: OpenAiAdapterOptions): ProviderAdap
         models: models.slice(0, 200),
       }
     },
+
+    // Seul Venice publie la capacité de ses modèles. OpenAI et un endpoint
+    // `custom` ne la publient pas : on ne la devine pas d'après le nom.
+    async capabilities(signal): Promise<ModelCapabilities> {
+      if (options.preset !== 'venice') return { vision: null, source: 'unknown' }
+      return veniceCapabilities(base, options.model, options.apiKey, options.redact, signal)
+    },
   }
 }
 
@@ -300,9 +310,81 @@ function toWireMessage(message: Message): Record<string, unknown> {
       }
     case 'tool':
       return { role: 'tool', tool_call_id: message.callId, content: message.content }
+    case 'user':
+      // Une image se joint par une URL `data:` : l'API n'a pas d'autre forme
+      // pour des octets, et une URL externe ferait télécharger l'image par le
+      // fournisseur — hors de notre vue, et la page d'origine le saurait.
+      if (message.images?.length) {
+        return {
+          role: 'user',
+          content: [
+            ...(message.content ? [{ type: 'text', text: message.content }] : []),
+            ...message.images.map((i) => ({ type: 'image_url', image_url: { url: `data:${i.mediaType};base64,${i.data}` } })),
+          ],
+        }
+      }
+      return { role: 'user', content: message.content }
     default:
       return { role: message.role, content: message.content }
   }
+}
+
+/**
+ * Durée de validité du catalogue lu chez Venice. Une heure : la capacité d'un
+ * modèle ne change pas d'une tâche à l'autre, et relire le catalogue à chaque
+ * tâche ajouterait un aller-retour réseau à chacune.
+ */
+export const CATALOG_TTL_MS = 60 * 60 * 1000
+
+/** Catalogues lus, par URL de base : la date de lecture et la capacité de chaque modèle. */
+const catalogs = new Map<string, { at: number; vision: Map<string, boolean> }>()
+
+/** Ce que rend `GET /models` de Venice, réduit à ce qu'on en lit. */
+interface VeniceCatalog {
+  data?: { id?: string; model_spec?: { capabilities?: { supportsVision?: boolean } } }[]
+}
+
+/**
+ * La capacité « vision » d'un modèle Venice, lue dans son catalogue public.
+ *
+ * Un modèle absent du catalogue, ou un catalogue illisible, rend « inconnu »
+ * plutôt que « non » : on ne sait pas, et le dire est la seule réponse juste.
+ */
+async function veniceCapabilities(
+  base: string,
+  model: string,
+  apiKey: string,
+  redact: (t: string) => string,
+  signal?: AbortSignal,
+): Promise<ModelCapabilities> {
+  let catalog = catalogs.get(base)
+  if (!catalog || Date.now() - catalog.at > CATALOG_TTL_MS) {
+    try {
+      const list = await getJson<VeniceCatalog>({
+        url: `${base}/models?type=text`,
+        headers: { authorization: `Bearer ${apiKey}` },
+        signal,
+        provider: 'venice',
+        redact,
+      })
+      const vision = new Map<string, boolean>()
+      for (const m of list.data ?? []) {
+        const flag = m.model_spec?.capabilities?.supportsVision
+        if (m.id && typeof flag === 'boolean') vision.set(m.id, flag)
+      }
+      catalog = { at: Date.now(), vision }
+      catalogs.set(base, catalog)
+    } catch {
+      return { vision: null, source: 'unknown' }
+    }
+  }
+  const flag = catalog.vision.get(model)
+  return flag === undefined ? { vision: null, source: 'unknown' } : { vision: flag, source: 'catalog' }
+}
+
+/** Vide le cache des catalogues : pour les tests, qui changent de catalogue d'un cas à l'autre. */
+export function clearCatalogCache(): void {
+  catalogs.clear()
 }
 
 function toToolCall(call: WireToolCall): ToolCallRequest {

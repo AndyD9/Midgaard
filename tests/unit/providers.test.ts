@@ -11,7 +11,9 @@
  * Les pièges couverts sont ceux qui coûtent cher et ne se voient pas :
  *  - les jetons de pensée de Gemini, facturés sans figurer dans la sortie ;
  *  - le coût annoncé par Venice, qui doit l'emporter sur notre estimation ;
- *  - un modèle sans tarif connu, qui ne doit **pas** afficher zéro.
+ *  - un modèle sans tarif connu, qui ne doit **pas** afficher zéro ;
+ *  - une image jointe à un message, dans la forme exacte de chaque fournisseur,
+ *    et la capacité « vision » lue au catalogue, jamais devinée (Slice 7).
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -19,7 +21,14 @@ import { createServer, type Server } from 'node:http'
 import { after, before, describe, it } from 'node:test'
 import type { PricingTable } from '@midgaard/contracts'
 import { addUsage, costFromTable, emptyUsage, pricingTableSchema } from '@midgaard/contracts'
-import { createGeminiAdapter, createOpenAiAdapter, fetchVenicePricing, packagedPricingPath, priceFor } from '@midgaard/providers'
+import {
+  clearCatalogCache,
+  createGeminiAdapter,
+  createOpenAiAdapter,
+  fetchVenicePricing,
+  packagedPricingPath,
+  priceFor,
+} from '@midgaard/providers'
 
 /** Dernière requête reçue, pour vérifier ce qu'on envoie et pas seulement ce qu'on lit. */
 let lastRequest: { path: string; body: Record<string, unknown>; auth: string | undefined }
@@ -282,6 +291,87 @@ describe('adaptateur Gemini', () => {
     await gemini().complete(ASK)
     assert.equal(lastRequest.auth, 'AIza-test')
     assert.ok(!lastRequest.path.includes('AIza'), 'une URL finit dans les journaux de tout ce qu\'elle traverse')
+  })
+})
+
+describe('images et capacité « vision » (Slice 7)', () => {
+  /** Une image minuscule : les octets n'importent pas, la forme du fil si. */
+  const IMAGE = { mediaType: 'image/png' as const, data: 'iVBORw0KGgo=' }
+  const WITH_IMAGE = {
+    ...ASK,
+    messages: [{ role: 'user' as const, content: 'que montre cette capture ?', images: [IMAGE] }],
+  }
+
+  it('joint l\'image en URL data: à côté du texte, pour l\'API compatible OpenAI', async () => {
+    nextResponse = { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }], usage: {} }
+    await venice().complete(WITH_IMAGE)
+    const [message] = lastRequest.body.messages as { role: string; content: unknown }[]
+    assert.deepEqual(message!.content, [
+      { type: 'text', text: 'que montre cette capture ?' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } },
+    ])
+  })
+
+  it('laisse un message sans image en texte simple, comme avant', async () => {
+    nextResponse = { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }], usage: {} }
+    await venice().complete(ASK)
+    const [message] = lastRequest.body.messages as { content: unknown }[]
+    assert.equal(message!.content, 'bonjour')
+  })
+
+  it('joint l\'image en inlineData dans le Content utilisateur, pour Gemini', async () => {
+    nextResponse = { candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }], usageMetadata: {} }
+    await gemini().complete(WITH_IMAGE)
+    const [content] = lastRequest.body.contents as { role: string; parts: unknown[] }[]
+    assert.equal(content!.role, 'user')
+    assert.deepEqual(content!.parts, [
+      { text: 'que montre cette capture ?' },
+      { inlineData: { mimeType: 'image/png', data: 'iVBORw0KGgo=' } },
+    ])
+  })
+
+  it('lit la capacité au catalogue Venice, une fois pour plusieurs tâches', async () => {
+    clearCatalogCache()
+    getRoutes.set('/models', [200, {
+      data: [
+        { id: 'voit', model_spec: { capabilities: { supportsVision: true } } },
+        { id: 'aveugle', model_spec: { capabilities: { supportsVision: false } } },
+        { id: 'muet' },
+      ],
+    }])
+    try {
+      assert.deepEqual(await venice('voit').capabilities!(), { vision: true, source: 'catalog' })
+      assert.deepEqual(await venice('aveugle').capabilities!(), { vision: false, source: 'catalog' })
+      assert.deepEqual(await venice('muet').capabilities!(), { vision: null, source: 'unknown' }, 'non publiée : inconnue, pas « non »')
+      assert.deepEqual(await venice('absent').capabilities!(), { vision: null, source: 'unknown' })
+      // Le catalogue change chez le fournisseur : le cache tient jusqu'à son échéance.
+      getRoutes.set('/models', [200, { data: [{ id: 'voit', model_spec: { capabilities: { supportsVision: false } } }] }])
+      assert.equal((await venice('voit').capabilities!()).vision, true, 'lu une fois, gardé une heure')
+    } finally {
+      getRoutes.delete('/models')
+      clearCatalogCache()
+    }
+  })
+
+  it('dit « inconnu » quand le catalogue est illisible, sans faire échouer', async () => {
+    clearCatalogCache()
+    getRoutes.set('/models', [500, { error: 'panne' }])
+    try {
+      assert.deepEqual(await venice('voit').capabilities!(), { vision: null, source: 'unknown' })
+    } finally {
+      getRoutes.delete('/models')
+      clearCatalogCache()
+    }
+  })
+
+  it('ne devine rien chez OpenAI, qui ne publie pas la capacité', async () => {
+    const openai = createOpenAiAdapter({
+      id: 'openai', preset: 'openai', model: 'gpt-4o', baseUrl: base, apiKey: 'sk-test', webSearch: false,
+      redact, price: undefined,
+    })
+    lastRequest = { path: '', body: {}, auth: undefined }
+    assert.deepEqual(await openai.capabilities!(), { vision: null, source: 'unknown' })
+    assert.equal(lastRequest.path, '', 'aucune requête : rien à lire')
   })
 })
 

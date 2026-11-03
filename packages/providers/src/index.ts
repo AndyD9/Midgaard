@@ -17,13 +17,16 @@ export type {
   CompletionRequest,
   CompletionResponse,
   FinishReason,
+  ImageInput,
+  ImageMediaType,
   Message,
+  ModelCapabilities,
   ProviderAdapter,
   ToolCallRequest,
   ToolSpec,
 } from './adapter.ts'
-export { ProviderError } from './adapter.ts'
-export { createOpenAiAdapter } from './openai.ts'
+export { IMAGE_MEDIA_TYPES, ProviderError } from './adapter.ts'
+export { CATALOG_TTL_MS, clearCatalogCache, createOpenAiAdapter } from './openai.ts'
 export { createGeminiAdapter, GEMINI_BASE_URL } from './gemini.ts'
 export {
   fetchVenicePricing,

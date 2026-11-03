@@ -35,10 +35,34 @@ export interface ToolCallRequest {
   argumentsJson: string
 }
 
-/** Un message de la conversation, dans la forme neutre que la boucle manipule. */
+/** Types d'image qu'un message peut porter : ceux que les fournisseurs admettent tous. */
+export const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
+export type ImageMediaType = (typeof IMAGE_MEDIA_TYPES)[number]
+
+/**
+ * Une image jointe à un message (Slice 7), en base64.
+ *
+ * Elle ne vit que dans la conversation, le temps de la tâche : **aucune image
+ * n'est écrite en base** (docs/SLICE7.md, décision 1). Elle peut montrer un
+ * secret, et l'expurgation ne sait pas lire une image.
+ */
+export interface ImageInput {
+  mediaType: ImageMediaType
+  /** Les octets de l'image, en base64, sans préfixe `data:`. */
+  data: string
+}
+
+/**
+ * Un message de la conversation, dans la forme neutre que la boucle manipule.
+ *
+ * Seul un message **utilisateur** porte des images : l'API Chat Completions
+ * n'en admet pas dans un message de rôle `tool`, ni Gemini dans une
+ * `functionResponse`. Une image rendue par un outil suit donc son résultat,
+ * dans un message utilisateur que la boucle ajoute (Slice 7, décision 3).
+ */
 export type Message =
   | { role: 'system'; content: string }
-  | { role: 'user'; content: string }
+  | { role: 'user'; content: string; images?: ImageInput[] | undefined }
   | { role: 'assistant'; content: string; toolCalls: ToolCallRequest[] }
   | { role: 'tool'; callId: string; name: string; content: string }
 
@@ -56,6 +80,19 @@ export interface CompletionRequest {
   webSearch: boolean
   /** Annulation : coupe l'appel HTTP si la tâche est annulée. */
   signal?: AbortSignal | undefined
+}
+
+/**
+ * Ce que le modèle sait faire, **constaté** chez le fournisseur (Slice 7).
+ *
+ * `vision` vaut `null` quand le fournisseur ne publie pas l'information :
+ * on ne la devine pas. C'est alors au profil de la déclarer, et elle est dite
+ * comme telle (docs/SLICE7.md, décision 2).
+ */
+export interface ModelCapabilities {
+  vision: boolean | null
+  /** `catalog` : lu dans le catalogue du fournisseur ; `unknown` : non publié, ou illisible. */
+  source: 'catalog' | 'unknown'
 }
 
 /** Ce que le modèle a répondu, normalisé. */
@@ -85,6 +122,14 @@ export interface ProviderAdapter {
   complete(request: CompletionRequest): Promise<CompletionResponse>
   /** « Test connection » : joint l'endpoint, et dit ce qu'il a vu. */
   testConnection(signal?: AbortSignal): Promise<ConnectionTest>
+  /**
+   * Ce que le modèle configuré sait faire, d'après le catalogue du
+   * fournisseur. Facultatif : un adaptateur qui ne l'implémente pas ne sait
+   * rien, ce qui vaut `{ vision: null, source: 'unknown' }`. Ne lève jamais :
+   * un catalogue illisible ne doit pas faire échouer une tâche qui n'a pas
+   * besoin d'images.
+   */
+  capabilities?(signal?: AbortSignal): Promise<ModelCapabilities>
 }
 
 /**

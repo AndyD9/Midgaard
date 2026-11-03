@@ -19,6 +19,26 @@ c'est le même adaptateur avec une autre `base_url`, plus un objet d'extension
 `venice_parameters`. D'où la distinction entre `kind` (comment on parle, donc
 l'adaptateur) et `preset` (à qui on parle, donc les tarifs et les extensions).
 
+## Images et capacité « vision » (Slice 7)
+
+Un message **utilisateur** peut porter des images (`images`, en base64) : une
+partie `image_url` en URL `data:` pour l'API compatible OpenAI, une partie
+`inlineData` pour Gemini. Seul le message utilisateur en porte : aucune des
+deux API n'admet d'image dans un retour d'outil, et la boucle joindra donc
+l'image d'un outil dans un message utilisateur qui suit son résultat. Une
+image ne vit que dans la conversation, jamais en base.
+
+`capabilities()` dit si le modèle configuré lit les images, **d'après le
+catalogue du fournisseur** : `GET /models` de Venice publie
+`supportsVision` pour chaque modèle, lu une fois par heure et gardé en
+mémoire (`CATALOG_TTL_MS`). OpenAI et un endpoint `custom` ne publient rien :
+la réponse est `null`, « inconnu », jamais devinée d'après le nom du modèle.
+Un catalogue illisible rend aussi « inconnu », sans faire échouer la tâche.
+
+Les tests vérifient la forme envoyée et la lecture du catalogue sur réponses
+enregistrées. **Qu'une image passe réellement, et ce qu'elle coûte, reste à
+constater contre l'API réelle.**
+
 ## Pourquoi pas les SDK officiels
 
 Le plan (§1) verrouillait `openai` et `@google/genai`. La Slice 2 ne les prend

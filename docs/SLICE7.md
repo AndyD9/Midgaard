@@ -6,8 +6,8 @@ navigateur** : ouvrir une page ou une application web, la regarder, cliquer,
 saisir. Le tout dans un navigateur que le daemon lance à part, sous des
 sessions que l'humain approuve et surveille en direct dans l'atelier.
 
-**État : décidée, pas commencée.** Décisions prises avec l'auteur, découpage
-arrêté, aucune ligne de code.
+**État : en cours.** Étape 1 faite (2026-11-03), sur réponses enregistrées ;
+le passage d'une image contre l'API réelle reste à constater.
 
 ---
 
@@ -100,7 +100,7 @@ font rien ; le navigateur ensuite, qui agit.
 
 | # | Étape | État |
 |---|---|---|
-| 1 | Contrats et adaptateurs : contenu image dans `Message`, OpenAI-compatible (`image_url`) et Gemini (`inline_data`) sur réponses enregistrées, capacité « vision » lue au catalogue ou déclarée | à faire |
+| 1 | Contrats et adaptateurs : contenu image dans `Message`, OpenAI-compatible (`image_url`) et Gemini (`inline_data`) sur réponses enregistrées, capacité « vision » lue au catalogue ou déclarée | **fait** — sauf l'API réelle ; la déclaration par profil passe à l'étape 2 |
 | 2 | `read_image` : types reconnus par leurs premiers octets (PNG, JPEG, WebP, GIF), taille plafonnée, chemin vérifié comme `read_file`, refus sans vision ; l'image suit le résultat d'outil ; rien de l'image en base | à faire |
 | 3 | Le paquet `browser` : Chromium jetable par Playwright, garde réseau, sans téléchargement ni permission, processus tués à la fin et après `SIGKILL` | à faire |
 | 4 | Les outils et la session : `browser_open` (session approuvée), `browser_screenshot`, `browser_click`, `browser_scroll`, `browser_type` et `browser_key` (approuvés chacun), `browser_close` ; captures non fiables | à faire |
@@ -123,3 +123,47 @@ font rien ; le navigateur ensuite, qui agit.
   approuvée porte sur son texte exact.
 - **Étape 8.** Le solde du compte Venice bouge sous un autre usage (Slice 6) :
   une clé sur un compte dédié, ou l'essai ne compare pas au solde, et le dit.
+
+## Récit
+
+### Étape 1 — les images dans la conversation (2026-11-03)
+
+**Un champ de plus, pas une autre forme.** Un message utilisateur garde son
+`content` texte et gagne `images` (base64, type parmi PNG, JPEG, WebP, GIF).
+Changer `content` en liste de parties aurait obligé à retoucher chaque endroit
+qui écrit un message — la boucle, le contexte, les tests — pour un cas qui ne
+concerne que les images. Les messages d'avant se traduisent à l'identique : un
+test le fixe pour l'API compatible OpenAI.
+
+**Chaque adaptateur traduit, la boucle n'en sait rien.** L'image devient une
+partie `image_url` en URL `data:` (une URL externe ferait télécharger l'image
+par le fournisseur, et la page d'origine le saurait) ou une partie
+`inlineData` à côté du texte chez Gemini. La règle du PLAN §4 tient : les
+différences de fil restent dans les adaptateurs.
+
+**La capacité est lue, pas devinée.** `capabilities()` lit `supportsVision`
+dans le catalogue Venice, une fois par heure ; il rend `null` pour un modèle
+absent du catalogue, pour un catalogue en panne, et chez OpenAI ou un endpoint
+`custom`, qui ne publient rien. Deviner d'après le nom (`-vl`, `vision`) aurait
+manqué presque tous les modèles relevés : sur les 96 qui lisent les images,
+quatre seulement le disent dans leur nom (`qwen3-vl-235b-a22b`,
+`z-ai-glm-5v-turbo`, `nvidia-nemotron-3-5-super-vl-120b-a12b`,
+`e2ee-qwen3-vl-30b-a3b-p`) ; `gemini-3-7-flash` ou `mistral-small-3-2-24b-instruct`
+les lisent sans le dire.
+
+**Déplacé à l'étape 2 :** la **déclaration** de la capacité par un profil,
+quand le fournisseur ne la publie pas. Elle ne sert qu'au refus de
+`read_image`, et se conçoit avec lui.
+
+**Vérifié :**
+- `npm run typecheck` ;
+- 6 tests sur réponses enregistrées (`providers.test.ts`, « images et
+  capacité ») : la forme exacte des deux fils, un message sans image
+  inchangé, le catalogue lu (vrai, faux, non publié, modèle absent), gardé une
+  heure, illisible sans échec, et aucune requête chez OpenAI ;
+- `npm run test:unit` : 492 tests.
+
+**Pas encore constaté :** qu'une image passe réellement chez Venice, et ce
+qu'elle coûte. C'est la vigilance de cette étape ; il faut un appel payant
+(une fraction de centime) à un modèle qui lit les images.
+
