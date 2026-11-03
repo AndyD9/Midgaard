@@ -7,6 +7,7 @@
     { "path": "packages/providers" },
     { "path": "packages/workspace" },
     { "path": "packages/tools" },
+    { "path": "packages/browser" },
     { "path": "packages/agent-runtime" },
     { "path": "packages/persistence" },
     { "path": "packages/daemon" },

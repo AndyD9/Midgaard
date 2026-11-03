@@ -40,6 +40,9 @@ export {
   EXEC_DEFAULT_TIMEOUT_S, EXEC_MAX_TIMEOUT_S, EXEC_KILL_GRACE_MS,
 } from './exec.ts'
 export type { ExecOutcome } from './exec.ts'
+// La garde des processus sert aussi au navigateur (Slice 7) : Chromium meurt
+// avec le daemon comme une commande `exec`.
+export { armGuard, guardGroup } from './guard.ts'
 export { submitResultSchema } from './result.ts'
 export type { SubmitResultArgs } from './result.ts'
 export { ASK_PARENT, askParentSchema } from './ask.ts'

@@ -45,7 +45,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
 | `npm run harness -- workspaces` | Worktrees : `remove`, `clean` — la branche reste toujours |
 | `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme), `revoke` |
-| `npm run test:unit` | ~5 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git) |
+| `npm run test:unit` | ~11 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git), navigateur (vrai Chromium) |
 | `npm run test:vault` | ~1 s — les coffres seuls, sur le coffre réel de la machine |
 | `npm run test:worktrees` | ~8 s — worktrees, écriture et `exec` seuls, sortie en direct et lecture des fichiers d'une tâche comprises (rejoués en CI sur trois plateformes) |
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
@@ -164,6 +164,12 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   l'origine que le daemon accepte déjà (`http://127.0.0.1:<port>/`) :
   `security.ts` ne change pas. Elle ne navigue que sur cette origine, et
   refuse une adresse de `daemon.json` hors de la boucle locale (Slice 6).
+- **Le navigateur des agents passe tout par le proxy gardé**
+  (`packages/browser`, Slice 7), qui se connecte à l'adresse qu'il a jugée,
+  jamais au nom. Le drapeau `--proxy-bypass-list=<-loopback>` reste : sans
+  lui, la variable `PLAYWRIGHT_DISABLE_FORCED_CHROMIUM_PROXIED_LOOPBACK`
+  héritée par le daemon rouvrait `127.0.0.1` à une page — vu. Chromium est
+  confié à la garde d'`exec` et tué par groupe à la fermeture.
 - **Le terminal du dashboard ne laisse passer que les couleurs**
   (`apps/dashboard/src/lib/terminal.ts`, Slice 6). La sortie vient de
   commandes lancées dans un arbre écrit par l'agent ; une séquence qui efface,
@@ -288,6 +294,8 @@ se lit au catalogue Venice ; constaté contre l'API réelle (`test:live-vision`)
 Étape 2 faite : `read_image` (type lu dans les octets, 4 Mo, chemin vérifié),
 l'image jointe après tous les résultats de l'étape, la vision décidée par le
 catalogue puis la déclaration du profil (migration 10, `PROTOCOL_VERSION` 12).
+Étape 3 faite : le paquet `browser`, un Chromium jetable derrière un proxy
+gardé (qui se connecte à l'adresse jugée), aucun processus survivant.
 
 ## Slice 6 terminée — un atelier façon VS Code
 

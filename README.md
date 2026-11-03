@@ -206,6 +206,7 @@ Midgaard/
 │   ├── secrets/                  coffre système multi-plateforme, sans dépendance native
 │   ├── providers/                adaptateurs de modèles : compatible OpenAI (Venice) et Gemini
 │   ├── tools/                    outils des agents : lecture, écriture et exec dans le worktree, git_diff, http_fetch
+│   ├── browser/                  navigateur isolé : Chromium jetable, proxy gardé, aucun processus survivant
 │   ├── workspace/                worktrees Git des agents écrivants : création, commit, diff, retrait
 │   ├── agent-runtime/            la boucle : budgets, limites, approbations, résultat structuré
 │   ├── daemon/                   HTTP, WebSocket, bus d'événements, moteurs de tâches
