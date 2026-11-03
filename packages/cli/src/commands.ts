@@ -32,6 +32,7 @@ import { inspectRepository } from '@midgaard/workspace'
 import { MIN_NODE, SERVER_NAME, mcpConfigPath, mcpServerEntry, writeMcpConfig } from './mcp-config.ts'
 import type { McpServerEntry } from './mcp-config.ts'
 import { bold, buildAdvice, cmd, colorStatus, dim, green, humanDuration, mark, red, yellow } from './ui.ts'
+import { cargoVersion, DESKTOP_BUILD, desktopBinary } from './desktop.ts'
 
 /** Journalisation du démarrage de daemon, discrète : la CLI a sa propre sortie. */
 const quiet = () => {}
@@ -329,6 +330,21 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
         : 'compilé (servi dès que le daemon démarre)'
       : 'non compilé',
     ...(dashboard.available ? {} : { fix: `${buildAdvice}   # sinon les approbations passent par la CLI` }),
+  })
+
+  // La coque desktop est facultative (Slice 6) : ni Rust ni son binaire ne sont
+  // exigés, le dashboard s'ouvre aussi dans un navigateur. Le contrôle dit où
+  // elle en est, sans jamais faire échouer le diagnostic.
+  const shell = existsSync(desktopBinary())
+  const cargo = shell ? null : cargoVersion()
+  checks.push({
+    level: 'ok',
+    label: 'Coque desktop',
+    detail: shell
+      ? `construite — ${cmd('desktop')}`
+      : cargo
+        ? `facultative, non construite (${cargo}) — ${DESKTOP_BUILD}`
+        : 'facultative, non construite : Rust (cargo) absent ; le dashboard s\'ouvre dans un navigateur',
   })
 
   // Coffre : on **mesure** lequel répond sur cette machine, plutôt que de le

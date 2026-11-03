@@ -332,6 +332,35 @@ terminal. `--yes` passe outre, en connaissance de cause.
 
 ---
 
+## La fenêtre desktop
+
+### « La coque desktop n'est pas construite »
+
+`npm run desktop` ouvre une fenêtre construite depuis le clone. Une fois, et
+après chaque mise à jour du clone :
+
+```bash
+npm run desktop:build
+```
+
+Il faut Rust (`cargo`) ; `npm run doctor` dit s'il est là. Sans lui, le même
+dashboard s'ouvre dans un navigateur, à l'adresse que donne
+`npm run harness -- start`.
+
+### « midgaard : impossible de lancer … » ou la fenêtre ne s'ouvre pas d'un double-clic
+
+Le build a gravé dans la coque le chemin du `node` de npm. Une mise à jour de
+Node (Homebrew en change le dossier) le rend caduc. Reconstruire :
+`npm run desktop:build`. Lancée par `npm run desktop`, la coque reçoit le
+`node` courant et n'est pas concernée.
+
+### « adresse du dashboard refusée, hors de la boucle locale »
+
+La coque n'ouvre que `http://127.0.0.1:<port>/` ou `http://localhost:<port>/`.
+Le fichier `daemon.json` du dossier runtime en annonce une autre : il a été
+modifié à la main, ou n'est pas celui d'un daemon Midgaard. Arrêter le daemon
+(`npm run harness -- stop`), qui le réécrit au prochain démarrage.
+
 ## Les plateformes
 
 - **Windows** : `write_file` écrit le fichier tel que le modèle le donne ; sur

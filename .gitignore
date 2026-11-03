@@ -4,6 +4,9 @@ node_modules/
 # Sorties de compilation : `npm run build` les régénère
 dist/
 *.tsbuildinfo
+# La coque desktop, construite par `npm run desktop:build`
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
 
 # Déclaration MCP locale : chemins absolus propres à chaque machine,
 # régénérée par `harness init`

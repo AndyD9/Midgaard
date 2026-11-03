@@ -7,7 +7,7 @@ façon VS Code. Cet atelier comprend un chat, le fil des échanges entre agents,
 fichiers écrits en direct et la sortie des commandes. Il tourne dans une app
 desktop Tauri.
 
-**État : en cours.** Étapes 1 à 6 faites (2026-11-03).
+**État : en cours.** Étapes 1 à 7 faites (2026-11-03).
 
 ---
 
@@ -93,7 +93,7 @@ lancent les agents, et n'expose aucun shell.
 | 4 | Sortie `exec` en direct, découpée par ligne puis expurgée | **fait** |
 | 5 | Routes de fichiers en lecture seule (arbre, contenu de travail et de départ) | **fait** |
 | 6 | Dashboard façon VS Code : explorateur, éditeur et diff, chat et fil des agents, terminal | **fait** |
-| 7 | Coque Tauri | à faire |
+| 7 | Coque Tauri | **fait** |
 | 8 | Preuves : unitaires, `test:orchestrator`, `test:security`, `test:ui`, CI sur trois plateformes | à faire |
 | 9 | Essai réel, dans l'app, contre un vrai fournisseur | à faire |
 
@@ -487,4 +487,72 @@ compressés). Pour une application servie en local, il n'est pas découpé.
 - les suites de bout en bout.
 
 **Pas encore là :** la coque Tauri (étape 7).
+
+### Après l'étape 6 — la CI, verte sur les trois plateformes (2026-11-03)
+
+Passages `41651166106` (Worktrees), `41651165982` (Bout en bout) et
+`41651165977` (Coffre), sur `f81e5db` : tout vert sous macOS, Linux et
+Windows. Le test des fichiers statiques passe sous Linux, et D12 et D13 passent
+sur les trois systèmes.
+
+### Étape 7 — la coque Tauri (2026-11-03)
+
+**Une coque mince.** `apps/desktop` (Tauri 2.12.5) ne contient aucune logique
+du harness. Au lancement, elle :
+1. démarre le daemon, ou s'y rattache, par la CLI du clone (`harness start`) ;
+2. lit `dashboard_url` dans `daemon.json` ;
+3. ouvre une fenêtre dessus.
+
+Elle n'arrête pas le daemon en se fermant : il s'arrête de lui-même après son
+délai d'inactivité, comme pour un onglet fermé.
+
+**Pourquoi charger l'URL du daemon plutôt qu'embarquer le dashboard.** Une
+page embarquée aurait l'origine `tauri://localhost`, que `security.ts` refuse.
+L'accepter aurait ouvert la liste blanche des origines à quiconque peut servir
+une page sous ce schéma. En chargeant `http://127.0.0.1:<port>/`, la fenêtre a
+l'origine que le daemon accepte déjà : ses contrôles ne changent pas, et le
+dashboard est le même dans la fenêtre et dans un navigateur.
+
+**Ce que la page ne reçoit pas.**
+- Aucune capacité Tauri (`capabilities: []`) et aucun plugin : elle n'a pas
+  d'IPC.
+- Aucune navigation hors de l'origine du dashboard (`on_navigation`), ni par
+  un lien ni par une redirection. Un fichier déposé sur la fenêtre est
+  intercepté par le gestionnaire de Tauri, sans effet faute d'IPC. Le premier
+  jet appelait `disable_drag_drop_handler`, en croyant désactiver le dépôt de
+  fichiers ; cette option fait l'inverse : elle rend le dépôt au webview, qui
+  tente d'ouvrir le fichier. Elle est retirée.
+- Aucune adresse hors de la boucle locale : un `daemon.json` modifié qui
+  annoncerait une page distante est refusé. Trois tests Rust le fixent
+  (`npm run test:desktop`).
+- Le jeton du fichier de découverte n'est ni retenu ni passé à la fenêtre :
+  seule `dashboard_url` en est gardée.
+
+**Le piège du `PATH`.** Une application ouverte d'un double-clic n'hérite pas
+du `PATH` du terminal. `build.rs` grave donc le chemin du `node` de npm
+(`npm_node_execpath`) et la racine du clone. `npm run desktop` passe en plus le
+`node` courant et `--home`. Constaté : le chemin gravé est le chemin **réel**,
+`/opt/homebrew/Cellar/node@24/24.18.0/bin/node`. Une mise à jour de Node par
+Homebrew le rend donc caduc, et `DEPANNAGE.md` le dit.
+
+**Lancée par la CLI.** `npm run desktop` est une commande de la CLI
+(`harness desktop`), et non un script à part : elle est vérifiée par le
+typecheck, et dit quoi faire si la coque n'est pas construite. `doctor` signale
+l'état de la coque, sans jamais échouer pour elle : elle est facultative.
+
+**Rien n'est distribué** (décision du 2026-11-01) : ni signature, ni
+notarisation, ni installeur (`bundle.active: false`). Le binaire, de 5,3 Mo,
+reste dans `src-tauri/target/release/`.
+
+**Vérifié, sur la machine de l'auteur (macOS) :**
+- `npm run desktop:build` : 1 min 51 s la première fois, 1 min ensuite, sans
+  avertissement ;
+- `npm run desktop` ouvre une fenêtre « Midgaard » de 1440 × 900, rattachée au
+  daemon déjà lancé (même pid). Le processus réseau WebKit de la fenêtre tient
+  une connexion établie au port 7777 : la WebSocket du dashboard ;
+- `npm run test:desktop` : 3 tests ;
+- `npm run doctor` : « Coque desktop construite ».
+
+**Pas encore là :** `cargo check` de la coque en CI sur les trois plateformes
+(étape 8).
 

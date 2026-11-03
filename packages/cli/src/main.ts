@@ -13,6 +13,7 @@ import { loadConfig } from '@midgaard/contracts'
 import { decide, doctor, init, start, status, stop } from './commands.ts'
 import { agents, pricing, providers } from './providers.ts'
 import { exec, workspaces } from './workspaces.ts'
+import { desktop } from './desktop.ts'
 import { extractHome } from './args.ts'
 import { bold, dim, setAdviceHome } from './ui.ts'
 
@@ -24,6 +25,7 @@ ${bold('Commandes')}
   stop                  Arrête le daemon
   status [--limit N]    État du daemon et tâches récentes (lit la base même daemon arrêté)
   doctor                Diagnostic de l'installation
+  desktop               Ouvre la fenêtre desktop du dashboard (construite par npm run desktop:build)
   approve [id]          Approuve une demande (la seule en attente si l'id est omis)
   reject [id] [motif]   Refuse une demande
 
@@ -56,7 +58,7 @@ ${bold('Options')}
 
 ${dim('Environnement : MIDGAARD_HOME, MIDGAARD_PORT, MIDGAARD_IDLE_SHUTDOWN_S, MIDGAARD_DASHBOARD_DIR,')}
 ${dim('               MIDGAARD_VAULT, MIDGAARD_HTTP_POLICY, MIDGAARD_HTTP_ALLOW,')}
-${dim('               MIDGAARD_EXEC_ALLOW')}`
+${dim('               MIDGAARD_EXEC_ALLOW, MIDGAARD_APPROVAL_TTL_S, MIDGAARD_INPUT_TTL_S')}`
 
 /**
  * Version du paquet, pour `--version`, lue dans `packages/cli/package.json` —
@@ -100,6 +102,8 @@ export async function run(argv: string[]): Promise<number> {
     }
     case 'doctor':
       return doctor(config, rest[0] ?? process.cwd())
+    case 'desktop':
+      return desktop(config)
     case 'approve':
       return decide(config, 'approve', rest[0], undefined)
     case 'reject':

@@ -36,6 +36,9 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run doctor` | Diagnostic de l'installation |
 | `npm run typecheck` | Vérification des types, dashboard compris |
 | `npm run build` | Compile les paquets et le dashboard |
+| `npm run desktop:build` | Construit la coque Tauri (`apps/desktop`, Rust requis) ; facultatif |
+| `npm run desktop` | Ouvre la fenêtre desktop du dashboard, démarre le daemon au besoin |
+| `npm run test:desktop` | ~2 min la première fois — les tests Rust de la coque (adresse du dashboard) |
 | `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `approve`, `reject` ; `--home <dossier>` avant la commande vise un autre runtime |
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho |
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
@@ -155,6 +158,10 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   merge est un acte humain (décision de la Slice 3). Le retrait d'un worktree
   vérifie que le chemin est strictement sous le dossier des worktrees, même
   forcé : le chemin vient de la base, et une ligne fausse ne doit rien effacer.
+- **La coque desktop n'accorde aucune capacité Tauri à la page** et charge
+  l'origine que le daemon accepte déjà (`http://127.0.0.1:<port>/`) :
+  `security.ts` ne change pas. Elle ne navigue que sur cette origine, et
+  refuse une adresse de `daemon.json` hors de la boucle locale (Slice 6).
 - **Le terminal du dashboard ne laisse passer que les couleurs**
   (`apps/dashboard/src/lib/terminal.ts`, Slice 6). La sortie vient de
   commandes lancées dans un arbre écrit par l'agent ; une séquence qui efface,
@@ -282,7 +289,9 @@ direct (`exec.output`), découpée par ligne, expurgée, regroupée, plafonnée.
 sur le disque et au commit de départ (`/api/tasks/:id/files`). Étape 6
 faite : l'atelier façon VS Code au dashboard — conversation et fil des
 agents, explorateur et éditeur (CodeMirror, lecture seule, diff), terminal
-(xterm, lecture seule, séquences d'échappement réduites aux couleurs).
+(xterm, lecture seule, séquences d'échappement réduites aux couleurs). Étape 7
+faite : la coque Tauri (`apps/desktop`), qui ouvre la fenêtre sur
+`http://127.0.0.1:<port>/` sans aucune capacité Tauri, et ne navigue que là.
 
 ## Slice 5 terminée — un orchestrateur intégré
 
