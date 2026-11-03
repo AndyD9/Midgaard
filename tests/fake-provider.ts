@@ -35,18 +35,26 @@ export interface FakeProvider {
    * réellement dit à l'agent, pour vérifier ce qu'aucune réponse ne montre.
    */
   systems: Map<string, string>
+  /**
+   * Dernière conversation reçue, par étiquette : ce que l'agent a réellement
+   * lu, message par message (Slice 6) — par exemple un message de
+   * l'utilisateur, dont on vérifie qu'il arrive expurgé.
+   */
+  received: Map<string, { role: string; content: string | null }[]>
 }
 
 /** Rend le tour suivant du scénario de la tâche, au format de `/chat/completions`. */
 function completion(
   scripts: Map<string, Turn[]>,
   systems: Map<string, string>,
+  received: FakeProvider['received'],
   body: { messages?: { role: string; content: string | null }[] },
 ): unknown {
   const messages = body.messages ?? []
   const user = messages.find((m) => m.role === 'user')?.content ?? ''
   const tag = [...scripts.keys()].find((t) => user.includes(t))
   if (tag && !systems.has(tag)) systems.set(tag, messages.find((m) => m.role === 'system')?.content ?? '')
+  if (tag) received.set(tag, messages)
   const turn = tag ? scripts.get(tag)![messages.filter((m) => m.role === 'assistant').length] : undefined
   // Les identifiants de sous-tâche rendus par les outils, dans l'ordre où ils
   // sont apparus, chacun une fois.
@@ -98,17 +106,18 @@ function completion(
 export async function startFakeProvider(): Promise<FakeProvider> {
   const scripts = new Map<string, Turn[]>()
   const systems = new Map<string, string>()
+  const received: FakeProvider['received'] = new Map()
   const server = createServer((req, res) => {
     let raw = ''
     req.on('data', (c) => (raw += c))
     req.on('end', () => {
       res.writeHead(200, { 'content-type': 'application/json' })
       if (req.url?.endsWith('/models')) return res.end(JSON.stringify({ data: [{ id: 'faux-1' }] }))
-      res.end(JSON.stringify(completion(scripts, systems, JSON.parse(raw || '{}'))))
+      res.end(JSON.stringify(completion(scripts, systems, received, JSON.parse(raw || '{}'))))
     })
   })
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
   const address = server.address()
   const port = typeof address === 'object' && address ? address.port : 0
-  return { server, url: `http://127.0.0.1:${port}/v1`, scripts, systems }
+  return { server, url: `http://127.0.0.1:${port}/v1`, scripts, systems, received }
 }

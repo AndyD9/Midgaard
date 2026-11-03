@@ -131,8 +131,30 @@ export const createTaskRequestSchema = z.object({
   duration_s: z.number().int().min(1).max(900).default(20),
   /** Tâche simulée seulement : insère une pause d'approbation. */
   needs_approval: z.boolean().default(false),
+  /**
+   * Ouvre une conversation (Slice 6). C'est une **demande** : le daemon pose le
+   * mode `chat` lui-même, et refuse (`conversation_unsupported`) pour tout
+   * profil autre qu'un orchestrateur. Le serveur MCP ne l'envoie jamais.
+   */
+  conversation: z.boolean().default(false),
 })
 export type CreateTaskRequest = z.infer<typeof createTaskRequestSchema>
+
+/**
+ * Corps de `POST /api/tasks/:id/messages` (Slice 6) : le message de
+ * l'utilisateur à une conversation qui l'attend.
+ *
+ * `conclude` demande à l'agent de conclure : le harness ajoute la consigne, et
+ * `text` peut alors être vide. Le texte est expurgé avant d'être écrit, et
+ * l'agent lit la version expurgée.
+ */
+export const postMessageRequestSchema = z.object({
+  text: z.string().max(20_000).default(''),
+  conclude: z.boolean().default(false),
+  /** Qui écrit : `dashboard` ou `cli`. Jamais un modèle — aucun outil n'atteint cette route. */
+  by: z.string().min(1).max(32).default('dashboard'),
+})
+export type PostMessageRequest = z.infer<typeof postMessageRequestSchema>
 
 /** Réponse portant une tâche et la consigne associée. */
 export const taskViewSchema = z.object({

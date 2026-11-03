@@ -25,6 +25,7 @@ import type {
   Agent,
   Approval,
   HarnessConfig,
+  InputRequest,
   RequestedLimits,
   Task,
   TaskEvent,
@@ -127,6 +128,7 @@ export class TaskManager {
       concludeCancellation: (taskId) => {
         this.finishCancellation(taskId)
       },
+      requestInput: (taskId, request, text, step) => this.openInput(taskId, request, text, step),
       delegationFor: (parentTaskId, redact) => this.delegationFor(parentTaskId, redact),
     }
   }
@@ -158,7 +160,10 @@ export class TaskManager {
     const kept = this.bus.keepActiveWorkspaces()
     if (kept.length) this.log(`${kept.length} worktree(s) d'une tâche interrompue conservé(s) pour inspection`)
     const sweepMs = Math.min(MAX_EXPIRY_SWEEP_MS, Math.max(500, Math.round(this.config.approvalTtlMs / 2)))
-    this.sweeper = setInterval(() => this.expireDueApprovals(), sweepMs)
+    this.sweeper = setInterval(() => {
+      this.expireDueApprovals()
+      this.expireIdleConversations()
+    }, sweepMs)
     this.sweeper.unref()
     return interrupted.length
   }
@@ -202,6 +207,13 @@ export class TaskManager {
     durationS: number
     needsApproval: boolean
     parentTaskId?: string | null | undefined
+    /**
+     * Vrai pour ouvrir une conversation (mode `chat`, Slice 6). Réservé à un
+     * orchestrateur de premier niveau : lui seul a un humain en face, et un
+     * exécutant qui attendrait l'utilisateur au lieu de conclure retiendrait
+     * son parent indéfiniment.
+     */
+    conversation?: boolean | undefined
   }): { task: Task } | Refusal {
     const agent = this.store.getAgent(input.agentId)
     if (!agent) {
@@ -236,6 +248,13 @@ export class TaskManager {
     if (!this.engines.has(agent.kind)) {
       return { error: 'engine_unavailable', status: 503, detail: { agent_id: agent.id, kind: agent.kind } }
     }
+    if (input.conversation && (agent.kind !== 'orchestrator' || input.parentTaskId)) {
+      return {
+        error: 'conversation_unsupported',
+        status: 409,
+        detail: { agent_id: agent.id, reason: 'seul un orchestrateur lancé du dashboard peut converser' },
+      }
+    }
 
     // Les limites du profil sont un **plafond** : la délégation ne peut que les
     // abaisser. Sans cette règle, Claude fixerait lui-même son budget, et le
@@ -259,6 +278,9 @@ export class TaskManager {
       stepsTotal: agent.kind === 'simulated' ? STEPS_TOTAL : limits.max_steps,
       needsApproval: input.needsApproval,
       parentTaskId: input.parentTaskId ?? null,
+      // Le mode est décidé ici, jamais reçu tel quel : un client demande une
+      // conversation, le daemon dit si elle en est une.
+      mode: input.conversation ? 'chat' : 'oneshot',
     })
     this.log(
       `tâche ${short(task.id)} créée pour ${agent.id} (budget ${limits.max_cost_usd} $)` +
@@ -315,6 +337,57 @@ export class TaskManager {
     this.bus.emitApproval(approval)
     this.log(`tâche ${short(task.id)} en attente d'approbation (${approval.id})`)
     return approval
+  }
+
+  /**
+   * Met une tâche en attente d'un message. Appelé par les moteurs via
+   * {@link EngineContext.requestInput}.
+   *
+   * @returns `false` si la tâche n'est plus `running` — annulée pendant la
+   *          réplique qui précède l'attente : la boucle conclura l'annulation
+   */
+  private openInput(taskId: string, request: InputRequest, text: string | null, step: number): boolean {
+    const task = this.store.getTask(taskId)
+    if (!task || task.status !== 'running') return false
+    this.bus.record(
+      taskId,
+      'waiting_input',
+      { type: 'input.requested', payload: { request, step, ...(text !== null ? { text } : {}) } },
+      { awaiting_input: request, step },
+    )
+    this.log(`tâche ${short(taskId)} en attente d'un message (${request})`)
+    return true
+  }
+
+  /**
+   * Remet le message de l'utilisateur à une conversation qui l'attend.
+   *
+   * Refusé hors de l'attente plutôt que mis de côté : un message glissé pendant
+   * que l'agent travaille arriverait au milieu de son raisonnement, et l'agent
+   * ne saurait pas à quoi il répond. Le dashboard n'ouvre la saisie que
+   * lorsque la tâche attend.
+   *
+   * @param conclude vrai pour demander à l'agent de conclure : le harness ajoute
+   *                 la consigne, et le texte de l'utilisateur peut être vide
+   * @param by       `dashboard` ou `cli` — jamais un modèle
+   */
+  postMessage(taskId: string, input: { text: string; conclude: boolean; by: string }): TaskView | Refusal {
+    const task = this.store.getTask(taskId)
+    if (!task) return { error: 'task_not_found', status: 404 }
+    if (task.mode !== 'chat') return { error: 'task_not_conversational', status: 409, detail: { mode: task.mode } }
+    if (task.status !== 'waiting_input' || task.awaiting_input !== 'chat') {
+      return { error: 'task_not_awaiting_user', status: 409, detail: { status: task.status } }
+    }
+    const text = input.conclude ? concludeText(input.text) : input.text
+    if (!text.trim()) return { error: 'empty_message', status: 400 }
+    const agent = this.store.getAgent(task.agent_id)
+    const engine = agent ? this.engines.get(agent.kind) : undefined
+    const resumed = engine?.deliver?.(task, text, 'message.user', { by: input.by, conclude: input.conclude })
+    // L'attente n'est plus en vol dans ce processus : la tâche a été conclue
+    // entre la lecture et la remise. Rien n'est écrit.
+    if (!resumed) return { error: 'task_not_awaiting_user', status: 409, detail: { status: task.status } }
+    this.log(`tâche ${short(taskId)} : message de ${input.by}${input.conclude ? ' (conclure)' : ''}`)
+    return this.view(resumed)
   }
 
   // --- Décisions humaines --------------------------------------------------
@@ -470,6 +543,29 @@ export class TaskManager {
         { needs_approval: false, error: `aucune décision humaine en ${humanDelay(this.config.approvalTtlMs)}` },
       )
       this.log(`approbation ${due.id} expirée, tâche ${short(task.id)} → timed_out`)
+    }
+  }
+
+  /**
+   * Arrête en `timed_out` les conversations restées sans réponse de
+   * l'utilisateur au-delà de `inputTtlMs`.
+   *
+   * Seules les attentes de l'utilisateur expirent ici. Celles d'une sous-tâche
+   * envers son parent sont bornées par le parent lui-même : la cascade les
+   * emporte quand il s'arrête.
+   */
+  private expireIdleConversations(): void {
+    const now = Date.now()
+    for (const task of this.store.listTasks({ status: 'waiting_input' })) {
+      if (task.awaiting_input !== 'chat') continue
+      if (now - Date.parse(task.updated_at) < this.config.inputTtlMs) continue
+      const agent = this.store.getAgent(task.agent_id)
+      const error = `aucune réponse de l'utilisateur en ${humanDelay(this.config.inputTtlMs)}`
+      this.bus.record(task.id, 'timed_out', { type: 'task.timed_out', payload: { reason: error } }, { error })
+      // Après l'écriture : la boucle réveillée trouvera une tâche finie, et son
+      // propre verdict sera ignoré (`conclude`).
+      if (agent) this.engines.get(agent.kind)?.cancel(task)
+      this.log(`tâche ${short(task.id)} : conversation sans réponse → timed_out`)
     }
   }
 
@@ -749,6 +845,18 @@ export { SIMULATED_AGENT_ID }
  */
 function humanDelay(ms: number): string {
   return ms < 60_000 ? `${Math.round(ms / 1000)} secondes` : `${Math.round(ms / 60_000)} minutes`
+}
+
+/**
+ * Le message remis à l'agent quand l'utilisateur demande de conclure. En
+ * anglais : c'est le modèle qui le lit. Ce que l'utilisateur a écrit avec, s'il
+ * a écrit quelque chose, vient en premier.
+ */
+function concludeText(userText: string): string {
+  const instruction =
+    'The user asks you to conclude now. Call submit_result with your answer for the whole conversation: ' +
+    'what was decided, what each subtask did, which branches hold changes, and what is left undone.'
+  return userText.trim() ? `${userText.trim()}\n\n${instruction}` : instruction
 }
 
 /** Identifiant abrégé pour les journaux : lisible sans être ambigu en pratique. */

@@ -71,6 +71,25 @@ inconnu, la dépense ne peut pas être plafonnée en dollars — seules les éta
 le délai bornent la tâche. La boucle le dit **une fois**, plutôt que de laisser
 croire à une protection qui n'opère pas.
 
+## Conversation (Slice 6)
+
+En mode `chat`, une réponse sans outil est une **réplique** : la boucle
+appelle `LoopHooks.awaitInput` et repart avec le message reçu, dans la même
+conversation. Trois règles :
+
+- **La fin reste un acte.** Seul `submit_result` termine, même en
+  conversation. La relance de la sortie `oneshot` ne s'applique pas à une
+  réplique.
+- **L'attente ne consomme pas le délai.** L'échéance est repoussée de la
+  durée de chaque attente, et celle des outils (`exec`) avec elle. Étapes et
+  budget, eux, se comptent sur toute la conversation.
+- **La consigne le dit au modèle.** `buildMessages` ajoute un bloc
+  « CONVERSATION » après celle du profil, présente l'objectif comme le premier
+  message de l'utilisateur, et dit que l'attente ne compte pas dans le temps.
+
+Une annulation pendant l'attente rend `cancelled`, une attente expirée
+`timed_out`, sans appel modèle de plus.
+
 ## Statuts d'arrêt
 
 | Raison | Statut | Pourquoi pas `failed` |

@@ -21,7 +21,7 @@
  */
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Agent, AgentLimits } from '@midgaard/contracts'
+import type { Agent, AgentLimits, TaskMode } from '@midgaard/contracts'
 import type { Message } from '@midgaard/providers'
 
 /** Dossiers écartés de l'arborescence : beaucoup d'entrées, aucune information. */
@@ -91,7 +91,29 @@ export interface ContextInput {
   budgetEnforceable: boolean
   /** Le worktree, pour un agent écrivant ; absent pour un agent qui ne fait que lire. */
   workspace?: WorkspaceBrief | undefined
+  /** Manière dont la tâche converse ; `oneshot` par défaut. */
+  mode?: TaskMode | undefined
 }
+
+/**
+ * Ce que la consigne ajoute pour une conversation (Slice 6), après celle du
+ * profil. La consigne du profil est écrite pour une tâche en un coup (« finish
+ * by calling submit_result exactly once ») ; ce bloc dit ce qui change, et le
+ * redit au modèle plutôt que de le lui faire découvrir en attendant :
+ *  - un texte sans outil **est** une réplique à l'utilisateur, qui répondra ;
+ *  - `submit_result` reste la seule fin, quand l'utilisateur le demande ou que
+ *    le travail est fait ;
+ *  - le temps d'attente ne compte pas, les étapes et le budget si.
+ */
+const CHAT_LINES = [
+  'This task is a CONVERSATION with the human user, who reads everything you write.',
+  '- When you need the user\'s input, or have something to report before going on, reply in plain text without ' +
+    'calling a tool. The harness then waits for the user\'s next message and gives it to you.',
+  '- The first user message below is the user\'s opening request; later ones are their replies.',
+  '- Call submit_result only when the user asks you to conclude or the work is done. Its summary and details ' +
+    'cover the whole conversation. Writing "I am done" does not end the conversation.',
+  '- Your step limit and budget cover the whole conversation, every reply included. Keep replies short.',
+]
 
 /**
  * Compose les deux premiers messages : la consigne système, et la demande.
@@ -117,16 +139,20 @@ export function buildMessages(input: ContextInput): Message[] {
     'Operating limits, enforced by the harness:',
     `- At most ${limits.max_steps} model steps. Each reply you make, with or without tool calls, is one step.`,
     budgetLine,
-    `- ${limits.timeout_s} seconds wall clock in total, human approvals included.`,
+    input.mode === 'chat'
+      ? `- ${limits.timeout_s} seconds of working time in total, human approvals included; ` +
+        'time spent waiting for the user\'s reply is not counted.'
+      : `- ${limits.timeout_s} seconds wall clock in total, human approvals included.`,
     `- At most ${limits.max_tool_calls_per_step} tool calls per step.`,
     '',
     ...(input.workspace ? workspaceLines(input.root, input.workspace) : [
       `Project root (the only directory you can read): ${input.root}`,
       'Paths you pass to tools may be relative to that root. Anything outside it is refused.',
     ]),
+    ...(input.mode === 'chat' ? ['', ...CHAT_LINES] : []),
   ].join('\n')
 
-  const parts = [`# Task\n\n${input.objective}`]
+  const parts = [input.mode === 'chat' ? `# User's opening message\n\n${input.objective}` : `# Task\n\n${input.objective}`]
   if (input.context?.trim()) {
     parts.push(
       '# Context from the orchestrator\n\n' +
@@ -136,7 +162,11 @@ export function buildMessages(input: ContextInput): Message[] {
     )
   }
   parts.push(`# Project tree (depth ${TREE_DEPTH})\n\n\`\`\`\n${input.tree}\n\`\`\``)
-  parts.push('Begin. When you have the answer, call submit_result.')
+  parts.push(
+    input.mode === 'chat'
+      ? 'Begin. Reply to the user in plain text when you need them; call submit_result when the conversation is done.'
+      : 'Begin. When you have the answer, call submit_result.',
+  )
 
   return [
     { role: 'system', content: system },

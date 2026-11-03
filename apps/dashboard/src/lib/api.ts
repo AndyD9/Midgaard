@@ -184,7 +184,9 @@ export function fetchApprovals(): Promise<{ approvals: Approval[] }> {
  * Le daemon vérifie le dossier de projet avant toute création ; un refus
  * arrive en `ApiError` avec son motif.
  */
-export function createTask(request: Omit<CreateTaskRequest, 'duration_s' | 'needs_approval'>): Promise<TaskView> {
+export function createTask(
+  request: Omit<CreateTaskRequest, 'duration_s' | 'needs_approval' | 'conversation'> & { conversation?: boolean },
+): Promise<TaskView> {
   return api('/api/tasks', { method: 'POST', body: JSON.stringify(request) })
 }
 

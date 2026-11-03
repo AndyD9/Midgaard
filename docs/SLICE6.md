@@ -7,7 +7,7 @@ façon VS Code. Cet atelier comprend un chat, le fil des échanges entre agents,
 fichiers écrits en direct et la sortie des commandes. Il tourne dans une app
 desktop Tauri.
 
-**État : en cours.** Étape 1 faite (2026-11-03).
+**État : en cours.** Étapes 1 et 2 faites (2026-11-03).
 
 ---
 
@@ -88,7 +88,7 @@ lancent les agents, et n'expose aucun shell.
 | # | Étape | État |
 |---|---|---|
 | 1 | Contrats et persistance : `waiting_input`, `awaiting_input`, `tasks.mode` (migration 9), événements `input.requested`, `message.user`, `message.agent`, `exec.output`, `PROTOCOL_VERSION` 11 | **fait** |
-| 2 | Chat : attente d'un message dans la boucle, délai sur temps actif, `POST /api/tasks/:id/messages`, consigne de l'orchestrateur en conversation | à faire |
+| 2 | Chat : attente d'un message dans la boucle, délai sur temps actif, `POST /api/tasks/:id/messages`, consigne de l'orchestrateur en conversation | **fait** |
 | 3 | Boucle orchestrateur ⇄ Developer : proposition, `accept_result`, `send_message`, `ask_parent`, `wait_for_task` sur attente, cascade | à faire |
 | 4 | Sortie `exec` en direct, découpée par ligne puis expurgée | à faire |
 | 5 | Routes de fichiers en lecture seule (arbre, contenu de travail et de départ) | à faire |
@@ -148,3 +148,75 @@ daemon de protocole 10.
   `waiting_input` ;
 - `test:orchestrator`, `test:security`, `test:developer`, `test:restart`, `test:ui`
   et `test:wait` : au vert, sans modification.
+
+### Étape 2 — le chat (2026-11-03)
+
+**La boucle.** `LoopHooks.awaitInput` est calqué sur `requestApproval` : une
+promesse que le moteur garde (`Running.reply`) et que résolvent `deliver` (le
+message), `cancel` ou `stop`. En mode `chat`, la branche « aucun outil
+appelé » l'appelle au lieu de relancer puis d'échouer. Le message reçu est
+ajouté **au même tableau** de messages : le modèle relit toute la
+conversation à chaque tour, et le faux fournisseur, qui choisit sa réplique au
+nombre de répliques déjà présentes, le prouve.
+
+**Le délai porte sur le temps actif.** L'échéance est repoussée de la durée
+de chaque attente, et celle des outils suit, puisque `exec` borne ses commandes
+sur elle. Deux tests à horloge injectée fixent les deux sens : une heure
+d'attente ne fait pas expirer la tâche, une heure de travail si.
+
+**Étapes et budget, en revanche, couvrent toute la conversation.** Le
+plafond de l'orchestrateur reste celui de son profil (16 étapes par défaut),
+réplique comprise. La consigne le dit au modèle (« keep replies short »). Les
+valeurs par défaut ne sont pas relevées à cette étape : `ensureBuiltinAgents`
+préserve les limites d'un profil existant, et seuls de nouveaux profils
+profiteraient d'un relèvement. La question sera tranchée sur les chiffres de
+l'essai réel (étape 9), et non avant.
+
+**Ce que lit le modèle.** La consigne du profil, écrite pour une tâche en un
+coup, n'est pas réécrite. `buildMessages` lui ajoute un bloc « CONVERSATION »,
+présente l'objectif comme le premier message de l'utilisateur et remplace le
+pied « When you have the answer, call submit_result ». Le test de neutralité
+couvre aussi ce bloc.
+
+**Le message de l'utilisateur.**
+- **Accepté seulement dans une attente.** Un message glissé pendant que
+  l'agent travaille arriverait au milieu de son raisonnement, sans que l'agent
+  sache à quoi il répond. La route le refuse (`task_not_awaiting_user`) plutôt
+  que de le mettre de côté. Le dashboard n'ouvrira la saisie qu'en attente
+  (étape 6).
+- **Expurgé par le moteur**, qui connaît la clé de la tâche, et non par le
+  gérant, qui ne la connaît pas. L'agent reçoit **la version expurgée** : ce que
+  le journal garde est exactement ce qu'il a lu. Ce choix rend la conversation
+  reconstituable depuis le journal, ce dont le fil du dashboard aura besoin.
+- **Écrit avec la reprise**, en une seule écriture : `message.user` porte le
+  statut `running`.
+- **« Conclure »** (`conclude: true`) ajoute la consigne du harness après le
+  texte de l'utilisateur. Le journal garde le texte entier, tel que l'agent le lit.
+
+**Le mode reste au daemon.** `conversation: true` est une demande. Le gérant
+ne pose `chat` que pour un orchestrateur sans parent. Un exécutant qui
+attendrait l'utilisateur au lieu de conclure retiendrait son parent
+indéfiniment. Un `mode` envoyé par un client est écarté par le schéma, et un
+test le vérifie en HTTP.
+
+**L'oubli.** Le balayage des approbations arrête aussi en `timed_out` une
+conversation sans réponse depuis `MIDGAARD_INPUT_TTL_S` (2 h). Il écrit d'abord,
+puis réveille le moteur, dont le verdict tombe sur une tâche finie et est
+ignoré. Le test vérifie qu'un seul événement de fin est écrit.
+
+**Le faux fournisseur garde la dernière conversation reçue** (`received`).
+Le test d'expurgation l'exigeait : son titre affirmait ce que lit l'agent, et
+ne vérifiait d'abord que le journal.
+
+**Vérifié :**
+- `npm run typecheck` ;
+- 8 tests de la boucle (`agent-runtime.test.ts`, « conversation ») ;
+- 9 scénarios sur le vrai moteur (`tests/unit/conversation.test.ts`) : deux
+  tours puis « Conclure », expurgation côté journal **et** côté agent, refus
+  sans écriture, annulation pendant l'attente (0 tâche active en base),
+  expiration, HTTP de bout en bout ;
+- les suites de bout en bout.
+
+**Pas encore là :** aucune interface. On converse par HTTP seulement ; le
+formulaire et le fil arrivent à l'étape 6.
+

@@ -26,6 +26,13 @@
  * le disant — plutôt que de rendre du texte libre là où Claude attend un
  * résultat exploitable.
  *
+ * **Une conversation attend au lieu d'échouer** (Slice 6). En mode `chat`, une
+ * réponse sans outil s'adresse à l'utilisateur : la boucle attend son message
+ * ({@link LoopHooks.awaitInput}) et repart avec lui. La fin reste un acte —
+ * seul `submit_result` termine, même en conversation. Le temps passé à attendre
+ * ne compte pas dans le délai de la tâche : un humain qui réfléchit une heure
+ * ne doit pas faire expirer un agent qui n'a rien fait pendant ce temps.
+ *
  * **Tout ce qui vient du dehors est encadré, même pour l'agent.** Un résultat
  * `untrusted` est enveloppé avant d'être réinjecté dans la conversation de
  * l'agent lui-même, pas seulement avant de remonter à Claude. L'agent est la
@@ -39,7 +46,7 @@
  * d'un Researcher, rendaient un résultat présenté comme fiable.
  */
 import { randomUUID } from 'node:crypto'
-import type { Agent, TaskResult, ToolCallStatus, ToolDecision, Usage } from '@midgaard/contracts'
+import type { Agent, InputRequest, TaskMode, TaskResult, ToolCallStatus, ToolDecision, Usage } from '@midgaard/contracts'
 import { addUsage, emptyUsage, wrapUntrusted } from '@midgaard/contracts'
 import type { Message, ProviderAdapter, ToolCallRequest } from '@midgaard/providers'
 import { ProviderError } from '@midgaard/providers'
@@ -68,6 +75,18 @@ export interface ApprovalRequest {
   detail: Record<string, unknown>
 }
 
+/**
+ * Issue de l'attente d'un message :
+ *  - `message` : le texte reçu, **déjà expurgé** par le daemon — l'agent lit ce
+ *    qui est écrit au journal, ni plus ni moins ;
+ *  - `cancelled` : la tâche a été annulée pendant l'attente ;
+ *  - `expired` : personne n'a répondu à temps ; `detail` dit combien de temps.
+ */
+export type InputOutcome =
+  | { kind: 'message'; text: string }
+  | { kind: 'cancelled' }
+  | { kind: 'expired'; detail: string }
+
 /** Ce que la boucle journalise au moment où elle demande un outil. */
 export interface ToolRequestedInput {
   step: number
@@ -91,9 +110,9 @@ export interface ToolCompletedInput {
 /**
  * Ce que la boucle demande au daemon.
  *
- * Toutes synchrones sauf {@link LoopHooks.requestApproval} : la boucle attend
- * réellement une décision humaine, et c'est le seul endroit où elle s'arrête
- * sans consommer.
+ * Toutes synchrones sauf {@link LoopHooks.requestApproval} et
+ * {@link LoopHooks.awaitInput} : la boucle attend réellement une décision ou un
+ * message, et ce sont les seuls endroits où elle s'arrête sans consommer.
  */
 export interface LoopHooks {
   /** Texte produit par le modèle à cette itération. */
@@ -111,6 +130,16 @@ export interface LoopHooks {
    * préparée** : ce qu'elle décrit est ce qui s'exécutera si l'humain accepte.
    */
   requestApproval(request: ApprovalRequest, step: number): Promise<ApprovalOutcome>
+  /**
+   * Suspend la tâche jusqu'au prochain message (Slice 6). Facultatif : une
+   * boucle `oneshot` ne l'appelle jamais, et un mode conversationnel sans lui
+   * retombe sur la relance puis l'échec — un bug du daemon, pas une impasse.
+   *
+   * @param request ce qu'attend la tâche
+   * @param text    ce que le destinataire doit lire (question, proposition) ;
+   *                `null` pour un chat, dont le texte est déjà au journal
+   */
+  awaitInput?(request: InputRequest, text: string | null, step: number): Promise<InputOutcome>
   /** Vrai si une annulation a été demandée depuis le dernier point de contrôle. */
   isCancelled(): boolean
 }
@@ -134,6 +163,8 @@ export interface LoopInput {
    * reçoivent par `tools.workspace` et `tools.writable`.
    */
   workspace?: WorkspaceBrief | undefined
+  /** Manière dont la tâche converse ; `oneshot` par défaut. */
+  mode?: TaskMode | undefined
 }
 
 /** Ce que rend une boucle terminée. */
@@ -167,7 +198,10 @@ const STOP_STATUS: Record<StopReason['kind'], FailedOutcome['status']> = {
 export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
   const now = input.now ?? (() => Date.now())
   const { limits } = { limits: input.agent.limits }
-  const deadline = now() + limits.timeout_s * 1000
+  const mode = input.mode ?? 'oneshot'
+  // Repoussée de la durée de chaque attente de message : le délai porte sur
+  // le temps où la tâche travaille, pas sur celui où elle attend quelqu'un.
+  let deadline = now() + limits.timeout_s * 1000
   let usage = emptyUsage()
   let step = 0
   let nudged = false
@@ -198,7 +232,7 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
   } catch (e) {
     return { status: 'failed', error: input.redact((e as Error).message), usage: emptyUsage() }
   }
-  const input2 = { ...input, tools }
+  let input2 = { ...input, tools }
 
   const tree = await workspaceTree(tools.root)
   // Les outils du profil, moins l'interrupteur de recherche web qui n'est pas
@@ -218,6 +252,7 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
     // appel. On annonce donc l'optimisme, et on corrige après coup si besoin.
     budgetEnforceable: true,
     workspace: input.workspace,
+    mode,
   })
 
   let budgetWarned = false
@@ -308,6 +343,29 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
           `dans l'objectif — ce plafond appartient au profil de l'agent, une délégation ne peut que l'abaisser`,
         step,
       )
+    }
+
+    if (completion.toolCalls.length === 0 && mode === 'chat' && input.hooks.awaitInput) {
+      // En conversation, un texte sans outil est une réplique : la boucle
+      // attend la suivante au lieu de relancer puis d'échouer.
+      const pausedAt = now()
+      const reply = await input.hooks.awaitInput('chat', null, step)
+      deadline += now() - pausedAt
+      // L'échéance des outils suit, si c'est la boucle qui l'avait posée : une
+      // commande lancée après une heure d'attente ne doit pas se croire en retard.
+      if (input.tools.deadline === undefined) {
+        tools = { ...tools, deadline }
+        input2 = { ...input, tools }
+      }
+      if (reply.kind === 'cancelled') {
+        return { status: 'cancelled', error: 'annulée pendant l\'attente d\'un message', usage }
+      }
+      if (reply.kind === 'expired') return { status: 'timed_out', error: reply.detail, usage }
+      messages.push({ role: 'user', content: reply.text })
+      // La relance de la sortie `oneshot` vaut pour une réponse, pas pour toute
+      // la conversation : un nouveau message rouvre le droit à l'erreur.
+      nudged = false
+      continue
     }
 
     if (completion.toolCalls.length === 0) {

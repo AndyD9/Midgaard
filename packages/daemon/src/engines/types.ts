@@ -16,7 +16,7 @@
  * dépendre d'un réseau. Les douze scénarios de bout en bout de la Slice 1
  * continuent de tourner tels quels.
  */
-import type { Agent, AgentKind, Approval, HarnessConfig, Task } from '@midgaard/contracts'
+import type { Agent, AgentKind, Approval, HarnessConfig, InputRequest, Task } from '@midgaard/contracts'
 import type { HarnessStore } from '@midgaard/persistence'
 import type { DelegationPort } from '@midgaard/tools'
 import type { EventBus } from '../bus.ts'
@@ -59,6 +59,15 @@ export interface EngineContext {
    */
   concludeCancellation(taskId: string): void
   /**
+   * Met la tâche en attente d'un message (Slice 6) : `running → waiting_input`,
+   * avec l'événement `input.requested`.
+   *
+   * @param text ce que le destinataire doit lire, **déjà expurgé** ; `null`
+   *             pour un chat, dont la réplique est déjà au journal
+   * @returns `false` si la tâche n'est plus en état d'attendre (annulée entre-temps)
+   */
+  requestInput(taskId: string, request: InputRequest, text: string | null, step: number): boolean
+  /**
    * Le port de délégation d'une tâche `orchestrator` (Slice 5) : ce qu'elle
    * peut déléguer, attendre et annuler, rattaché à elle seule.
    *
@@ -85,6 +94,15 @@ export interface TaskEngine {
    * La tâche est déjà repassée en `running` quand cette méthode est appelée.
    */
   resume(task: Task, agent: Agent): void
+  /**
+   * Remet un message à une tâche en `waiting_input` (Slice 6). Le moteur
+   * l'expurge avec le secret connu de la tâche, l'écrit au journal et relance
+   * la boucle. Facultatif : un moteur qui ne converse pas ne l'implémente pas.
+   *
+   * @param kind `message.user` (l'utilisateur) ou `message.agent` (le parent)
+   * @returns la tâche relancée, ou `null` si ce moteur n'a pas cette attente en vol
+   */
+  deliver?(task: Task, text: string, kind: 'message.user' | 'message.agent', payload: Record<string, unknown>): Task | null
   /**
    * Signale une demande d'annulation.
    *

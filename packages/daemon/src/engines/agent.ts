@@ -37,7 +37,7 @@ import { agentIdentity, commitAll, createWorktree, diffWorktree, inspectReposito
 import { createAdapter, envVarFor } from '@midgaard/providers'
 import { resolveApiKey, type SecretVault } from '@midgaard/secrets'
 import type { ToolContext } from '@midgaard/tools'
-import { runAgent, type ApprovalOutcome, type LoopHooks, type LoopOutcome } from '@midgaard/agent-runtime'
+import { runAgent, type ApprovalOutcome, type InputOutcome, type LoopHooks, type LoopOutcome } from '@midgaard/agent-runtime'
 import type { EngineContext, TaskEngine } from './types.ts'
 
 /**
@@ -89,6 +89,13 @@ interface Running {
   cancelled: boolean
   /** Résolution de l'attente d'approbation en cours, s'il y en a une. */
   decide: ((outcome: ApprovalOutcome) => void) | null
+  /** Résolution de l'attente d'un message en cours, s'il y en a une (Slice 6). */
+  reply: ((outcome: InputOutcome) => void) | null
+  /**
+   * Expurgation de la tâche, connue après la préparation. Un message reçu
+   * passe par elle avant d'être écrit **et** avant d'être lu par le modèle.
+   */
+  redact: ((text: string) => string) | null
 }
 
 /** Exécute les profils qui appellent réellement un modèle. */
@@ -114,6 +121,29 @@ export class AgentEngine implements TaskEngine {
   }
 
   /**
+   * Remet un message à une tâche qui l'attend, et la relance.
+   *
+   * L'écriture du message et la reprise (`waiting_input → running`) sont **une
+   * seule** écriture : un message au journal sans tâche relancée, ou l'inverse,
+   * raconterait une conversation qui n'a pas eu lieu. Le texte est expurgé ici,
+   * où l'on connaît la clé de la tâche : l'agent lit ce que le journal garde.
+   */
+  deliver(
+    task: Task,
+    text: string,
+    kind: 'message.user' | 'message.agent',
+    payload: Record<string, unknown>,
+  ): Task | null {
+    const state = this.running.get(task.id)
+    if (!state?.reply || !state.redact) return null
+    const clean = state.redact(text)
+    const done = this.deps.ctx.bus.record(task.id, 'running', { type: kind, payload: { ...payload, text: clean } })
+    if (!done) return null
+    state.reply({ kind: 'message', text: clean })
+    return done.task
+  }
+
+  /**
    * Annulation **coopérative** : on lève le drapeau et on coupe l'appel HTTP en
    * cours, mais c'est la boucle qui conclut, à son prochain point de contrôle.
    *
@@ -126,6 +156,7 @@ export class AgentEngine implements TaskEngine {
     if (!state) return true
     state.cancelled = true
     state.decide?.('rejected')
+    state.reply?.({ kind: 'cancelled' })
     state.abort.abort()
     return false
   }
@@ -134,6 +165,7 @@ export class AgentEngine implements TaskEngine {
     for (const state of this.running.values()) {
       state.cancelled = true
       state.decide?.('rejected')
+      state.reply?.({ kind: 'cancelled' })
       state.abort.abort()
     }
     this.running.clear()
@@ -143,7 +175,7 @@ export class AgentEngine implements TaskEngine {
 
   private async execute(task: Task, agent: Agent): Promise<void> {
     const { ctx } = this.deps
-    const state: Running = { abort: new AbortController(), cancelled: false, decide: null }
+    const state: Running = { abort: new AbortController(), cancelled: false, decide: null, reply: null, redact: null }
     this.running.set(task.id, state)
     let workspace: Workspace | null = null
     let outcome: LoopOutcome | null = null
@@ -169,6 +201,7 @@ export class AgentEngine implements TaskEngine {
         this.conclude(task.id, { status: 'failed', error: ready.error, usage: emptyish() })
         return
       }
+      state.redact = ready.redact
 
       ctx.bus.record(task.id, 'preparing', {
         type: 'task.started',
@@ -233,6 +266,7 @@ export class AgentEngine implements TaskEngine {
         hooks: this.hooks(task.id, state),
         redact: ready.redact,
         signal: state.abort.signal,
+        mode: task.mode,
         workspace: workspace
           ? {
               branch: workspace.branch,
@@ -502,6 +536,20 @@ export class AgentEngine implements TaskEngine {
             if (settled) return
             settled = true
             state.decide = null
+            resolve(outcome)
+          }
+        }),
+
+      awaitInput: (request, text, step) =>
+        new Promise<InputOutcome>((resolve) => {
+          if (!ctx.requestInput(taskId, request, text, step)) return resolve({ kind: 'cancelled' })
+          // Le message arrivera par `deliver`, l'annulation ou l'expiration par
+          // `cancel`. Résolue une seule fois, comme une approbation.
+          let settled = false
+          state.reply = (outcome) => {
+            if (settled) return
+            settled = true
+            state.reply = null
             resolve(outcome)
           }
         }),

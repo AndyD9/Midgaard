@@ -14,7 +14,9 @@
  *  - une approbation refusée n'est pas contournable ;
  *  - le contenu extérieur est encadré **avant** de revenir dans la conversation ;
  *  - rien de ce que lit le modèle ne nomme Claude : l'orchestrateur peut être
- *    un autre modèle (Slice 5, étape 1).
+ *    un autre modèle (Slice 5, étape 1) ;
+ *  - en conversation, une réplique attend le message suivant au lieu
+ *    d'échouer, et l'attente ne consomme pas le délai (Slice 6, étape 2).
  */
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -24,7 +26,15 @@ import { describe, it } from 'node:test'
 import type { Agent, Usage } from '@midgaard/contracts'
 import { DEFAULT_RESEARCHER_LIMITS, createRedactor, emptyUsage } from '@midgaard/contracts'
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from '@midgaard/providers'
-import { buildMessages, runAgent, type ApprovalOutcome, type ApprovalRequest, type LoopHooks } from '@midgaard/agent-runtime'
+import {
+  buildMessages,
+  runAgent,
+  type ApprovalOutcome,
+  type ApprovalRequest,
+  type InputOutcome,
+  type LoopHooks,
+} from '@midgaard/agent-runtime'
+import type { TaskMode } from '@midgaard/contracts'
 import { formatArgv, type ToolContext } from '@midgaard/tools'
 import { DEVELOPER_SYSTEM_PROMPT, ORCHESTRATOR_SYSTEM_PROMPT, RESEARCHER_SYSTEM_PROMPT } from '@midgaard/daemon'
 
@@ -130,10 +140,19 @@ function submit(summary = 'la réponse', extra: Record<string, unknown> = {}) {
   return [{ id: 'c1', name: 'submit_result', argumentsJson: JSON.stringify({ summary, ...extra }) }]
 }
 
-async function run(script: Scripted[], over: { agent?: Partial<Agent>; hooks?: Partial<LoopHooks>; ctx?: Partial<ToolContext> } = {}) {
+async function run(
+  script: Scripted[],
+  over: {
+    agent?: Partial<Agent>
+    hooks?: Partial<LoopHooks>
+    ctx?: Partial<ToolContext>
+    mode?: TaskMode
+    now?: () => number
+  } = {},
+) {
   const root = makeRoot()
   try {
-    const { adapter, callCount } = scriptedAdapter(script)
+    const { adapter, calls, callCount } = scriptedAdapter(script)
     const rec = recordingHooks(over.hooks)
     const outcome = await runAgent({
       agent: agentWith(over.agent),
@@ -144,8 +163,10 @@ async function run(script: Scripted[], over: { agent?: Partial<Agent>; hooks?: P
       hooks: rec.hooks,
       redact: (t) => t,
       signal: new AbortController().signal,
+      mode: over.mode,
+      ...(over.now ? { now: over.now } : {}),
     })
-    return { outcome, ...rec, callCount: callCount() }
+    return { outcome, ...rec, calls, callCount: callCount() }
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -233,6 +254,128 @@ describe('fin de tâche', () => {
     ])
     assert.equal(outcome.status, 'completed')
     assert.equal(outcome.status === 'completed' && outcome.result.untrusted, false)
+  })
+})
+
+describe('conversation', () => {
+  /** Crochet d'attente qui rend les issues prévues, dans l'ordre, et note chaque attente. */
+  function replies(outcomes: InputOutcome[]) {
+    const asked: { request: string; text: string | null; step: number }[] = []
+    const awaitInput = async (request: string, text: string | null, step: number) => {
+      asked.push({ request, text, step })
+      return outcomes.shift() ?? { kind: 'cancelled' as const }
+    }
+    return { asked, awaitInput: awaitInput as LoopHooks['awaitInput'] }
+  }
+
+  it('attend le message suivant au lieu de relancer, et repart avec lui', async () => {
+    const wait = replies([{ kind: 'message', text: 'ajoute une route /health' }])
+    const { outcome, notes, calls, callCount } = await run(
+      [{ text: 'Que veux-tu faire ?' }, { toolCalls: submit('route ajoutée') }],
+      { mode: 'chat', hooks: { awaitInput: wait.awaitInput } },
+    )
+    assert.equal(outcome.status, 'completed')
+    assert.equal(callCount, 2)
+    assert.deepEqual(wait.asked, [{ request: 'chat', text: null, step: 1 }])
+    assert.ok(!notes.some((n) => /relance/.test(n)), 'une réplique n\'est pas un oubli de submit_result')
+    // La conversation est un seul tableau, que la boucle continue de remplir :
+    // le message reçu suit la réplique, à sa place.
+    const reply = calls[1]!.messages[3]!
+    assert.equal(calls[1]!.messages[2]!.role, 'assistant')
+    assert.equal(reply.role, 'user')
+    assert.equal(reply.content, 'ajoute une route /health', 'le message de l\'utilisateur, tel quel, sans cadre')
+  })
+
+  it('ne compte pas le temps d\'attente dans le délai de la tâche', async () => {
+    // Une heure d'attente pour un délai de quelques minutes : sans la pause,
+    // la tâche expirerait au point de contrôle qui suit la réponse.
+    let clock = 0
+    const timeout = DEFAULT_RESEARCHER_LIMITS.timeout_s * 1000
+    const awaitInput: LoopHooks['awaitInput'] = async () => {
+      clock += timeout * 12
+      return { kind: 'message', text: 'continue' }
+    }
+    const { outcome } = await run([{ text: 'je réfléchis' }, { toolCalls: submit('fini') }], {
+      mode: 'chat',
+      hooks: { awaitInput },
+      now: () => clock,
+    })
+    assert.equal(outcome.status, 'completed', outcome.status !== 'completed' ? outcome.error : '')
+  })
+
+  it('compte en revanche le temps où la tâche travaille', async () => {
+    let clock = 0
+    const timeout = DEFAULT_RESEARCHER_LIMITS.timeout_s * 1000
+    const awaitInput: LoopHooks['awaitInput'] = async () => ({ kind: 'message', text: 'continue' })
+    const { outcome } = await run([{ text: 'je réfléchis' }, { toolCalls: submit('fini') }], {
+      mode: 'chat',
+      hooks: {
+        awaitInput,
+        // Le temps passe pendant que la tâche travaille, pas pendant qu'elle attend.
+        onUsage: () => void (clock += timeout),
+      },
+      now: () => clock,
+    })
+    assert.equal(outcome.status, 'timed_out')
+  })
+
+  it('s\'arrête annulée quand l\'annulation arrive pendant l\'attente', async () => {
+    const wait = replies([{ kind: 'cancelled' }])
+    const { outcome, callCount } = await run([{ text: 'Que veux-tu ?' }], { mode: 'chat', hooks: { awaitInput: wait.awaitInput } })
+    assert.equal(outcome.status, 'cancelled')
+    assert.equal(callCount, 1, 'aucun appel modèle de plus')
+  })
+
+  it('s\'arrête expirée, avec le motif, quand personne ne répond', async () => {
+    const wait = replies([{ kind: 'expired', detail: 'aucune réponse en 2 heures' }])
+    const { outcome } = await run([{ text: 'Que veux-tu ?' }], { mode: 'chat', hooks: { awaitInput: wait.awaitInput } })
+    assert.equal(outcome.status, 'timed_out')
+    assert.match(outcome.status === 'timed_out' ? outcome.error : '', /2 heures/)
+  })
+
+  it('compte chaque réplique comme une étape : la conversation entière partage la limite', async () => {
+    const wait = replies([
+      { kind: 'message', text: 'un' },
+      { kind: 'message', text: 'deux' },
+      { kind: 'message', text: 'trois' },
+    ])
+    const { outcome, callCount } = await run([{ text: 'réplique' }], {
+      mode: 'chat',
+      agent: { limits: { ...DEFAULT_RESEARCHER_LIMITS, max_steps: 3 } },
+      hooks: { awaitInput: wait.awaitInput },
+    })
+    assert.equal(outcome.status, 'failed')
+    assert.match(outcome.status === 'failed' ? outcome.error : '', /limite de 3 étapes/)
+    assert.equal(callCount, 3)
+  })
+
+  it('n\'attend jamais pour une tâche oneshot, même si le crochet existe', async () => {
+    const wait = replies([{ kind: 'message', text: 'ne doit pas arriver' }])
+    const { outcome } = await run([{ text: 'j\'ai fini, promis' }], { hooks: { awaitInput: wait.awaitInput } })
+    assert.equal(outcome.status, 'failed')
+    assert.equal(wait.asked.length, 0)
+  })
+
+  it('dit au modèle qu\'il converse, et seulement en conversation', () => {
+    const base = {
+      agent: agentWith({ system_prompt: ORCHESTRATOR_SYSTEM_PROMPT }),
+      objective: 'bonjour',
+      context: null,
+      root: '/projet',
+      tree: 'src/',
+      limits: DEFAULT_RESEARCHER_LIMITS,
+      budgetEnforceable: true,
+    }
+    const chat = buildMessages({ ...base, mode: 'chat' })
+    assert.match(chat[0]!.content, /CONVERSATION with the human user/)
+    assert.match(chat[0]!.content, /waiting for the user's reply is not counted/)
+    assert.match(chat[1]!.content, /# User's opening message\n\nbonjour/)
+    assert.doesNotMatch(chat[1]!.content, /When you have the answer, call submit_result/)
+    for (const message of chat) assert.doesNotMatch(message.content, /claude|anthropic/i)
+
+    const oneshot = buildMessages(base)
+    assert.doesNotMatch(oneshot[0]!.content, /CONVERSATION/)
+    assert.match(oneshot[1]!.content, /# Task\n\nbonjour/)
   })
 })
 

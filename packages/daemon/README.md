@@ -84,6 +84,32 @@ Une tâche `orchestrator` délègue par le port que lui remet
 Prouvé par `tests/unit/delegation.test.ts`, qui compte les tâches actives
 **en base** après l'arrêt du parent.
 
+## Conversations (Slice 6)
+
+Une tâche peut attendre un **message** : `waiting_input`, avec ce qu'elle
+attend dans `awaiting_input`. Le moteur l'ouvre par
+`EngineContext.requestInput`, le gérant écrit la transition et son
+`input.requested`. Ce que le daemon garantit :
+
+- **Le mode est posé par lui.** `POST /api/tasks` accepte `conversation: true`
+  comme une demande. Le gérant ne pose `chat` que pour un orchestrateur sans
+  parent, et refuse (`conversation_unsupported`) autrement. Le champ `mode`
+  envoyé par un client est ignoré.
+- **Un message n'entre que dans une attente.** `POST /api/tasks/:id/messages`
+  refuse `task_not_conversational`, `task_not_awaiting_user` et `empty_message`
+  sans rien écrire. Un message glissé pendant que l'agent travaille
+  arriverait au milieu de son raisonnement.
+- **Le message est expurgé par le moteur**, qui connaît la clé de la tâche,
+  puis écrit **avec** la reprise (`waiting_input → running`) en une seule
+  écriture. L'agent lit la version expurgée : ce que le journal garde est ce
+  qu'il a lu.
+- **Une attente oubliée expire.** Le balayage des approbations arrête en
+  `timed_out` une conversation sans réponse depuis `MIDGAARD_INPUT_TTL_S`. Une
+  annulation passe par `cancel_requested`, et le moteur réveillé conclut.
+
+Prouvé par `tests/unit/conversation.test.ts`, sur le vrai moteur et un faux
+fournisseur, en HTTP compris.
+
 ## Installation
 
 `/api/health` annonce `install` : le dossier canonique du paquet
@@ -113,4 +139,5 @@ Lues **uniquement** par `main.ts`, via `loadConfig`.
 | `MIDGAARD_PORT` | `7777`, repli sur un port libre | Port d'écoute. Fixé explicitement, un port occupé devient une erreur |
 | `MIDGAARD_IDLE_SHUTDOWN_S` | `1800` | Inactivité avant arrêt ; `0` désactive |
 | `MIDGAARD_APPROVAL_TTL_S` | `600` | Délai de décision humaine ; au-delà la tâche passe en `timed_out` |
+| `MIDGAARD_INPUT_TTL_S` | `7200` | Attente maximale d'une réponse de l'utilisateur dans une conversation ; au-delà, `timed_out` |
 | `MIDGAARD_DASHBOARD_DIR` | `apps/dashboard/dist` | Fichiers compilés du dashboard |

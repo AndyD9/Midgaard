@@ -23,6 +23,7 @@
  * | GET  | `/api/tasks/:id/wait?timeout_ms=&known_approval=` | Long-poll | 200, 404 |
  * | GET  | `/api/tasks/:id/events` | Timeline complète | 200, 404 |
  * | POST | `/api/tasks/:id/cancel` | Annulation | 200, 404, 409 |
+ * | POST | `/api/tasks/:id/messages` | Message de l'utilisateur à une conversation qui l'attend | 200, 400, 404, 409 |
  * | GET  | `/api/tasks/:id/tools` | Appels d'outils d'une tâche | 200, 404 |
  * | GET  | `/api/tasks/:id/workspace` | Worktree et diff, calculé à la demande | 200, 404 |
  * | GET  | `/api/workspaces` | Tous les worktrees, état sur le disque, orphelins | 200 |
@@ -52,6 +53,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import {
   createTaskRequestSchema,
   execAllowRequestSchema,
+  postMessageRequestSchema,
   removeWorkspaceRequestSchema,
   updateAgentRequestSchema,
   upsertProviderRequestSchema,
@@ -286,6 +288,7 @@ async function handleTasks(
         requestedLimits: parsed.data.limits,
         durationS: parsed.data.duration_s,
         needsApproval: parsed.data.needs_approval,
+        conversation: parsed.data.conversation,
       })
       if ('error' in created) return send(res, created.status, { error: created.error, ...created.detail })
       return send(res, 201, deps.tasks.view(created.task))
@@ -332,6 +335,14 @@ async function handleTasks(
     const body = await readJson(req).catch(() => ({}) as Record<string, unknown>)
     const reason = typeof body.reason === 'string' ? body.reason : undefined
     const outcome = deps.tasks.cancel(id, reason)
+    if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
+    return send(res, 200, outcome)
+  }
+
+  if (method === 'POST' && action === 'messages') {
+    const parsed = postMessageRequestSchema.safeParse(await readJson(req))
+    if (!parsed.success) return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
+    const outcome = deps.tasks.postMessage(id, parsed.data)
     if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
     return send(res, 200, outcome)
   }

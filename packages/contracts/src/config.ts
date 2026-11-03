@@ -74,6 +74,14 @@ export interface HarnessConfig {
    */
   approvalTtlMs: number
   /**
+   * Durée maximale d'une attente de l'utilisateur dans une conversation
+   * (Slice 6). Au-delà, la tâche s'arrête en `timed_out` : une conversation
+   * oubliée garderait sinon le daemon en vie, et son orchestrateur ses
+   * sous-tâches. Deux heures par défaut, réglable par `MIDGAARD_INPUT_TTL_S`,
+   * surtout pour les tests.
+   */
+  inputTtlMs: number
+  /**
    * Durée maximale d'un long-poll côté daemon. Volontairement courte : c'est au
    * serveur MCP d'enchaîner les tranches en notifiant entre chacune, pas au
    * daemon de tenir une connexion ouverte des minutes durant.
@@ -123,6 +131,7 @@ export interface ConfigEnv {
   MIDGAARD_PORT?: string | undefined
   MIDGAARD_IDLE_SHUTDOWN_S?: string | undefined
   MIDGAARD_APPROVAL_TTL_S?: string | undefined
+  MIDGAARD_INPUT_TTL_S?: string | undefined
   MIDGAARD_DASHBOARD_DIR?: string | undefined
   MIDGAARD_HTTP_POLICY?: string | undefined
   MIDGAARD_HTTP_ALLOW?: string | undefined
@@ -176,6 +185,7 @@ export function loadConfig(env: ConfigEnv = {}, overrides: Partial<HarnessConfig
   const portIsExplicit = rawPort !== undefined && rawPort !== ''
   const idleS = Number(env.MIDGAARD_IDLE_SHUTDOWN_S ?? 1800)
   const ttlS = Number(env.MIDGAARD_APPROVAL_TTL_S ?? 600)
+  const inputTtlS = Number(env.MIDGAARD_INPUT_TTL_S ?? 7200)
 
   const base: HarnessConfig = {
     home,
@@ -191,6 +201,7 @@ export function loadConfig(env: ConfigEnv = {}, overrides: Partial<HarnessConfig
     homeIsExplicit,
     idleShutdownMs: Number.isFinite(idleS) && idleS >= 0 ? idleS * 1000 : 1_800_000,
     approvalTtlMs: Number.isFinite(ttlS) && ttlS > 0 ? ttlS * 1000 : 600_000,
+    inputTtlMs: Number.isFinite(inputTtlS) && inputTtlS > 0 ? inputTtlS * 1000 : 7_200_000,
     maxWaitMs: 60_000,
     waitSliceMs: 15_000,
     leaseMs: 1_000,

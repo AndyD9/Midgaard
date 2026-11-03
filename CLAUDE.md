@@ -249,7 +249,9 @@ terminal en lecture seule et en direct, dans une coque Tauri mince qui charge
 le dashboard du daemon. Décisions et découpage en neuf étapes :
 [docs/SLICE6.md](docs/SLICE6.md). Étape 1 faite : statut `waiting_input`,
 `awaiting_input`, `tasks.mode` (migration 9), quatre événements,
-`PROTOCOL_VERSION` 11.
+`PROTOCOL_VERSION` 11. Étape 2 faite : le chat, par HTTP
+(`POST /api/tasks/:id/messages`) ; l'attente ne consomme pas le délai, un
+message n'entre que dans une attente, et l'agent lit la version expurgée.
 
 ## Slice 5 terminée — un orchestrateur intégré
 

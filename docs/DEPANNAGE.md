@@ -269,6 +269,20 @@ Une demande d'approbation expire au bout de 10 minutes
 (`MIDGAARD_APPROVAL_TTL_S`), et la tâche s'arrête plutôt que d'attendre
 indéfiniment. Une approbation arrivée après : `approval_already_resolved`.
 
+### `timed_out` : « aucune réponse de l'utilisateur en 120 minutes »
+
+Une conversation avec l'orchestrateur attend votre réponse au plus deux heures
+(`MIDGAARD_INPUT_TTL_S`), puis s'arrête : oubliée, elle garderait le daemon en
+vie, et l'orchestrateur ses sous-tâches. Ce qu'elle avait produit reste dans
+sa timeline ; ouvrez une nouvelle conversation pour reprendre.
+
+### `task_not_awaiting_user` en écrivant à une conversation
+
+Le message n'est accepté que lorsque la conversation **attend** votre
+réponse (`waiting_input`). Pendant que l'orchestrateur travaille, ou une fois
+la tâche finie, il est refusé sans rien écrire. Attendez sa réplique, puis
+écrivez.
+
 ### `npm run harness -- approve` ne fait rien
 
 - « Aucune demande d'approbation en attente. » — elle a été décidée, ou a expiré.
@@ -343,6 +357,7 @@ changée sous un daemon déjà lancé n'a d'effet qu'après `npm run harness -- 
 | `MIDGAARD_PORT` | Port d'écoute sur `127.0.0.1` ; fixé, il interdit le repli | `7777`, repli sur un port libre |
 | `MIDGAARD_IDLE_SHUTDOWN_S` | Arrêt après inactivité ; `0` le désactive | `1800` |
 | `MIDGAARD_APPROVAL_TTL_S` | Validité d'une demande d'approbation | `600` |
+| `MIDGAARD_INPUT_TTL_S` | Attente maximale de votre réponse dans une conversation | `7200` |
 | `MIDGAARD_VAULT` | Impose un coffre : `macos-keychain`, `windows-dpapi`, `libsecret`, `file` | détection, puis repli fichier |
 | `MIDGAARD_HTTP_POLICY` | `http_fetch` : `open`, `approval` ou `allowlist` — les adresses privées restent refusées dans tous les cas | `open` |
 | `MIDGAARD_HTTP_ALLOW` | Hôtes toujours admis, séparés par des virgules (`exemple.org`, `*.exemple.org`) | aucun |
