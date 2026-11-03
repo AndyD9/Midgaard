@@ -71,6 +71,7 @@ import {
 } from '@midgaard/tools'
 import { budgetIsEnforceable, checkLimits, formatUsd, type StopReason } from './budget.ts'
 import { buildMessages, workspaceTree, type WorkspaceBrief } from './context.ts'
+import { OutputBatcher, type OutputBatch } from './output.ts'
 
 /** Décision humaine rendue sur une demande d'approbation. */
 export type ApprovalOutcome = 'approved' | 'rejected' | 'expired'
@@ -136,6 +137,14 @@ export interface LoopHooks {
   onToolRequested(input: ToolRequestedInput): string
   /** Clôt un appel d'outil journalisé. */
   onToolCompleted(id: string, input: ToolCompletedInput): void
+  /**
+   * Un lot de sortie d'un outil qui dure — `exec` —, **déjà découpé par ligne
+   * et expurgé** (Slice 6). Facultatif : sans lui, la sortie n'est pas suivie
+   * en direct, et le modèle reçoit la même chose.
+   *
+   * @param id l'identifiant du journal rendu par {@link LoopHooks.onToolRequested}
+   */
+  onToolOutput?(id: string, batch: OutputBatch): void
   /**
    * Suspend la tâche jusqu'à décision humaine. L'opération est **déjà
    * préparée** : ce qu'elle décrit est ce qui s'exécutera si l'humain accepte.
@@ -754,10 +763,19 @@ async function runOneTool(
     }
   }
 
-  // 6. Exécution — de l'opération préparée, et d'elle seule.
+  // 6. Exécution — de l'opération préparée, et d'elle seule. Sa sortie, si
+  //    l'outil en a une, est suivie en direct : un lot par flux et par quart de
+  //    seconde, découpé par ligne **avant** l'expurgation (voir `output.ts`).
   const running = Date.now()
+  const onOutput = input.hooks.onToolOutput
+  const batcher = onOutput
+    ? new OutputBatcher({ redact: input.redact, emit: (batch) => onOutput(logId, batch) })
+    : null
+  const tools: ToolContext = batcher ? { ...input.tools, output: (s, c) => batcher.write(s, c) } : input.tools
   try {
-    const result = await tool.run(validated.data as never, input.tools, prepared)
+    const result = await tool.run(validated.data as never, tools, prepared)
+    // Avant `onToolCompleted` : la timeline montre la dernière ligne, puis la fin.
+    batcher?.close()
     input.hooks.onToolCompleted(logId, {
       status: 'succeeded',
       summary: input.redact(result.summary),
@@ -771,6 +789,7 @@ async function runOneTool(
     const content = result.untrusted ? wrapUntrusted(result.summary, result.content) : result.content
     return reply(input.redact(content), result.untrusted)
   } catch (e) {
+    batcher?.close()
     // Expurgé pour la même raison qu'à la préparation, plus haut.
     const message = input.redact((e as Error).message)
     input.hooks.onToolCompleted(logId, {

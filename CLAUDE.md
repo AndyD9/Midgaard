@@ -43,7 +43,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme), `revoke` |
 | `npm run test:unit` | ~5 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git) |
 | `npm run test:vault` | ~1 s — les coffres seuls, sur le coffre réel de la machine |
-| `npm run test:worktrees` | ~5 s — worktrees, écriture et `exec` seuls (rejoués en CI sur trois plateformes) |
+| `npm run test:worktrees` | ~7 s — worktrees, écriture et `exec` seuls, sortie en direct comprise (rejoués en CI sur trois plateformes) |
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
 | `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer et arbre d'un orchestrateur compris (`npx playwright install chromium` au préalable) |
@@ -135,6 +135,11 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   `exec`, c'est la commande écrite par le modèle. Le résultat d'une sous-tâche
   l'est aussi. Et **le résultat d'une tâche qui a reçu un contenu encadré est
   `untrusted`**, cité ou non (Slice 5).
+- **La sortie en direct se découpe par ligne avant l'expurgation** (Slice 6,
+  `agent-runtime/src/output.ts`). Les morceaux d'un tube se coupent n'importe
+  où : expurgée morceau par morceau, une clé coupée en deux passerait en clair
+  — le test l'a vu échouer ainsi. Le décodage UTF-8 se fait par flux, pour la
+  même raison.
 - **Aucune clé d'API en base.** La base ne garde qu'une référence vers le coffre.
   Et tout ce qui est journalisé ou persisté passe par `createRedactor` —
   **y compris le message d'un refus**, qui cite ce que le modèle a demandé.
@@ -261,7 +266,8 @@ le dashboard du daemon. Décisions et découpage en neuf étapes :
 message n'entre que dans une attente, et l'agent lit la version expurgée.
 Étape 3 faite : la boucle entre agents — proposition, `send_message`,
 `accept_result`, `ask_parent` ; `wait_for_task` rend la main quand un enfant
-attend son parent, avec son diff.
+attend son parent, avec son diff. Étape 4 faite : la sortie d'`exec` en
+direct (`exec.output`), découpée par ligne, expurgée, regroupée, plafonnée.
 
 ## Slice 5 terminée — un orchestrateur intégré
 

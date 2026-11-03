@@ -130,6 +130,16 @@ branche d'un Developer est relue à **l'instant** où il attend son verdict.
 `Daemon.subscribe` existe pour cela : s'abonner au bus du même processus, sans
 pouvoir y écrire.
 
+## Sortie des commandes en direct (Slice 6)
+
+Le moteur écrit chaque lot de sortie d'un `exec` en `exec.output`, sans
+changer de statut, avec l'identifiant de l'appel (`tool_call_id`). Les lots
+arrivent déjà découpés, expurgés et plafonnés (`OutputBatcher`, dans
+`agent-runtime`). Persistés comme tout événement, ils sont rejoués à la
+reconnexion : un terminal rechargé retrouve ce qu'il avait. Prouvé par
+`tests/unit/exec-output.test.ts`, avec une vraie commande qui écrit une clé en
+deux fois.
+
 ## Installation
 
 `/api/health` annonce `install` : le dossier canonique du paquet

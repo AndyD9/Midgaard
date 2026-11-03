@@ -90,6 +90,13 @@ export interface ToolContext {
    * lancer aucune tâche, donc rien dépenser au nom d'un autre.
    */
   delegation?: DelegationPort | undefined
+  /**
+   * Sortie d'un outil qui dure, **en direct** (Slice 6) : `exec` y passe chaque
+   * morceau lu, pour le terminal du dashboard. Posé par la boucle pour **un**
+   * appel, jamais partagé entre deux. Les octets sont bruts : c'est la boucle
+   * qui découpe par ligne et expurge. Ce que le modèle reçoit n'en dépend pas.
+   */
+  output?: ((stream: 'stdout' | 'stderr', chunk: Buffer) => void) | undefined
   log: (...a: unknown[]) => void
 }
 

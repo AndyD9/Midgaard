@@ -7,7 +7,7 @@ façon VS Code. Cet atelier comprend un chat, le fil des échanges entre agents,
 fichiers écrits en direct et la sortie des commandes. Il tourne dans une app
 desktop Tauri.
 
-**État : en cours.** Étapes 1 à 3 faites (2026-11-03).
+**État : en cours.** Étapes 1 à 4 faites (2026-11-03).
 
 ---
 
@@ -90,7 +90,7 @@ lancent les agents, et n'expose aucun shell.
 | 1 | Contrats et persistance : `waiting_input`, `awaiting_input`, `tasks.mode` (migration 9), événements `input.requested`, `message.user`, `message.agent`, `exec.output`, `PROTOCOL_VERSION` 11 | **fait** |
 | 2 | Chat : attente d'un message dans la boucle, délai sur temps actif, `POST /api/tasks/:id/messages`, consigne de l'orchestrateur en conversation | **fait** |
 | 3 | Boucle orchestrateur ⇄ Developer : proposition, `accept_result`, `send_message`, `ask_parent`, `wait_for_task` sur attente, cascade | **fait** |
-| 4 | Sortie `exec` en direct, découpée par ligne puis expurgée | à faire |
+| 4 | Sortie `exec` en direct, découpée par ligne puis expurgée | **fait** |
 | 5 | Routes de fichiers en lecture seule (arbre, contenu de travail et de départ) | à faire |
 | 6 | Dashboard façon VS Code : explorateur, éditeur et diff, chat et fil des agents, terminal | à faire |
 | 7 | Coque Tauri | à faire |
@@ -305,4 +305,62 @@ voulu de la décision 7, et le seul scénario existant qu'elle a touché.
 
 **Pas encore là :** le fil de ces échanges au dashboard (étape 6), et les
 scénarios `SIGKILL` d'un enfant qui attend, prévus à l'étape 8.
+
+### Étape 4 — la sortie des commandes en direct (2026-11-03)
+
+**Où est la découpe.** Le plan la mettait dans le moteur. Elle est dans
+`agent-runtime` (`OutputBatcher`, `output.ts`), et le moteur ne fait plus
+qu'écrire. Deux raisons :
+- c'est la boucle qui sait quel appel d'outil tourne et qui tient
+  l'expurgation de la tâche ;
+- un module pur s'éprouve avec une minuterie manuelle, sans daemon ni attente
+  réelle.
+
+Le chemin est donc le suivant :
+1. `runCommand` passe chaque morceau lu à `onOutput` ;
+2. `exec` le branche sur `ToolContext.output`, que la boucle pose pour **un**
+   appel ;
+3. la boucle livre les lots à `onToolOutput` ;
+4. le moteur les écrit en `exec.output`, avec le `tool_call_id` de l'appel, sans
+   changer de statut.
+
+**Découper avant d'expurger.** C'était le défaut annoncé (décision 11), et le
+test l'a montré pour de bon. En expurgeant chaque morceau seul, une clé écrite
+en deux fois par une vraie commande, à 300 ms d'écart, laisse sa première
+moitié dans le journal : le test de bout en bout échoue, comme celui du
+préparateur seul. Avec la découpe par ligne, la base est lue en entier, et ni la
+clé ni sa moitié n'y sont. Le décodage se fait aussi par flux : un « é » coupé
+entre deux morceaux devenait deux caractères de remplacement.
+
+**Ce qui n'est pas couvert, et qui est dit.** Une ligne sans fin est livrée
+par tranches de 4096 caractères, sans quoi une barre de progression ne
+s'afficherait jamais. Une clé à cheval sur une de ces coupures passerait. C'est
+la limite écrite en tête de `output.ts`, pas une promesse.
+
+**Regrouper, plafonner.**
+- Un lot par flux et par quart de seconde : cinquante lignes font un
+  événement, pas cinquante, et la reprise WebSocket (2000 événements au plus)
+  le supporte.
+- Au-delà de 128 Ko par commande, plus rien n'est écrit, et le dernier lot le
+  dit, avec le nombre d'octets manquants (`omitted_bytes`).
+- Le modèle, lui, lit toujours la capture tête et queue d'`exec`, inchangée.
+
+**Un observateur ne casse rien.** Si `onOutput` lève, l'erreur est journalisée,
+et la commande et sa capture continuent.
+
+**Vérifié :**
+- `npm run typecheck` ;
+- 6 cas du préparateur, à minuterie manuelle ;
+- une vraie commande lancée par un Developer dans un vrai daemon, en liste
+  blanche, donc sans approbation. La première ligne est en base **plus de
+  800 ms** avant la fin de la commande, chaque lot est rattaché à son appel, et
+  la base ne contient ni la clé ni sa moitié ;
+- le test de la clé coupée et celui de la vraie commande **vus échouer** sans la
+  découpe, puis repasser ;
+- `test:worktrees` comprend désormais ce fichier : la CI le rejouera sur les
+  trois plateformes, là où les tubes de Windows découpent autrement ;
+- les suites de bout en bout.
+
+**Pas encore là :** le terminal du dashboard (étape 6). D'ici là, la sortie
+apparaît dans la timeline, ligne par lot.
 

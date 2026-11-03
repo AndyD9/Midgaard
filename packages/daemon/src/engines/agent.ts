@@ -550,6 +550,12 @@ export class AgentEngine implements TaskEngine {
         })
       },
 
+      onToolOutput: (id, batch) => {
+        // Le statut ne change pas : la sortie se lit dans la timeline et le
+        // terminal, et elle est rejouée à la reconnexion comme tout événement.
+        ctx.bus.record(taskId, null, { type: 'exec.output', payload: { tool_call_id: id, ...batch } })
+      },
+
       requestApproval: ({ operation, detail }, step) =>
         new Promise<ApprovalOutcome>((resolve) => {
           const approval: Approval | null = ctx.requestApproval(taskId, operation, detail, { step })

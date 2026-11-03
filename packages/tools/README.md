@@ -155,6 +155,13 @@ le daemon rappelle la conséquence dans son journal à chaque démarrage. Pas de
 guillemets dans cette variable : un argument contenant une espace ne peut pas
 être mis en liste blanche, et c'est voulu.
 
+**La sortie se suit en direct** (Slice 6). `runCommand` passe chaque morceau
+lu à `onOutput`, que l'outil branche sur `ToolContext.output`, posé par la
+boucle pour un appel. Les octets sont bruts : la découpe par ligne,
+l'expurgation et le plafond sont dans `agent-runtime` (`OutputBatcher`). Un
+observateur qui lève ne coupe ni la commande ni sa capture. Ce que reçoit le
+modèle reste la capture tête et queue.
+
 | Garantie | Comment |
 |---|---|
 | Aucun shell | `spawn` sans `shell` : `;`, `\|`, `$()` restent des caractères |

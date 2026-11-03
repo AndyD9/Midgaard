@@ -59,8 +59,10 @@ import { taskStatusSchema } from './task.ts'
  *    ou renvoie une proposition), `{ from_task_id, text }`, écrit sur la tâche
  *    qui le **reçoit**. Le fil d'un arbre se reconstitue en lisant ses tâches ;
  *  - `exec.output` — des lignes de sortie d'une commande `exec` en cours,
- *    expurgées, `{ tool_call_id, stream, text }`, pour le terminal du
- *    dashboard. Le statut ne change pas.
+ *    expurgées, `{ tool_call_id, stream, text, omitted_bytes? }`, pour le
+ *    terminal du dashboard. Un lot par flux et par quart de seconde ;
+ *    `omitted_bytes` sur le dernier, si le plafond par commande a été atteint.
+ *    Le statut ne change pas.
  *
  * Tous les textes sont expurgés avant d'être écrits, comme le reste du journal.
  *

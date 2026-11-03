@@ -98,6 +98,24 @@ la réponse. `finishBlocked` refuse le `submit_result` d'un parent dont un enfan
 attend, et le modèle continue. La consigne le dit, sur une tâche déléguée
 seulement.
 
+## Sortie en direct (Slice 6)
+
+`OutputBatcher` (`output.ts`) prépare la sortie d'**une** commande pour le
+terminal du dashboard, dans cet ordre :
+
+1. décodage UTF-8 **par flux** (`StringDecoder`) : un caractère coupé entre deux
+   morceaux reste un caractère ;
+2. découpe **par ligne, avant l'expurgation** : une clé coupée entre deux
+   morceaux serait sinon écrite en clair, en deux moitiés trop courtes pour les
+   motifs. Une ligne sans fin est livrée par tranches de 4096 caractères ; une
+   clé à cheval sur une telle coupure n'est pas couverte, et c'est dit ;
+3. regroupement : un lot par flux toutes les 250 ms ;
+4. plafond : 128 Ko par commande, puis un avis qui dit combien manque.
+
+La boucle en crée un par appel d'outil et livre ses lots à
+`LoopHooks.onToolOutput`, que le moteur écrit en `exec.output`. Le modèle ne
+lit rien de tout cela.
+
 ## Statuts d'arrêt
 
 | Raison | Statut | Pourquoi pas `failed` |

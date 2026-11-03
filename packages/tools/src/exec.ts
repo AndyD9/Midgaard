@@ -271,6 +271,12 @@ export function runCommand(input: {
   signal?: AbortSignal | undefined
   /** Journalisation du daemon : dit une fois que la garde des commandes manque. */
   log?: ((message: string) => void) | undefined
+  /**
+   * Chaque morceau lu, au moment où il arrive (Slice 6). Appelé **en plus** de
+   * la capture tête et queue, qui reste ce que rend la commande : le terminal
+   * voit tout ce qui passe, le modèle ce qui tient.
+   */
+  onOutput?: ((stream: 'stdout' | 'stderr', chunk: Buffer) => void) | undefined
 }): Promise<ExecOutcome> {
   return new Promise((resolve, reject) => {
     const started = Date.now()
@@ -298,8 +304,23 @@ export function runCommand(input: {
     const release = child.pid !== undefined ? guardGroup(child.pid, input.log) : () => {}
     const out = new HeadTail(STDOUT_HEAD, STDOUT_TAIL)
     const err = new HeadTail(STDERR_HEAD, STDERR_TAIL)
-    child.stdout!.on('data', (c: Buffer) => out.push(c))
-    child.stderr!.on('data', (c: Buffer) => err.push(c))
+    // Un observateur qui lève ne doit ni perdre la sortie ni laisser la commande
+    // sans fin : son erreur est journalisée, la capture continue.
+    const observe = (stream: 'stdout' | 'stderr', c: Buffer) => {
+      try {
+        input.onOutput?.(stream, c)
+      } catch (e) {
+        input.log?.(`sortie en direct de ${input.file} interrompue : ${(e as Error).message}`)
+      }
+    }
+    child.stdout!.on('data', (c: Buffer) => {
+      out.push(c)
+      observe('stdout', c)
+    })
+    child.stderr!.on('data', (c: Buffer) => {
+      err.push(c)
+      observe('stderr', c)
+    })
 
     let timedOut = false
     let cancelled = false
@@ -473,6 +494,7 @@ export const execTool: Tool<ExecArgs> = {
       timeoutMs,
       signal: ctx.signal,
       log: (m) => ctx.log(m),
+      onOutput: ctx.output,
     })
     const argv = formatArgv([args.command, ...args.args])
     const ending = r.cancelled
