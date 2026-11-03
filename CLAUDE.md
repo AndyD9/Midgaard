@@ -3,7 +3,7 @@
 Harness local qui laisse Claude Code déléguer des tâches à des agents exécutants,
 les observer et les soumettre à approbation humaine. **Lire d'abord** :
 [README.md](README.md) (état, commandes), [docs/PLAN.md](docs/PLAN.md) (décisions
-et slices), [docs/SLICE6.md](docs/SLICE6.md) (atelier façon VS Code, en cours),
+et slices), [docs/SLICE6.md](docs/SLICE6.md) (atelier façon VS Code, essais réels),
 [docs/SLICE5.md](docs/SLICE5.md) (orchestrateur intégré, essai réel), [docs/SLICE4.md](docs/SLICE4.md) (durcissement,
 distribution abandonnée, essai depuis un clone), [docs/SLICE3.md](docs/SLICE3.md) (Developer, worktrees,
 approbations : décisions, étapes, essai réel, CI), [docs/SLICE2.md](docs/SLICE2.md),
@@ -270,9 +270,9 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
 
-## Slice 6 en cours — un atelier façon VS Code
+## Slice 6 terminée — un atelier façon VS Code
 
-Démarrée le 2026-11-03 : chat avec l'orchestrateur, boucle orchestrateur ⇄
+Démarrée et terminée le 2026-11-03 : chat avec l'orchestrateur, boucle orchestrateur ⇄
 Developer dans les deux sens (revue et reprise, questions), fichiers et
 terminal en lecture seule et en direct, dans une coque Tauri mince qui charge
 le dashboard du daemon. Décisions et découpage en neuf étapes :
@@ -294,6 +294,11 @@ faite : la coque Tauri (`apps/desktop`), qui ouvre la fenêtre sur
 `http://127.0.0.1:<port>/` sans aucune capacité Tauri, et ne navigue que là.
 Étape 8 faite : O5 et O6 (`test:orchestrator`), X6 (`test:security`), la coque
 compilée et testée en CI sur trois plateformes (`.github/workflows/desktop.yml`).
+Étape 9 faite : deux essais réels sur Venice dans la fenêtre — conversation,
+question montée jusqu'à l'utilisateur, revue, « Conclure ». Le renvoi d'une
+proposition n'a pas tourné contre un vrai modèle (prouvé par O5 seulement) ;
+la liste de ce qui reste ouvert est à la fin de `docs/SLICE6.md`. Prochaine :
+la Slice 7 — images, puis navigateur isolé (décisions dans `docs/SLICE6.md`).
 
 ## Slice 5 terminée — un orchestrateur intégré
 

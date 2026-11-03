@@ -7,7 +7,9 @@ façon VS Code. Cet atelier comprend un chat, le fil des échanges entre agents,
 fichiers écrits en direct et la sortie des commandes. Il tourne dans une app
 desktop Tauri.
 
-**État : en cours.** Étapes 1 à 8 faites (2026-11-03) ; reste l'essai réel.
+**État : terminée** (démarrée et terminée le 2026-11-03). Neuf étapes, CI
+verte sur les trois plateformes, deux essais réels contre Venice dans la
+fenêtre desktop.
 
 ---
 
@@ -94,8 +96,8 @@ lancent les agents, et n'expose aucun shell.
 | 5 | Routes de fichiers en lecture seule (arbre, contenu de travail et de départ) | **fait** |
 | 6 | Dashboard façon VS Code : explorateur, éditeur et diff, chat et fil des agents, terminal | **fait** |
 | 7 | Coque Tauri | **fait** |
-| 8 | Preuves : unitaires, `test:orchestrator`, `test:security`, `test:ui`, CI sur trois plateformes | **fait** — CI à constater après la poussée |
-| 9 | Essai réel, dans l'app, contre un vrai fournisseur | à faire |
+| 8 | Preuves : unitaires, `test:orchestrator`, `test:security`, `test:ui`, CI sur trois plateformes | **fait** — CI constatée aux passages `41662350413` et `41662350524` |
+| 9 | Essai réel, dans l'app, contre un vrai fournisseur | **fait** — deux essais ; renvoi non exercé contre un vrai modèle |
 
 ## Récit
 
@@ -623,5 +625,191 @@ macOS et Linux ne demandent pas. Le premier jet ne fournissait que le PNG. L'ICO
 est désormais engendré du même PNG, qu'il contient tel quel (format admis
 depuis Windows Vista), et déclaré dans `bundle.icon`. C'est précisément le genre
 de panne que ce workflow existe pour trouver : invisible depuis le Mac qui a
-écrit la coque.
+écrit la coque. *Constaté après le correctif, sur `25b3a7c` : « Coque desktop »
+(`41662350413`) et « Bout en bout » (`41662350524`) verts sous macOS, Linux et
+Windows.*
+
+### Étape 9 — l'essai réel (2026-11-03)
+
+*Comme aux Slices 3 à 5, le protocole est écrit avant l'essai et n'est pas
+retouché après coup ; les résultats viennent en dessous.*
+
+#### Le terrain
+
+- **Installation** : ce clone, à `25b3a7c`, runtime `~/.midgaard`. Le daemon
+  est relancé sur ce code à 15:23 UTC (pid 67607, protocole 11, base au
+  schéma 9). Celui d'avant avait démarré après l'étape 1 et ignorait le reste.
+- **Fenêtre** : la coque desktop, `npm run desktop`, construite à l'étape 7.
+- **Projet** : `~/Documents/midgaard-demo` à `dea8375`, arbre propre, sans
+  route `/uptime`.
+- **Profils** : `orchestrator` et `developer` sur `venice`, modèle
+  `deepseek-v4-flash-0731`. Limites : 16 étapes, 0,5 $ pour l'orchestrateur ;
+  30 étapes, 1 $ pour le Developer.
+
+#### Le déroulé
+
+1. Relever le solde Venice jusqu'à ce qu'il soit stable, aucun autre usage
+   du compte ne tournant.
+2. Dans la fenêtre, « Nouvelle tâche » : profil `orchestrator`, case
+   « Conversation » cochée, dossier `/Users/andydodakal/Documents/midgaard-demo`,
+   premier message :
+
+   > Ajoute une route GET /uptime qui répond 200 avec la durée de
+   > fonctionnement du serveur, et un test pour elle dans test/app.test.js,
+   > vérifié par npm test. Avant de déléguer, propose-moi ton plan en une
+   > phrase et attends mon accord. Demande au Developer de te poser sa
+   > question avant d'écrire s'il hésite sur l'unité, et renvoie-lui sa
+   > proposition si elle n'a pas de test.
+
+3. À la réplique de l'orchestrateur, l'auteur répond dans la conversation :
+
+   > D'accord, vas-y. L'unité est la seconde, en entier.
+
+4. Approuver chaque commande demandée par le Developer dans la fenêtre.
+5. Quand l'orchestrateur rend la main, l'auteur clique « Conclure ».
+6. Relever le solde.
+
+Les comportements « une question au parent » et « une proposition renvoyée »
+sont **provoqués par la consigne** du premier message. L'essai prouve que les
+mécanismes tiennent avec un vrai modèle, pas que celui-ci les choisirait seul.
+
+#### Ce qui sera relevé
+
+| # | Attendu | Ce qui le constate |
+|---|---|---|
+| C1 | La fenêtre s'ouvre sur le dashboard, « en direct » ; le formulaire propose « Conversation » pour l'orchestrateur | fenêtre |
+| C2 | La tâche est `chat` ; l'orchestrateur répond sans outil, et la saisie s'ouvre seulement alors (`waiting_input`, `chat`) | fenêtre, base |
+| C3 | Le message de l'auteur est au journal (`message.user`) et relance la conversation, dans la même conversation | base |
+| C4 | Le Developer est `review` ; s'il pose une question (`ask_parent`), elle arrive à l'orchestrateur et la réponse revient | base, fil |
+| C5 | Chaque `exec` attend l'auteur ; l'orchestrateur n'approuve rien | base, approbations |
+| C6 | La sortie de `npm test` s'affiche au terminal pendant la commande | fenêtre |
+| C7 | L'explorateur suit le Developer, et le diff contre `dea8375` se met à jour | fenêtre |
+| C8 | La branche ne bouge qu'à `accept_result` : un seul commit, à l'identité de l'agent | base, `git log` |
+| C9 | « Conclure » termine sur `submit_result` ; l'orchestrateur `completed`, sa synthèse nomme la branche | base |
+| C10 | `midgaard-demo` intact : le harness ne merge pas | `git status`, `git log` |
+| C11 | Chaque tâche a son coût « facturé par le fournisseur », et la somme égale l'écart du solde | solde avant et après |
+
+Échec du produit : une approbation sans l'humain, une saisie ouverte pendant
+que l'orchestrateur travaille, un commit avant l'acceptation, une conclusion
+sans `submit_result`, une écriture hors du worktree, un merge, un coût sans
+provenance ou qui ne correspond pas à la facture. Échec de l'essai, à rejouer :
+un modèle qui ne converse pas, ne délègue pas, ou épuise ses 16 étapes.
+
+#### Relevé avant l'essai
+
+- Solde à 15:24:47 UTC : 10,06136896 $ ; puis 10,05657617 $ (15:25:13) et
+  10,05043019 $ (15:25:39). Aucune tâche Midgaard active, un seul daemon. Le
+  solde est celui du **compte** Venice, partagé par ses clés : un autre usage y
+  dépense environ 0,01 $ par minute. Tant qu'il tourne, C11 ne peut pas être
+  constaté.
+- **Décision de l'auteur, 15:27 UTC : essayer sans le solde.** C11 est donc
+  relevé à moitié : chaque coût doit porter la provenance « facturé par le
+  fournisseur » (le montant que Venice rend pour chaque appel), mais leur somme
+  n'est pas comparée à l'écart du solde, qui ne mesurerait pas l'arbre.
+
+#### Premier essai — 2026-11-03, 15:30 UTC
+
+Lancé par l'auteur depuis la **fenêtre Midgaard** (la coque desktop), sur une
+seule instance de la coque. Orchestrateur `7ec08221`, Developer `cd2e9908`.
+
+| # | Verdict | Constat |
+|---|---|---|
+| C1 | ✅ | Formulaire rempli dans la fenêtre, « Conversation » cochée ; tâche `chat` |
+| C2 | ✅ | L'orchestrateur lit `package.json`, `src/app.js`, `test/app.test.js`, appelle `list_agents`, puis répond **sans outil** à l'étape 2 : son plan en une phrase et une demande d'accord. `waiting_input`/`chat` à 15:31:07 |
+| C3 | ✅ | `message.user` à 15:37:11 (« D'accord, vas-y. L'unité est la seconde, en entier. »), statut `running` dans la même écriture ; délégation à 15:37:24, **dans la même conversation** (6 appels de modèle en tout, une seule tâche) |
+| C4 | — | Non exercé : le Developer `cd2e9908` (`review`) n'a pas posé de question. L'unité lui avait été donnée dans la délégation, qui reprenait la réponse de l'auteur |
+| C5 | ✅ | `exec — exécuter /opt/homebrew/bin/npm test dans …/worktrees/midgaard-demo-56375bb0/cd2e9908 (délai 120 s)`, approuvé depuis le dashboard (`resolved_by: dashboard`) à 15:42:36, cinq minutes après la demande, **par l'auteur**. Aucune approbation au nom de l'orchestrateur (0 en base) |
+| C6 | ◐ | En base : deux `exec.output` (15:42:37.230 et .274), la sortie entière de `node --test`, 3/3, avant le `tool.completed` (.274). La commande n'a duré que 0,5 s, et l'auteur ne regardait pas le terminal : le direct n'est pas constaté **à l'écran** |
+| C7 | — | Non constaté : l'auteur n'a pas ouvert l'explorateur |
+| C8 | ✅ | Proposition soumise à 15:42:44.918 (`input.requested`, `proposal`), **sans commit** ; acceptée à 15:42:49.949 ; commit `82b7aa2` à 15:42:50, `Midgaard developer <developer@midgaard.invalid>`, non signé, seul commit de `midgaard/cd2e9908` : `src/app.js` +3, `test/app.test.js` +14 |
+| C9 | ◐ | L'orchestrateur `completed` sur `submit_result`, synthèse juste qui nomme `midgaard/cd2e9908` et `82b7aa26`. Mais **il a conclu seul**, juste après l'acceptation, sans attendre « Conclure » : sa consigne de conversation le lui permet (« when the user asks you to conclude **or the work is done** »). « Conclure » n'est pas exercé |
+| C10 | ✅ | `midgaard-demo` : `main` à `dea8375`, arbre propre |
+| C11 | ◐ | Orchestrateur 0,005158666 $, Developer 0,004027418 $, tous deux « facturé par le fournisseur », l'estimation égale au montant rendu. Somme 0,009186084 $, **non comparée au solde** (décision de l'auteur) |
+
+La proposition comportait son test : la consigne « renvoie-la si elle n'a pas
+de test » n'avait pas lieu de jouer, et l'orchestrateur l'a acceptée. Rien ne
+s'est passé hors des règles ; mais trois mécanismes nouveaux — la question,
+le renvoi, « Conclure » — n'ont pas tourné contre un vrai modèle.
+
+**Décisions de l'auteur après l'essai.**
+- La conclusion libre est **gardée** : un orchestrateur conclut quand le
+  travail est fait, ou quand l'utilisateur le lui demande.
+- Un **second essai**, dont le premier message laisse ouverte une question
+  que seul l'utilisateur peut trancher, et pose une exigence qu'une première
+  proposition a des chances de manquer.
+
+#### Second essai — protocole
+
+Même terrain. Seul le premier message change ; l'auteur regarde cette fois le
+terminal et l'explorateur pendant l'essai.
+
+> Ajoute une route GET /now qui répond 200 avec l'heure courante du serveur,
+> et un test pour elle dans test/app.test.js, vérifié par npm test. Délègue
+> tout de suite. Ne choisis pas toi-même le format de l'heure : dis au
+> Developer de te le demander avant d'écrire, et quand il te le demande,
+> pose-moi la question. Exige que le test vérifie aussi l'en-tête
+> Content-Type ; si la proposition ne le vérifie pas, renvoie-la au Developer.
+> Ne conclus pas avant que je te le demande.
+
+Réponses prévues de l'auteur : au format, « ISO 8601, en UTC » ; puis, quand
+l'orchestrateur rend compte, « Conclure ».
+
+Relevé : C4 (la question monte du Developer à l'orchestrateur, puis à
+l'utilisateur, et la réponse redescend), le renvoi s'il a lieu (C8 : la
+branche ne bouge pas au premier passage), C6 et C7 à l'écran, et C9 sur
+« Conclure ».
+
+#### Second essai — 2026-11-03, 15:52 UTC
+
+Lancé par l'auteur depuis la fenêtre Midgaard. Orchestrateur `0a9710a2`,
+Developer `fe95d93d`. L'auteur a regardé le fil et l'explorateur, pas le
+terminal.
+
+| # | Verdict | Constat |
+|---|---|---|
+| C1 | ✅ | Fenêtre, « Conversation » cochée ; tâche `chat` |
+| C2 | ✅ | L'orchestrateur lit le projet et délègue aussitôt (étape 2), comme demandé |
+| C3 | ✅ | Deux messages de l'auteur dans la même conversation : le format (15:53:25), puis « Conclure » (15:55:49, `conclude: true`, la consigne du harness au journal telle que le modèle l'a lue) |
+| C4 | ✅ | **La question monte et redescend.** Le Developer appelle `ask_parent` avant d'écrire (15:52:39, quatre formats proposés) et passe en `waiting_input`/`question` ; `wait_for_task` rend la main à l'orchestrateur, qui relaie la question à l'auteur (15:52:44) — l'orchestrateur attend l'utilisateur pendant que son enfant l'attend, lui. La réponse « ISO 8601, en UTC. » redescend par `send_message` (15:53:30, `in_reply_to: question`), et le Developer la lit en réponse à son appel |
+| C5 | ✅ | `npm test` approuvé depuis le dashboard (`resolved_by: dashboard`) à 15:53:50, par l'auteur ; aucune approbation au nom de l'orchestrateur |
+| C6 | ◐ | Deux `exec.output` en base (15:53:51.073 et .116), avant la fin de la commande (.117) ; commande de 0,5 s, terminal non regardé. Le direct **à l'écran** n'est prouvé que par D13 (`test:ui`) |
+| C7 | ✅ | L'auteur a vu le worktree du Developer dans l'explorateur, et le diff |
+| C8 | ✅ | Proposition à 15:54:01, **sans commit** ; acceptée à 15:54:04 après vérification du `Content-Type` par l'orchestrateur ; commit `6b3adb0` à 15:54:04, seul commit de `midgaard/fe95d93d`, à l'identité de l'agent, non signé (`src/app.js` +5, `test/app.test.js` +14) |
+| C9 | ✅ | Cette fois, l'orchestrateur rend compte **et attend** : « je ne conclus pas tant que tu ne me le demandes pas ». Il conclut par `submit_result` cinq secondes après « Conclure » ; synthèse juste |
+| C10 | ✅ | `midgaard-demo` : `main` à `dea8375`, arbre propre |
+| C11 | ◐ | Orchestrateur 0,006237718 $ (9 appels), Developer 0,00316745 $ (6 appels), « facturé par le fournisseur », estimation égale ; somme 0,009405168 $, non comparée au solde |
+
+**Le renvoi n'a pas tourné contre un vrai modèle.** Dans les deux essais, la
+première proposition respectait l'exigence, et l'orchestrateur l'a acceptée,
+à juste titre. Le mécanisme est prouvé par O5 (`test:orchestrator`) et
+`review-loop.test.ts` avec un faux modèle, pas par un vrai : c'est dit ici, et
+ce n'est pas écrit ailleurs comme constaté.
+
+**Ce que les deux essais établissent.** Un modèle qui n'est pas Claude
+(`deepseek-v4-flash-0731` sur Venice), dans la fenêtre desktop :
+- converse sur plusieurs tours : il rend compte, attend, et reprend la même
+  conversation ;
+- délègue, relaie à l'utilisateur la question de son Developer et lui en
+  redescend la réponse ;
+- relit la proposition avant de l'accepter, et ne fait commiter qu'à ce
+  moment ;
+- conclut sur la demande de l'utilisateur quand on le lui a demandé, ou de
+  lui-même quand le travail est fait — comportement gardé par décision de
+  l'auteur.
+
+Aucune approbation n'a été donnée sans l'auteur, rien n'a été écrit hors des
+worktrees, rien n'a été mergé, et chaque coût porte sa provenance.
+
+## Ce qui reste ouvert
+
+- **Le renvoi d'une proposition** contre un vrai modèle (voir plus haut).
+- **La sortie en direct, vue à l'écran pendant un essai réel** : prouvée par
+  D13 et en base, pas regardée par l'auteur.
+- **C11 entier** : le solde du compte Venice bouge sous un autre usage ; une
+  clé sur un compte dédié le rendrait constatable.
+- **Les limites de l'orchestrateur en conversation** (16 étapes) : les essais
+  en ont pris 6 et 9. Rien n'impose de les relever ; à revoir si une vraie
+  conversation les atteint.
+- **La Slice 7** (décisions de l'auteur, 2026-11-03) : lire des images d'abord,
+  puis un navigateur isolé piloté par sessions approuvées et surveillées.
 
