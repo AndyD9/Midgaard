@@ -9,7 +9,7 @@ MCP, la CLI, les tests et (pour les types) le dashboard.
 |---|---|
 | `config.ts` | `HarnessConfig` et `loadConfig(env, overrides)` — configuration **injectée**, jamais lue au niveau module |
 | `advice.ts` | `harnessCommand` : la forme unique des commandes conseillées (`npm --prefix` hors du clone, `--home` pour un autre runtime) |
-| `task.ts` | Modèle de tâche, statuts, table des transitions légales, `nextActionFor`, `isActionable` |
+| `task.ts` | Modèle de tâche, statuts (dont `waiting_input`, Slice 6), table des transitions légales, modes (`oneshot`, `chat`, `review`), `inputFrom`, `nextActionFor`, `isActionable` |
 | `events.ts` | Journal append-only : `seq` global (reprise WebSocket) et `task_seq` local (timeline) |
 | `approvals.ts` | Demande d'approbation : opération précise, usage unique, expiration |
 | `protocol.ts` | `PROTOCOL_VERSION`, formes des réponses HTTP, messages WebSocket |

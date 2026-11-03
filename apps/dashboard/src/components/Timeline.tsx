@@ -7,8 +7,8 @@
  * rejoués arrivent après des événements plus récents.
  */
 import {
-  Archive, CircleCheck, CircleSlash, CircleX, Coins, Flag, FolderGit2, FolderX, Hourglass, MessageSquare, Play,
-  ShieldCheck, ShieldQuestion, TimerOff, Wallet, Wrench,
+  Archive, CircleCheck, CircleSlash, CircleX, Coins, Flag, FolderGit2, FolderX, Hourglass, MessageCircleQuestion,
+  MessageSquare, MessagesSquare, Play, ShieldCheck, ShieldQuestion, SquareTerminal, TimerOff, User, Wallet, Wrench,
 } from 'lucide-react'
 import type { EventType, TaskEvent } from '@midgaard/contracts'
 import { formatCost, formatDateTime, formatTime } from '@/lib/utils'
@@ -34,6 +34,17 @@ const EVENT_LOOK: Record<EventType, { icon: typeof Flag; label: string; classNam
   'workspace.kept': { icon: Archive, label: 'Worktree conservé', className: 'text-muted' },
   'workspace.removed': { icon: FolderX, label: 'Worktree retiré', className: 'text-muted' },
   'subtask.waiting': { icon: Hourglass, label: 'Attend une sous-tâche', className: 'text-waiting' },
+  'input.requested': { icon: MessageCircleQuestion, label: 'Attend un message', className: 'text-waiting' },
+  'message.user': { icon: User, label: 'Message de l\'utilisateur', className: 'text-running' },
+  'message.agent': { icon: MessagesSquare, label: 'Message de la tâche parente', className: 'text-running' },
+  'exec.output': { icon: SquareTerminal, label: 'Sortie de commande', className: 'text-muted' },
+}
+
+/** Ce qu'attend une tâche en `waiting_input`, dit à l'utilisateur. */
+const AWAITING: Record<string, string> = {
+  chat: 'votre réponse',
+  question: 'la réponse de la tâche parente à sa question',
+  proposal: 'le verdict de la tâche parente sur sa proposition',
 }
 
 /**
@@ -51,6 +62,13 @@ function describe(event: TaskEvent): string | null {
     const by = p.by ? ` par ${String(p.by)}` : ''
     const reason = p.reason ? ` — ${String(p.reason)}` : ''
     return `${String(p.decision)}${by}${reason}`
+  }
+  if (event.type === 'input.requested') {
+    const what = AWAITING[String(p.request)] ?? String(p.request)
+    return typeof p.text === 'string' && p.text ? `${what} — ${p.text}` : what
+  }
+  if (event.type === 'message.user' || event.type === 'message.agent' || event.type === 'exec.output') {
+    return typeof p.text === 'string' ? p.text : null
   }
   if (event.type === 'task.interrupted') return `statut précédent : ${String(p.previous_status)}`
   if (event.type === 'subtask.waiting') {

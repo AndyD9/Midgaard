@@ -40,7 +40,7 @@ const ZERO_USAGE =
 
 /**
  * Migrations, dans l'ordre. La version 1 est le schéma de la Slice 1, les
- * versions 2 et 3 celui de la Slice 2, la 4 ouvre la Slice 3.
+ * versions 2 et 3 celui de la Slice 2, la 4 ouvre la Slice 3, la 9 la Slice 6.
  *
  * Des tables prévues au plan (§6), deux n'existeront pas. `projects` : un
  * projet est le dépôt d'où la tâche est déléguée, déjà porté par
@@ -285,6 +285,20 @@ export const MIGRATIONS: readonly Migration[] = [
       -- L'annulation en cascade et la carte « Sous-tâches » cherchent les
       -- enfants d'un parent.
       CREATE INDEX tasks_parent_idx ON tasks(parent_task_id);
+    `,
+  },
+  {
+    version: 9,
+    label: 'Slice 6 — conversations et attente d\'un message',
+    sql: `
+      -- Manière dont la tâche converse (oneshot, chat, review), posée par le
+      -- daemon seul. Toute tâche d'avant était un objectif suivi d'un
+      -- submit_result : 'oneshot', écrit en toutes lettres, comme toute valeur
+      -- d'une migration publiée.
+      ALTER TABLE tasks ADD COLUMN mode TEXT NOT NULL DEFAULT 'oneshot';
+      -- Ce qu'attend une tâche en waiting_input (chat, question, proposal) ;
+      -- NULL dans tout autre statut, donc pour toutes les tâches d'avant.
+      ALTER TABLE tasks ADD COLUMN awaiting_input TEXT;
     `,
   },
 ]

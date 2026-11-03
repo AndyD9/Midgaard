@@ -1,7 +1,8 @@
 /**
  * @file Persistance : l'invariant « état et journal indissociables », la
  * numérotation des séquences, l'usage unique des approbations, la
- * réconciliation au redémarrage, et le lien d'une tâche à son parent.
+ * réconciliation au redémarrage, le lien d'une tâche à son parent, et
+ * l'attente d'un message (Slice 6).
  */
 import assert from 'node:assert/strict'
 import { chmodSync, mkdtempSync, rmSync, statSync } from 'node:fs'
@@ -113,6 +114,108 @@ describe('migration 8', () => {
     } finally {
       migrated.close()
     }
+  })
+})
+
+describe('migration 9', () => {
+  it('fait des tâches créées avant elle des tâches oneshot qui n\'attendent rien', () => {
+    // Une base arrêtée au schéma 8, comme l'a laissée la Slice 5.
+    const old = new DatabaseSync(join(home, 'v8.db'))
+    for (const m of MIGRATIONS.filter((m) => m.version <= 8)) old.exec(m.sql)
+    old.exec('PRAGMA user_version = 8')
+    old.exec(`INSERT INTO tasks (id, objective, status, steps_total, duration_s, created_at, updated_at)
+              VALUES ('t', 'o', 'completed', 1, 1, '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z')`)
+    old.close()
+    const migrated = HarnessStore.open({ dbPath: join(home, 'v8.db') })
+    try {
+      assert.equal(migrated.getTask('t')?.mode, 'oneshot')
+      assert.equal(migrated.getTask('t')?.awaiting_input, null)
+    } finally {
+      migrated.close()
+    }
+  })
+})
+
+describe('mode d\'une tâche', () => {
+  it('vaut oneshot par défaut, et le task.created ne le dit qu\'autrement', () => {
+    const plain = newTask()
+    assert.equal(plain.task.mode, 'oneshot')
+    assert.equal(plain.event.payload.mode, undefined, 'un task.created d\'avant la Slice 6 et un d\'après se lisent pareil')
+    const chat = store.createTask({
+      objective: 'conversation',
+      agentId: 'simulated',
+      context: null,
+      projectDir: null,
+      limits: DEFAULT_RESEARCHER_LIMITS,
+      durationS: 10,
+      stepsTotal: 5,
+      needsApproval: false,
+      mode: 'chat',
+    })
+    assert.equal(chat.task.mode, 'chat')
+    assert.equal(chat.event.payload.mode, 'chat')
+  })
+})
+
+describe('attente d\'un message', () => {
+  /** Une tâche en cours, prête à attendre. */
+  function running() {
+    const { task } = newTask()
+    store.record(task.id, 'preparing', { type: 'task.started' })
+    store.record(task.id, 'running', { type: 'task.progress' })
+    return task
+  }
+
+  it('pose awaiting_input avec waiting_input, et l\'efface à la sortie', () => {
+    const task = running()
+    const paused = store.record(
+      task.id,
+      'waiting_input',
+      { type: 'input.requested', payload: { request: 'question', text: 'quel port ?' } },
+      { awaiting_input: 'question' },
+    )!
+    assert.equal(paused.task.status, 'waiting_input')
+    assert.equal(paused.task.awaiting_input, 'question')
+    assert.equal(paused.event.type, 'input.requested')
+    const resumed = store.record(task.id, 'running', { type: 'message.agent', payload: { text: '7777' } })!
+    assert.equal(resumed.task.awaiting_input, null, 'une tâche relancée n\'attend plus rien')
+  })
+
+  it('l\'efface aussi quand l\'attente finit par une annulation', () => {
+    const task = running()
+    store.record(task.id, 'waiting_input', { type: 'input.requested', payload: { request: 'chat' } }, { awaiting_input: 'chat' })
+    const cancelling = store.record(task.id, 'cancel_requested', { type: 'task.cancelled' })!
+    assert.equal(cancelling.task.awaiting_input, null)
+  })
+
+  it('refuse une attente qui ne dit pas ce qu\'elle attend, sans rien écrire', () => {
+    // Personne ne saurait qui doit répondre : c'est un bug du daemon.
+    const task = running()
+    const seq = store.lastSeq()
+    assert.throws(() => store.record(task.id, 'waiting_input', { type: 'input.requested' }), /awaiting_input/)
+    assert.equal(store.getTask(task.id)!.status, 'running')
+    assert.equal(store.lastSeq(), seq, 'aucun événement écrit')
+  })
+
+  it('refuse un objet d\'attente hors de waiting_input, sans rien écrire', () => {
+    const task = running()
+    const seq = store.lastSeq()
+    assert.throws(
+      () => store.record(task.id, null, { type: 'agent.message' }, { awaiting_input: 'chat' }),
+      /awaiting_input sans waiting_input/,
+    )
+    assert.equal(store.getTask(task.id)!.awaiting_input, null)
+    assert.equal(store.lastSeq(), seq)
+  })
+
+  it('laisse journaliser pendant l\'attente sans perdre ce qu\'elle attend', () => {
+    // Un message de l'utilisateur à une tâche qui travaille encore, ou une
+    // sortie de commande, s'écrit sans changer le statut.
+    const task = running()
+    store.record(task.id, 'waiting_input', { type: 'input.requested', payload: { request: 'chat' } }, { awaiting_input: 'chat' })
+    const noted = store.record(task.id, null, { type: 'agent.message', payload: { message: 'note' } })!
+    assert.equal(noted.task.status, 'waiting_input')
+    assert.equal(noted.task.awaiting_input, 'chat')
   })
 })
 
@@ -274,17 +377,24 @@ describe('redémarrage', () => {
     store.record(paused.id, 'preparing', { type: 'task.started' })
     store.record(paused.id, 'running', { type: 'task.progress' })
     store.record(paused.id, 'waiting_approval', { type: 'approval.requested' }, { approval_seq: 1 })
+    // Une conversation ne survit pas au daemon (Slice 6, décision 1) : son
+    // fil vivait dans le processus précédent.
+    const talking = newTask().task
+    store.record(talking.id, 'preparing', { type: 'task.started' })
+    store.record(talking.id, 'running', { type: 'task.progress' })
+    store.record(talking.id, 'waiting_input', { type: 'input.requested', payload: { request: 'chat' } }, { awaiting_input: 'chat' })
     const finished = newTask().task
     store.record(finished.id, 'preparing', { type: 'task.started' })
     store.record(finished.id, 'running', { type: 'task.progress' })
     store.record(finished.id, 'completed', { type: 'task.completed' }, { result: { summary: 'ok', details: '', steps: [], citations: [], untrusted: false, workspace: null } })
 
     const interrupted = store.markInterrupted()
-    assert.equal(interrupted.length, 3, 'queued, running et waiting_approval doivent tous être interrompus')
-    for (const id of [queued.id, running.id, paused.id]) {
+    assert.equal(interrupted.length, 4, 'queued, running, waiting_approval et waiting_input doivent tous être interrompus')
+    for (const id of [queued.id, running.id, paused.id, talking.id]) {
       const task = store.getTask(id)!
       assert.equal(task.status, 'interrupted')
       assert.match(task.error!, /redémarrage/)
+      assert.equal(task.awaiting_input, null, 'une tâche interrompue n\'attend plus rien')
     }
     assert.equal(store.getTask(finished.id)!.status, 'completed', 'une tâche finie ne bouge pas')
   })

@@ -23,7 +23,9 @@ export const mark = { ok: () => green('✔'), warn: () => yellow('!'), fail: () 
 /** Couleur associée à un statut de tâche : vert si tout va bien, jaune si ça attend, rouge sinon. */
 export function colorStatus(status: string): string {
   if (status === 'completed') return green(status)
-  if (status === 'waiting_approval' || status === 'cancel_requested') return yellow(status)
+  if (status === 'waiting_approval' || status === 'waiting_input' || status === 'cancel_requested') {
+    return yellow(status)
+  }
   if (['failed', 'cancelled', 'timed_out', 'budget_exceeded', 'interrupted'].includes(status)) return red(status)
   return blue(status)
 }

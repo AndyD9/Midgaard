@@ -26,7 +26,7 @@ import { Button } from './ui/button'
 import { Card, CardBody, CardHeader, CardTitle } from './ui/card'
 
 /** Statuts depuis lesquels une annulation a encore un sens. */
-const CANCELLABLE = ['queued', 'preparing', 'running', 'waiting_approval']
+const CANCELLABLE = ['queued', 'preparing', 'running', 'waiting_approval', 'waiting_input']
 
 export function TaskInspector({
   task,

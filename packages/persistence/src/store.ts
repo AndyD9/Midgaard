@@ -30,11 +30,13 @@ import {
   type ConnectionTest,
   type EventType,
   type HarnessConfig,
+  type InputRequest,
   type ProviderConfig,
   type ProviderKind,
   type ProviderPreset,
   type Task,
   type TaskEvent,
+  type TaskMode,
   type TaskResult,
   type TaskStatus,
   type ToolCall,
@@ -70,6 +72,8 @@ interface TaskRow {
   usage_json: string
   project_dir: string | null
   parent_task_id: string | null
+  mode: string
+  awaiting_input: string | null
 }
 
 /** Ligne `task_events` telle que SQLite la rend. */
@@ -94,6 +98,11 @@ export interface TaskPatch {
   ended_at?: string | null
   result?: TaskResult | null
   error?: string | null
+  /**
+   * Ce qu'attend la tâche : **obligatoire** à l'entrée en `waiting_input`,
+   * interdit ailleurs. Inutile à la sortie : le dépôt l'efface de lui-même.
+   */
+  awaiting_input?: InputRequest
 }
 
 /** Événement à écrire en même temps qu'un changement d'état. */
@@ -150,6 +159,8 @@ function toTask(row: TaskRow): Task {
     usage: JSON.parse(row.usage_json) as Usage,
     project_dir: row.project_dir,
     parent_task_id: row.parent_task_id,
+    mode: row.mode as TaskMode,
+    awaiting_input: row.awaiting_input as InputRequest | null,
   }
 }
 
@@ -345,6 +356,8 @@ export class HarnessStore {
     stepsTotal: number
     needsApproval: boolean
     parentTaskId?: string | null
+    /** `oneshot` par défaut. Choisi par le daemon, jamais par le client (Slice 6). */
+    mode?: TaskMode
   }): Recorded {
     const now = new Date().toISOString()
     const id = randomUUID()
@@ -353,9 +366,9 @@ export class HarnessStore {
         .prepare(
           `INSERT INTO tasks (id, objective, status, step, steps_total, needs_approval, approval_seq,
                               duration_s, created_at, updated_at, agent_id, context, limits_json, usage_json,
-                              project_dir, parent_task_id)
+                              project_dir, parent_task_id, mode)
            VALUES (:id, :objective, 'queued', 0, :steps_total, :needs_approval, 0, :duration_s, :now, :now,
-                   :agent_id, :context, :limits, :usage, :project_dir, :parent_task_id)`,
+                   :agent_id, :context, :limits, :usage, :project_dir, :parent_task_id, :mode)`,
         )
         .run({
           id,
@@ -368,6 +381,7 @@ export class HarnessStore {
           context: input.context,
           project_dir: input.projectDir,
           parent_task_id: input.parentTaskId ?? null,
+          mode: input.mode ?? 'oneshot',
           limits: JSON.stringify(input.limits),
           usage: JSON.stringify(emptyUsage()),
         })
@@ -383,6 +397,9 @@ export class HarnessStore {
             agent_id: input.agentId,
             limits: input.limits,
             ...(input.parentTaskId ? { parent_task_id: input.parentTaskId } : {}),
+            // Le mode aussi, mais seulement quand il n'est pas celui de toujours :
+            // un task.created d'avant la Slice 6 et un d'après se lisent pareil.
+            ...(input.mode && input.mode !== 'oneshot' ? { mode: input.mode } : {}),
           },
         },
         now,
@@ -498,6 +515,15 @@ export class HarnessStore {
     const from = current.status as TaskStatus
     const status = to ?? from
     if (to !== null && to !== from && !canTransition(from, to)) throw new IllegalTransitionError(id, from, to)
+    // `awaiting_input` n'a de sens qu'avec `waiting_input`. Une attente sans
+    // objet, ou un objet sans attente, ne laisserait personne savoir qui doit
+    // répondre : c'est un bug du daemon, refusé avant toute écriture.
+    if (status === 'waiting_input' && from !== 'waiting_input' && patch.awaiting_input === undefined) {
+      throw new Error(`tâche ${id} : l'entrée en waiting_input doit dire ce qu'elle attend (awaiting_input)`)
+    }
+    if (patch.awaiting_input !== undefined && status !== 'waiting_input') {
+      throw new Error(`tâche ${id} : awaiting_input sans waiting_input (statut ${status})`)
+    }
 
     const sets: string[] = ['status = :status', 'updated_at = :now']
     const params: Record<string, string | number | null> = { id, status, now }
@@ -517,6 +543,10 @@ export class HarnessStore {
     if (patch.started_at !== undefined) assign('started_at', patch.started_at)
     else if ((to === 'preparing' || to === 'running') && current.started_at === null) assign('started_at', now)
     if (patch.error !== undefined) assign('error', patch.error)
+    // Effacé à la sortie de `waiting_input`, quel que soit l'appelant : une
+    // tâche relancée ou annulée n'attend plus rien.
+    if (patch.awaiting_input !== undefined) assign('awaiting_input', patch.awaiting_input)
+    else if (from === 'waiting_input' && status !== 'waiting_input') assign('awaiting_input', null)
     if (patch.result !== undefined) assign('result_json', patch.result ? JSON.stringify(patch.result) : null)
     // `ended_at` est posé d'office à l'entrée dans un statut final : c'est une
     // propriété du statut, pas quelque chose que chaque appelant doit penser à fournir.

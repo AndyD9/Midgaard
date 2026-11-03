@@ -70,6 +70,18 @@ describe('transitions', () => {
     for (const [from, to] of forbidden) assert.equal(canTransition(from, to), false, `${from} → ${to}`)
   })
 
+  it('ne fait sortir une attente de message que pour continuer, annuler, expirer ou interrompre', () => {
+    // Le message reçu relance la boucle, et c'est elle qui conclut : aucune
+    // fin, réussie ou non, ne se décide pendant l'attente (Slice 6).
+    assert.deepEqual([...TRANSITIONS.waiting_input].sort(), ['cancel_requested', 'interrupted', 'running', 'timed_out'])
+    assert.equal(canTransition('running', 'waiting_input'), true)
+    for (const to of ['completed', 'failed', 'budget_exceeded', 'cancelled', 'waiting_approval'] as TaskStatus[]) {
+      assert.equal(canTransition('waiting_input', to), false, `waiting_input → ${to}`)
+    }
+    // Une approbation se tranche, elle ne se change pas en attente de message.
+    assert.equal(canTransition('waiting_approval', 'waiting_input'), false)
+  })
+
   it("laisse une tâche en cours d'annulation se terminer quand même", () => {
     // Une tâche peut franchir sa dernière étape avant d'avoir pris connaissance
     // de l'annulation. Mentir sur ce qui s'est passé serait pire.
@@ -84,6 +96,9 @@ describe('nextActionFor', () => {
     ['running', 'call_wait_for_task_again'],
     ['cancel_requested', 'call_wait_for_task_again'],
     ['waiting_approval', 'human_approval_pending'],
+    // Claude ne délègue que des tâches oneshot, qui n'y entrent jamais ; si
+    // l'une y entrait, attendre encore resterait la seule consigne juste.
+    ['waiting_input', 'call_wait_for_task_again'],
     ['completed', 'result_ready'],
     ['failed', 'task_ended_without_result'],
     ['cancelled', 'task_ended_without_result'],
@@ -102,7 +117,7 @@ describe('nextActionFor', () => {
 
 describe('isActionable', () => {
   it("n'interrompt pas une attente tant que la tâche avance", () => {
-    for (const status of ['queued', 'preparing', 'running', 'cancel_requested'] as TaskStatus[]) {
+    for (const status of ['queued', 'preparing', 'running', 'waiting_input', 'cancel_requested'] as TaskStatus[]) {
       assert.equal(isActionable({ status, approval_seq: 0 }), false, status)
     }
   })

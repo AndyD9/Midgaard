@@ -29,11 +29,12 @@ et les coûts.
 | 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | ✅ **Terminée** : un Developer a implémenté `/health` en vraie session, dans un worktree, sous approbation, coût **exact au microdollar** ; suites vertes sur macOS, Linux et Windows |
 | 4 | Durcissement sécurité, installation depuis un clone | ✅ **Terminée** : suite de sécurité, crash et concurrence, toutes les suites en CI sur macOS, Linux et Windows ; depuis un clone frais, le scénario §12 rejoué en vraie session sous macOS, coût **exact** contre le solde Venice. La distribution npm a été **abandonnée** : Midgaard s'installe depuis un clone ([docs/SLICE4.md](docs/SLICE4.md)) |
 | 5 | Orchestrateur intégré sur n'importe quel modèle, lancé du dashboard | ✅ **Terminée** le 2026-11-01 — essai réel : un orchestrateur sur Venice délègue à un Developer sous approbation, coût exact ([docs/SLICE5.md](docs/SLICE5.md)) |
+| 6 | Atelier façon VS Code dans une app Tauri : chat avec l'orchestrateur, boucle orchestrateur ⇄ Developer, fichiers et terminal en direct | 🚧 **En cours** — étape 1 sur 9 faite : statut `waiting_input`, mode d'une tâche, migration 9 ([docs/SLICE6.md](docs/SLICE6.md)) |
 
 Le détail des slices est dans [docs/PLAN.md](docs/PLAN.md). Ce que chaque slice a
 prouvé et appris : [docs/SLICE0.md](docs/SLICE0.md), [docs/SLICE1.md](docs/SLICE1.md),
 [docs/SLICE2.md](docs/SLICE2.md), [docs/SLICE3.md](docs/SLICE3.md), [docs/SLICE4.md](docs/SLICE4.md),
-[docs/SLICE5.md](docs/SLICE5.md).
+[docs/SLICE5.md](docs/SLICE5.md), [docs/SLICE6.md](docs/SLICE6.md).
 
 ## Installer
 
@@ -181,6 +182,7 @@ Midgaard/
 │   ├── SLICE3.md                 Developer, worktrees, approbations : décisions, essai réel
 │   ├── SLICE4.md                 durcissement : décisions, étapes, essai depuis un clone
 │   ├── SLICE5.md                 orchestrateur intégré : décisions, étapes, essai réel
+│   ├── SLICE6.md                 atelier façon VS Code : conversations, boucle entre agents, Tauri
 │   └── DEPANNAGE.md              symptômes, causes et remèdes ; variables d'environnement
 ├── packages/
 │   ├── contracts/                schémas Zod, machine à états, protocole — aucune dépendance

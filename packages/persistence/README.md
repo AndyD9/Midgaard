@@ -29,7 +29,7 @@ le code en cours fait échouer l'ouverture, au lieu d'être interprétée de tra
 
 | Table | Rôle |
 |---|---|
-| `tasks` | État courant de chaque tâche ; `parent_task_id` (migration 8) désigne la tâche qui l'a déléguée, posée par le daemon seul |
+| `tasks` | État courant de chaque tâche ; `parent_task_id` (migration 8) désigne la tâche qui l'a déléguée, `mode` (migration 9) dit comment elle converse — tous deux posés par le daemon seul |
 | `task_events` | Journal append-only. `seq` global (`AUTOINCREMENT`, jamais réutilisé) pour la reprise WebSocket ; `task_seq` local pour la timeline d'une tâche |
 | `approvals` | Demandes d'approbation : opération précise, usage unique, expiration |
 | `provider_configs` | Fournisseurs de modèles ; la clé n'y est jamais, seulement sa référence au coffre |
@@ -50,6 +50,12 @@ l'appelant y pense : `started_at` à la première entrée en `preparing` ou en
 `running` (jamais déplacé ensuite), `ended_at` à l'entrée dans un statut
 final. `started_at` n'était écrit par personne jusqu'à la Slice 5, alors que
 le serveur MCP le transmettait à Claude.
+
+`awaiting_input` (migration 9) en est une troisième : ce qu'attend une tâche en
+`waiting_input` (`chat`, `question`, `proposal`). Il est **exigé** à l'entrée
+dans ce statut, **refusé** hors de lui, et effacé à la sortie quelle qu'elle
+soit. Une attente qui ne dit pas qui doit répondre est un bug du daemon :
+`record()` lève avant d'écrire quoi que ce soit.
 
 ## Choix d'exploitation
 

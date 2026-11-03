@@ -9,10 +9,15 @@
  *
  * ```text
  *   queued → preparing → running ⇄ waiting_approval → completed
- *                                         │
+ *                           ⇅             │
+ *                     waiting_input       │
  *   sorties : failed, cancel_requested → cancelled, timed_out,
  *             budget_exceeded, interrupted
  * ```
+ *
+ * `waiting_input` (Slice 6) : la tâche attend un **message**, de l'utilisateur
+ * (une conversation) ou de la tâche qui l'a déléguée (une question, une
+ * proposition à relire). {@link Task.awaiting_input} dit lequel.
  */
 import { z } from 'zod'
 import { taskWorkspaceSchema } from './workspace.ts'
@@ -30,7 +35,9 @@ export const TERMINAL_STATUSES = [
 ] as const
 
 /** Statuts actifs : la tâche est encore en vie et peut changer d'état. */
-export const ACTIVE_STATUSES = ['queued', 'preparing', 'running', 'waiting_approval', 'cancel_requested'] as const
+export const ACTIVE_STATUSES = [
+  'queued', 'preparing', 'running', 'waiting_approval', 'waiting_input', 'cancel_requested',
+] as const
 
 /** Tous les statuts possibles d'une tâche. */
 export const TASK_STATUSES = [...ACTIVE_STATUSES, ...TERMINAL_STATUSES] as const
@@ -49,16 +56,23 @@ export const taskStatusSchema = z.enum(TASK_STATUSES)
  *    dernière étape avant d'avoir pris connaissance de l'annulation, et mentir
  *    sur ce qui s'est réellement passé serait pire ;
  *  - `interrupted` est accessible depuis **tous** les états actifs, puisqu'il
- *    est appliqué en bloc au redémarrage du daemon.
+ *    est appliqué en bloc au redémarrage du daemon ;
+ *  - `waiting_input` ne mène qu'à `running` pour continuer : le message reçu
+ *    relance la boucle, et c'est elle, pas l'attente, qui conclut. Même
+ *    l'acceptation d'une proposition repasse par `running`, le temps que le
+ *    harness commite. Une annulation passe par `cancel_requested`, pour que le
+ *    moteur qui attend le message la voie et rende la main ; `timed_out` sanctionne
+ *    une attente restée sans réponse.
  */
 export const TRANSITIONS: Readonly<Record<TaskStatus, readonly TaskStatus[]>> = Object.freeze({
   queued: ['preparing', 'running', 'cancel_requested', 'failed', 'timed_out', 'interrupted'],
   preparing: ['running', 'cancel_requested', 'failed', 'timed_out', 'interrupted'],
   running: [
-    'waiting_approval', 'completed', 'failed', 'cancel_requested',
+    'waiting_approval', 'waiting_input', 'completed', 'failed', 'cancel_requested',
     'timed_out', 'budget_exceeded', 'interrupted',
   ],
   waiting_approval: ['running', 'cancelled', 'cancel_requested', 'failed', 'timed_out', 'interrupted'],
+  waiting_input: ['running', 'cancel_requested', 'timed_out', 'interrupted'],
   cancel_requested: ['cancelled', 'completed', 'failed', 'interrupted'],
   completed: [],
   failed: [],
@@ -67,6 +81,41 @@ export const TRANSITIONS: Readonly<Record<TaskStatus, readonly TaskStatus[]>> = 
   budget_exceeded: [],
   interrupted: [],
 })
+
+/**
+ * Manière dont une tâche converse, **posée par le daemon seul** (Slice 6,
+ * décision 2), comme `parent_task_id` :
+ *  - `oneshot` : un objectif, un `submit_result`, la fin. Tout ce que délègue
+ *    Claude par MCP, et tout ce qui existait avant la Slice 6 ;
+ *  - `chat` : une conversation avec l'utilisateur, ouverte du dashboard. Une
+ *    réponse sans outil attend le message suivant au lieu d'échouer ;
+ *  - `review` : un Developer délégué par un orchestrateur. Son `submit_result`
+ *    est une proposition, que le parent accepte ou renvoie.
+ */
+export const TASK_MODES = ['oneshot', 'chat', 'review'] as const
+export type TaskMode = (typeof TASK_MODES)[number]
+export const taskModeSchema = z.enum(TASK_MODES)
+
+/**
+ * Ce qu'attend une tâche en `waiting_input` :
+ *  - `chat` : la réponse de l'utilisateur ;
+ *  - `question` : la réponse de son parent à une question qu'elle lui a posée ;
+ *  - `proposal` : le verdict de son parent sur le résultat qu'elle propose.
+ *
+ * Un seul champ plutôt qu'un « de qui » et un « pourquoi » : les deux se
+ * déduisent l'un de l'autre, et deux champs pourraient se contredire.
+ */
+export const INPUT_REQUESTS = ['chat', 'question', 'proposal'] as const
+export type InputRequest = (typeof INPUT_REQUESTS)[number]
+export const inputRequestSchema = z.enum(INPUT_REQUESTS)
+
+/**
+ * Qui doit répondre à une attente : l'utilisateur, ou la tâche parente.
+ * @param request ce qu'attend la tâche
+ */
+export function inputFrom(request: InputRequest): 'user' | 'parent' {
+  return request === 'chat' ? 'user' : 'parent'
+}
 
 /** Indique si un statut est final. */
 export function isTerminal(status: TaskStatus): boolean {
@@ -166,6 +215,14 @@ export const taskSchema = z.object({
    * l'annulation en cascade d'un parent emporterait des tâches qu'il n'a pas créées.
    */
   parent_task_id: z.uuid().nullable(),
+  /** Manière dont la tâche converse ; posée par le daemon seul, comme `parent_task_id`. */
+  mode: taskModeSchema,
+  /**
+   * Ce qu'attend la tâche, tant qu'elle est en `waiting_input` ; `null` sinon.
+   * Posé par le dépôt avec le statut et effacé à sa sortie : une propriété du
+   * statut, comme `ended_at`.
+   */
+  awaiting_input: inputRequestSchema.nullable(),
   /** Limites effectivement appliquées : celles du profil, abaissées par la délégation. */
   limits: agentLimitsSchema,
   /** Consommation cumulée, et d'où vient le montant. Toujours présente, à zéro pour une tâche simulée. */
@@ -230,6 +287,9 @@ export type NextAction = (typeof NEXT_ACTIONS)[number]
  * `call_wait_for_task_again`.
  */
 export function nextActionFor(task: Pick<Task, 'status'>): NextAction {
+  // `waiting_input` tombe dans le cas général, « attendre encore » : Claude ne
+  // délègue que des tâches `oneshot`, qui n'y entrent jamais. L'attente d'un
+  // orchestrateur sur ses enfants a son propre critère (outil `wait_for_task`).
   if (task.status === 'completed') return 'result_ready'
   if (task.status === 'waiting_approval') return 'human_approval_pending'
   if (isTerminal(task.status)) return 'task_ended_without_result'

@@ -33,14 +33,15 @@ export type BadgeTone = Tone
 /**
  * Rôle de couleur d'un statut de tâche.
  *
- * Trois familles : ce qui avance (bleu), ce qui attend une décision humaine
- * (ambre), ce qui s'est terminé — bien (vert) ou mal (rouge).
+ * Trois familles : ce qui avance (bleu), ce qui attend une décision ou un
+ * message (ambre), ce qui s'est terminé — bien (vert) ou mal (rouge).
  */
 export function toneForStatus(status: TaskStatus): Tone {
   switch (status) {
     case 'completed':
       return 'done'
     case 'waiting_approval':
+    case 'waiting_input':
     case 'cancel_requested':
       return 'waiting'
     case 'failed':

@@ -53,9 +53,13 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *        être de type `orchestrator`, et `PATCH /api/agents/:id` choisit le
  *        fournisseur et le modèle d'un profil. Un daemon de protocole 9 rendrait
  *        des tâches sans le champ, que le serveur MCP et le dashboard valident
- *        désormais, et répondrait 405 au réglage du modèle.
+ *        désormais, et répondrait 405 au réglage du modèle ;
+ *  - 11 : Slice 6, étape 1 — une tâche porte `mode` et `awaiting_input`, et peut
+ *        être en `waiting_input`, un statut actif que les versions antérieures
+ *        ne connaissent pas. Un daemon de protocole 10 rendrait des tâches sans
+ *        ces champs, que le serveur MCP et le dashboard valident désormais.
  */
-export const PROTOCOL_VERSION = 10
+export const PROTOCOL_VERSION = 11
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({

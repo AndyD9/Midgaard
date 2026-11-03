@@ -48,6 +48,25 @@ import { taskStatusSchema } from './task.ts'
  * aucun client ne valide le type d'un événement à l'exécution, et un daemon
  * antérieur ne fait simplement jamais attendre de sous-tâche.
  *
+ * La Slice 6 ajoute quatre types, pour les conversations et le terminal :
+ *
+ *  - `input.requested` — la tâche passe en `waiting_input`. Charge :
+ *    `{ request, text? }` — ce qu'elle attend et, pour une question ou une
+ *    proposition, le texte que le destinataire doit lire ;
+ *  - `message.user` — un message de l'utilisateur, `{ text }`, écrit sur la
+ *    tâche qui le reçoit ; il la remet en `running` quand elle l'attendait ;
+ *  - `message.agent` — un message d'une tâche à une autre (le parent qui répond
+ *    ou renvoie une proposition), `{ from_task_id, text }`, écrit sur la tâche
+ *    qui le **reçoit**. Le fil d'un arbre se reconstitue en lisant ses tâches ;
+ *  - `exec.output` — des lignes de sortie d'une commande `exec` en cours,
+ *    expurgées, `{ tool_call_id, stream, text }`, pour le terminal du
+ *    dashboard. Le statut ne change pas.
+ *
+ * Tous les textes sont expurgés avant d'être écrits, comme le reste du journal.
+ *
+ * Comme pour `subtask.waiting`, aucun ne demande à lui seul un nouveau
+ * protocole ; c'est le statut `waiting_input` qui l'impose (`PROTOCOL_VERSION`).
+ *
  * `artifact.created`, prévu au plan, n'est pas créé : le diff d'un worktree se
  * calcule à la demande contre son commit de départ, et un artefact figé en
  * serait une seconde copie, vraie au moment de l'écrire seulement.
@@ -72,6 +91,10 @@ export const EVENT_TYPES = [
   'workspace.kept',
   'workspace.removed',
   'subtask.waiting',
+  'input.requested',
+  'message.user',
+  'message.agent',
+  'exec.output',
 ] as const
 export type EventType = (typeof EVENT_TYPES)[number]
 

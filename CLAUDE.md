@@ -3,7 +3,8 @@
 Harness local qui laisse Claude Code déléguer des tâches à des agents exécutants,
 les observer et les soumettre à approbation humaine. **Lire d'abord** :
 [README.md](README.md) (état, commandes), [docs/PLAN.md](docs/PLAN.md) (décisions
-et slices), [docs/SLICE5.md](docs/SLICE5.md) (orchestrateur intégré, essai réel), [docs/SLICE4.md](docs/SLICE4.md) (durcissement,
+et slices), [docs/SLICE6.md](docs/SLICE6.md) (atelier façon VS Code, en cours),
+[docs/SLICE5.md](docs/SLICE5.md) (orchestrateur intégré, essai réel), [docs/SLICE4.md](docs/SLICE4.md) (durcissement,
 distribution abandonnée, essai depuis un clone), [docs/SLICE3.md](docs/SLICE3.md) (Developer, worktrees,
 approbations : décisions, étapes, essai réel, CI), [docs/SLICE2.md](docs/SLICE2.md),
 [docs/SLICE1.md](docs/SLICE1.md) et [docs/SLICE0.md](docs/SLICE0.md) (d'où
@@ -183,6 +184,11 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - **`parent_task_id` n'est posé que par le daemon** (`TaskManager.create`,
   appelé par le port de délégation) : aucune route ne l'accepte, sans quoi un
   client rattacherait une tâche à un arbre qui n'est pas le sien (Slice 5).
+- **`mode` n'est posé que par le daemon**, comme `parent_task_id` : `oneshot`
+  pour tout ce que délègue Claude, `chat` et `review` pour les seules tâches
+  du dashboard et de l'orchestrateur (Slice 6). **`awaiting_input` est une
+  propriété du statut** `waiting_input` : exigé à l'entrée, refusé ailleurs,
+  effacé à la sortie par le dépôt.
 - **Aucune sous-tâche ne survit à son parent.** Un parent en
   `cancel_requested` ou dans un statut final emporte ses sous-tâches actives ;
   le vérifier en **comptant les tâches actives en base**. Profondeur 1 : un
@@ -234,6 +240,16 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
+
+## Slice 6 en cours — un atelier façon VS Code
+
+Démarrée le 2026-11-03 : chat avec l'orchestrateur, boucle orchestrateur ⇄
+Developer dans les deux sens (revue et reprise, questions), fichiers et
+terminal en lecture seule et en direct, dans une coque Tauri mince qui charge
+le dashboard du daemon. Décisions et découpage en neuf étapes :
+[docs/SLICE6.md](docs/SLICE6.md). Étape 1 faite : statut `waiting_input`,
+`awaiting_input`, `tasks.mode` (migration 9), quatre événements,
+`PROTOCOL_VERSION` 11.
 
 ## Slice 5 terminée — un orchestrateur intégré
 
