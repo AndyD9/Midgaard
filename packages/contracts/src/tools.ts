@@ -102,6 +102,27 @@ export type ToolCall = z.infer<typeof toolCallSchema>
  * projet de l'utilisateur ne l'est pas davantage que le dépôt lui-même ; une
  * page web, si.
  */
+/**
+ * Types d'image qu'un outil peut rendre, et qu'un message peut porter : ceux
+ * que les fournisseurs admettent tous (Slice 7). Une seule liste, ici : les
+ * adaptateurs la réexportent.
+ */
+export const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
+export type ImageMediaType = (typeof IMAGE_MEDIA_TYPES)[number]
+
+/**
+ * Une image rendue par un outil, en base64.
+ *
+ * Elle ne vit que dans la conversation : **aucune image n'est écrite en base**
+ * (docs/SLICE7.md, décision 1). Elle peut montrer un secret, et l'expurgation
+ * ne sait pas lire une image.
+ */
+export interface ToolImage {
+  mediaType: ImageMediaType
+  /** Les octets de l'image, en base64, sans préfixe `data:`. */
+  data: string
+}
+
 export interface ToolResult {
   /** Contenu rendu au modèle, déjà tronqué à la taille utile. */
   content: string
@@ -113,6 +134,11 @@ export interface ToolResult {
   untrusted: boolean
   /** Sources citées, quand l'outil en rend (recherche web). */
   citations?: { title: string; url: string }[]
+  /**
+   * Images rendues par l'outil (Slice 7) : la boucle les joint au modèle dans
+   * un message utilisateur, après les résultats de l'étape. Jamais journalisées.
+   */
+  images?: ToolImage[]
 }
 
 // --- Encadrement des données non fiables -----------------------------------

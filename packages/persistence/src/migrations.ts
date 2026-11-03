@@ -40,7 +40,8 @@ const ZERO_USAGE =
 
 /**
  * Migrations, dans l'ordre. La version 1 est le schéma de la Slice 1, les
- * versions 2 et 3 celui de la Slice 2, la 4 ouvre la Slice 3, la 9 la Slice 6.
+ * versions 2 et 3 celui de la Slice 2, la 4 ouvre la Slice 3, la 9 la Slice 6,
+ * la 10 la Slice 7.
  *
  * Des tables prévues au plan (§6), deux n'existeront pas. `projects` : un
  * projet est le dépôt d'où la tâche est déléguée, déjà porté par
@@ -299,6 +300,16 @@ export const MIGRATIONS: readonly Migration[] = [
       -- Ce qu'attend une tâche en waiting_input (chat, question, proposal) ;
       -- NULL dans tout autre statut, donc pour toutes les tâches d'avant.
       ALTER TABLE tasks ADD COLUMN awaiting_input TEXT;
+    `,
+  },
+  {
+    version: 10,
+    label: 'Slice 7 — un profil déclare que son modèle lit les images',
+    sql: `
+      -- 1 : le modèle lit les images, 0 : il ne les lit pas, NULL : rien de
+      -- déclaré. Ne sert que lorsque le fournisseur ne publie pas la capacité.
+      -- NULL pour tous les profils d'avant : personne n'avait rien déclaré.
+      ALTER TABLE agents ADD COLUMN vision INTEGER;
     `,
   },
 ]

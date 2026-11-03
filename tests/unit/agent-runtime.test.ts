@@ -125,6 +125,7 @@ function agentWith(over: Partial<Agent> = {}): Agent {
     tools: ['read_file', 'http_fetch', 'submit_result'],
     limits: { ...DEFAULT_RESEARCHER_LIMITS },
     enabled: true,
+    vision: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     ...over,
@@ -443,6 +444,48 @@ describe('revue et question au parent', () => {
     assert.equal(outcome.status, 'completed')
     assert.equal(waited, false, 'personne à qui demander')
     assert.equal(tools.find((t) => t.name === 'ask_parent')?.decision, 'deny', 'absent du profil : refusé sans approbation')
+  })
+})
+
+describe('images rendues par un outil (Slice 7)', () => {
+  it('les joint après tous les résultats de l\'étape, dans un message utilisateur', async () => {
+    const root = makeRoot()
+    try {
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+      writeFileSync(join(root, 'capture.png'), png)
+      const { adapter, calls } = scriptedAdapter([
+        {
+          toolCalls: [
+            { id: 'i1', name: 'read_image', argumentsJson: '{"path":"capture.png"}' },
+            { id: 'f1', name: 'read_file', argumentsJson: '{"path":"src/a.ts"}' },
+          ],
+        },
+        { toolCalls: submit('vu') },
+      ])
+      const rec = recordingHooks()
+      const outcome = await runAgent({
+        agent: agentWith({ tools: ['read_image', 'read_file', 'submit_result'] }),
+        objective: 'regarde',
+        context: null,
+        adapter,
+        tools: toolCtx(root, { vision: { enabled: true, reason: 'test' } }),
+        hooks: rec.hooks,
+        redact: (t) => t,
+        signal: new AbortController().signal,
+      })
+      assert.equal(outcome.status, 'completed')
+      const sent = calls[1]!.messages
+      // système, objectif, appels de l'assistant, deux résultats, puis l'image :
+      // un message utilisateur glissé entre les deux résultats ferait refuser
+      // la requête par l'API Chat Completions.
+      assert.deepEqual(sent.slice(0, 6).map((m) => m.role), ['system', 'user', 'assistant', 'tool', 'tool', 'user'])
+      const attached = sent[5]!
+      assert.ok(attached.role === 'user' && attached.images?.length === 1)
+      assert.equal(attached.role === 'user' && attached.images?.[0]?.data, png.toString('base64'))
+      assert.ok(!String(sent[3]!.content).includes(png.toString('base64')), 'le résultat d\'outil ne porte pas l\'image')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

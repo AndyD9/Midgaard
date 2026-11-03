@@ -6,8 +6,8 @@ navigateur** : ouvrir une page ou une application web, la regarder, cliquer,
 saisir. Le tout dans un navigateur que le daemon lance à part, sous des
 sessions que l'humain approuve et surveille en direct dans l'atelier.
 
-**État : en cours.** Étape 1 faite et constatée contre l'API réelle de Venice
-(2026-11-03).
+**État : en cours.** Étapes 1 et 2 faites (2026-11-03) ; l'étape 1 constatée
+contre l'API réelle de Venice.
 
 ---
 
@@ -101,7 +101,7 @@ font rien ; le navigateur ensuite, qui agit.
 | # | Étape | État |
 |---|---|---|
 | 1 | Contrats et adaptateurs : contenu image dans `Message`, OpenAI-compatible (`image_url`) et Gemini (`inline_data`) sur réponses enregistrées, capacité « vision » lue au catalogue ou déclarée | **fait** — constaté chez Venice ; la déclaration par profil passe à l'étape 2 |
-| 2 | `read_image` : types reconnus par leurs premiers octets (PNG, JPEG, WebP, GIF), taille plafonnée, chemin vérifié comme `read_file`, refus sans vision ; l'image suit le résultat d'outil ; rien de l'image en base | à faire |
+| 2 | `read_image` : types reconnus par leurs premiers octets (PNG, JPEG, WebP, GIF), taille plafonnée, chemin vérifié comme `read_file`, refus sans vision ; l'image suit le résultat d'outil ; rien de l'image en base | **fait** |
 | 3 | Le paquet `browser` : Chromium jetable par Playwright, garde réseau, sans téléchargement ni permission, processus tués à la fin et après `SIGKILL` | à faire |
 | 4 | Les outils et la session : `browser_open` (session approuvée), `browser_screenshot`, `browser_click`, `browser_scroll`, `browser_type` et `browser_key` (approuvés chacun), `browser_close` ; captures non fiables | à faire |
 | 5 | Le profil `navigator` : consigne, outils, limites ; désactivé sans modèle à vision, avec son motif | à faire |
@@ -178,4 +178,63 @@ L'essai lit la base en lecture seule et le coffre de l'utilisateur, sans rien
 y écrire. Il prend la référence de clé dans la ligne du fournisseur : la
 référence par installation (`provider.<empreinte>.<id>`, Slice 4) ne se devine
 pas.
+
+### Étape 2 — `read_image` (2026-11-03)
+
+**L'outil** (`tools/src/image.ts`) lit une image du projet et la rend au
+modèle.
+- Le type se lit dans les **premiers octets** : un PNG nommé `.jpg` part
+  comme PNG, et un texte nommé `.png` est refusé. Un SVG est refusé aussi :
+  c'est du texte, qui peut porter un script.
+- La taille est plafonnée à **4 Mo**, d'après celle que relève l'ouverture du
+  descripteur.
+- Le chemin passe par `openUnderRoot`, comme `read_file`.
+- Le journal ne garde que le chemin, le type, la taille et le début du
+  SHA-256 ; le texte rendu au modèle dit seulement que l'image suit.
+
+**L'image suit tous les résultats de l'étape.** La boucle rassemble les images
+des outils d'une étape et les joint dans **un** message utilisateur, après le
+dernier résultat. Les joindre après le résultat de `read_image`, quand l'étape
+compte d'autres appels, aurait glissé un message utilisateur entre deux
+résultats : l'API Chat Completions refuse alors la requête. Le test fixe
+l'ordre avec deux appels dans la même étape.
+
+**Qui décide que le modèle lit les images** (`visionOf`, moteur d'agent) :
+1. le catalogue du fournisseur, quand il publie la capacité — il l'emporte sur
+   une déclaration contraire ;
+2. sinon, la déclaration du profil (`agents.vision`, migration 10,
+   `PATCH /api/agents/:id` avec `vision`) ;
+3. sinon, non, avec un motif qui dit comment faire.
+
+Une déclaration porte sur un modèle : elle **tombe quand le modèle change**,
+sauf si la même requête en déclare une pour le nouveau. Le catalogue n'est lu
+que pour un profil qui a `read_image`.
+
+**Un modèle qui ne lit pas les images ne se voit pas proposer l'outil.** Le
+moteur retire `read_image` des outils envoyés au fournisseur, et le dit par une
+note dans la timeline, avec le motif. S'il l'appelait quand même, la politique
+le refuserait sans approbation (`ToolContext.vision` absent ou faux : fermé
+par défaut, comme `writable`).
+
+**Les profils** Researcher, Developer et orchestrateur reçoivent `read_image`.
+Le profil dédié au navigateur viendra à l'étape 5.
+
+`PROTOCOL_VERSION` passe à 12 : un profil porte `vision`, que le serveur MCP
+et le dashboard valident.
+
+**Vérifié :**
+- `npm run typecheck` ;
+- 12 tests (`tests/unit/vision.test.ts`) :
+  - les quatre types, un SVG, un WAV et un fichier vide ;
+  - le type lu malgré une extension menteuse, un texte déguisé, un fichier
+    trop gros, un chemin et un lien hors du projet ;
+  - le refus sans vision, et sans contexte de vision ;
+  - `visionOf` dans ses cinq cas ;
+  - dans un vrai daemon, sur un fournisseur `custom` qui ne publie rien :
+    l'outil non proposé et la note, puis la déclaration par `PATCH`,
+    l'image arrivée au modèle, et **la base et son WAL lus octet pour octet
+    sans un morceau de l'image** ;
+  - la déclaration qui tombe quand le modèle change ;
+- l'ordre des messages autour d'une image (`agent-runtime.test.ts`) ;
+- la migration 10 sur une base arrêtée au schéma 9.
 

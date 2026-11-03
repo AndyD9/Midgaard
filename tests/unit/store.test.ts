@@ -136,6 +136,25 @@ describe('migration 9', () => {
   })
 })
 
+describe('migration 10', () => {
+  it('ne déclare rien pour les profils créés avant elle', () => {
+    // Une base arrêtée au schéma 9, comme l'a laissée la Slice 6.
+    const old = new DatabaseSync(join(home, 'v9.db'))
+    for (const m of MIGRATIONS.filter((m) => m.version <= 9)) old.exec(m.sql)
+    old.exec('PRAGMA user_version = 9')
+    old.exec(`INSERT INTO agents (id, name, kind, description, system_prompt, tools_json, limits_json, enabled, created_at, updated_at)
+              VALUES ('r', 'R', 'researcher', '', '', '[]', '${JSON.stringify(DEFAULT_RESEARCHER_LIMITS)}', 1,
+                      '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z')`)
+    old.close()
+    const migrated = HarnessStore.open({ dbPath: join(home, 'v9.db') })
+    try {
+      assert.equal(migrated.getAgent('r')?.vision, null)
+    } finally {
+      migrated.close()
+    }
+  })
+})
+
 describe('mode d\'une tâche', () => {
   it('vaut oneshot par défaut, et le task.created ne le dit qu\'autrement', () => {
     const plain = newTask()

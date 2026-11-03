@@ -90,7 +90,7 @@ describe('subtaskCeiling', () => {
 describe('disabledReason', () => {
   const agent = (over: Partial<Agent>): Agent => ({
     id: 'researcher', name: 'R', kind: 'researcher', description: '', provider_id: null, model: null, system_prompt: '',
-    tools: [], limits: DEFAULT_RESEARCHER_LIMITS, enabled: false, created_at: '', updated_at: '', ...over,
+    tools: [], limits: DEFAULT_RESEARCHER_LIMITS, enabled: false, vision: null, created_at: '', updated_at: '', ...over,
   })
   const venice = { id: 'venice' } as ProviderConfig
 

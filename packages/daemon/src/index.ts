@@ -10,7 +10,7 @@ export { EventBus } from './bus.ts'
 export { TaskManager, STEPS_TOTAL, APPROVAL_STEP } from './task-manager.ts'
 export type { Refusal, TaskView } from './task-manager.ts'
 export { SimulatedEngine } from './engines/simulated.ts'
-export { keyCommand } from './engines/agent.ts'
+export { keyCommand, visionOf } from './engines/agent.ts'
 export { secretRefFor, upsertProvider } from './providers.ts'
 export type { EngineContext, TaskEngine } from './engines/types.ts'
 export {

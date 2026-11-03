@@ -285,6 +285,9 @@ comme telle), et une capture d'une page rend la tâche non fiable. Le modèle de
 essais de la Slice 6 ne lit pas les images. Étape 1 faite : un message
 utilisateur porte des images, les deux adaptateurs les traduisent, la capacité
 se lit au catalogue Venice ; constaté contre l'API réelle (`test:live-vision`).
+Étape 2 faite : `read_image` (type lu dans les octets, 4 Mo, chemin vérifié),
+l'image jointe après tous les résultats de l'étape, la vision décidée par le
+catalogue puis la déclaration du profil (migration 10, `PROTOCOL_VERSION` 12).
 
 ## Slice 6 terminée — un atelier façon VS Code
 

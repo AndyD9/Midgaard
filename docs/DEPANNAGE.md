@@ -295,6 +295,21 @@ la tâche finie, il est refusé sans rien écrire. Attendez sa réplique, puis
 
 ---
 
+### « read_image retiré : … » dans la timeline
+
+Le modèle du profil ne lit pas les images, ou rien ne dit qu'il les lit. Le
+motif cité dit lequel :
+
+- « cannot read images (catalogue of provider … » : le fournisseur publie que
+  ce modèle ne lit pas les images. Choisir un modèle qui les lit dans
+  « Profils » (chez Venice, `mistral-small-3-2-24b-instruct` par exemple) ;
+- « does not say whether model … reads images, and this profile does not
+  declare it » : le fournisseur ne publie pas la capacité (OpenAI, endpoint
+  `custom`). Si le modèle lit les images, le déclarer sur le profil, par
+  l'API du daemon — pour le Researcher, `PATCH /api/agents/researcher` avec le
+  corps `{"vision": true}`. Le dashboard n'a pas encore de case pour cela
+  (Slice 7, étape 6). La déclaration tombe quand le modèle change.
+
 ## Le `developer` et les worktrees
 
 ### `failed` : « worktree impossible : … »

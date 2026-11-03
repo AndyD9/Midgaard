@@ -10,7 +10,7 @@
  * `{ text, toolCalls[], usage }` — et c'est ce qui permet d'ajouter un
  * fournisseur sans la rouvrir.
  */
-import type { ConnectionTest, ProviderPreset, Usage } from '@midgaard/contracts'
+import type { ConnectionTest, ImageMediaType, ProviderPreset, Usage } from '@midgaard/contracts'
 
 /**
  * Un outil, tel qu'il est décrit au modèle.
@@ -35,9 +35,9 @@ export interface ToolCallRequest {
   argumentsJson: string
 }
 
-/** Types d'image qu'un message peut porter : ceux que les fournisseurs admettent tous. */
-export const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
-export type ImageMediaType = (typeof IMAGE_MEDIA_TYPES)[number]
+/** Types d'image qu'un message peut porter : la liste des contrats, seule source. */
+export { IMAGE_MEDIA_TYPES } from '@midgaard/contracts'
+export type { ImageMediaType } from '@midgaard/contracts'
 
 /**
  * Une image jointe à un message (Slice 7), en base64.

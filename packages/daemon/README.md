@@ -165,6 +165,17 @@ ces chemins. Ce que le daemon garantit :
 Prouvé par `tests/unit/task-files.test.ts`, en HTTP. Le lien vers `.git` y a été
 vu passer sans la relecture du chemin réel.
 
+## Un modèle qui lit les images (Slice 7)
+
+Au départ d'une tâche dont le profil a `read_image`, le moteur décide si le
+modèle lit les images (`visionOf`) : le catalogue du fournisseur d'abord
+(`ProviderAdapter.capabilities`, Venice), la déclaration du profil sinon
+(`agents.vision`, réglée par `PATCH /api/agents/:id` avec `vision`), non à
+défaut. Sans vision, `read_image` n'est pas proposé au modèle, et une note le
+dit dans la timeline. Une déclaration tombe quand le modèle du profil change.
+Aucune image n'est écrite en base (`tests/unit/vision.test.ts` lit la base et
+son WAL).
+
 ## Installation
 
 `/api/health` annonce `install` : le dossier canonique du paquet

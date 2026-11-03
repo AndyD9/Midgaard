@@ -57,9 +57,13 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *  - 11 : Slice 6, étape 1 — une tâche porte `mode` et `awaiting_input`, et peut
  *        être en `waiting_input`, un statut actif que les versions antérieures
  *        ne connaissent pas. Un daemon de protocole 10 rendrait des tâches sans
- *        ces champs, que le serveur MCP et le dashboard valident désormais.
+ *        ces champs, que le serveur MCP et le dashboard valident désormais ;
+ *  - 12 : Slice 7, étape 2 — un profil porte `vision` (la déclaration de
+ *        l'utilisateur), que `PATCH /api/agents/:id` accepte. Un daemon de
+ *        protocole 11 rendrait des profils sans le champ, que le serveur MCP
+ *        et le dashboard valident désormais.
  */
-export const PROTOCOL_VERSION = 11
+export const PROTOCOL_VERSION = 12
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({

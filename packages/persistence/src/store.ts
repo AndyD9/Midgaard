@@ -869,10 +869,18 @@ export class HarnessStore {
    *
    * @returns le profil après coup, ou `null` s'il n'existe pas
    */
-  setAgentModel(id: string, providerId: string | null, model: string | null): Agent | null {
+  setAgentModel(
+    id: string,
+    providerId: string | null,
+    model: string | null,
+    vision: boolean | null = null,
+  ): Agent | null {
+    // `vision` est réécrit avec le modèle : une déclaration porte sur un
+    // modèle, et l'appelant dit laquelle vaut pour le nouveau — `null` s'il
+    // change sans rien déclarer.
     const info = this.db
-      .prepare('UPDATE agents SET provider_id = :p, model = :m, updated_at = :now WHERE id = :id')
-      .run({ id, p: providerId, m: model, now: new Date().toISOString() })
+      .prepare('UPDATE agents SET provider_id = :p, model = :m, vision = :v, updated_at = :now WHERE id = :id')
+      .run({ id, p: providerId, m: model, v: vision === null ? null : vision ? 1 : 0, now: new Date().toISOString() })
     return info.changes === 1 ? this.getAgent(id) : null
   }
 
@@ -1285,6 +1293,7 @@ interface AgentRow {
   tools_json: string
   limits_json: string
   enabled: number
+  vision: number | null
   created_at: string
   updated_at: string
 }
@@ -1301,6 +1310,7 @@ function toAgent(row: AgentRow): Agent {
     tools: JSON.parse(row.tools_json) as string[],
     limits: JSON.parse(row.limits_json) as AgentLimits,
     enabled: row.enabled === 1,
+    vision: row.vision === null ? null : row.vision === 1,
     created_at: row.created_at,
     updated_at: row.updated_at,
   }

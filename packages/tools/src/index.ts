@@ -23,6 +23,7 @@ import {
   waitForTaskTool,
 } from './delegation.ts'
 import { askParentTool } from './ask.ts'
+import { readImageTool } from './image.ts'
 
 export type {
   Tool, ToolContext, HttpPolicy, PreparedOperation,
@@ -42,6 +43,7 @@ export type { ExecOutcome } from './exec.ts'
 export { submitResultSchema } from './result.ts'
 export type { SubmitResultArgs } from './result.ts'
 export { ASK_PARENT, askParentSchema } from './ask.ts'
+export { MAX_IMAGE_BYTES, sniffImageType } from './image.ts'
 export type { AskParentArgs } from './ask.ts'
 
 /**
@@ -65,6 +67,7 @@ export const SUBMIT_RESULT = 'submit_result'
  */
 export const TOOLBOX: Readonly<Record<string, Tool<never>>> = Object.freeze({
   read_file: readFileTool as Tool<never>,
+  read_image: readImageTool as Tool<never>,
   list_directory: listDirectoryTool as Tool<never>,
   search_files: searchFilesTool as Tool<never>,
   http_fetch: httpFetchTool as Tool<never>,

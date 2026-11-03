@@ -34,9 +34,45 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRedactor, harnessCommand, isTerminal, type Usage } from '@midgaard/contracts'
 import { agentIdentity, commitAll, createWorktree, diffWorktree, inspectRepository, WorkspaceError } from '@midgaard/workspace'
-import { createAdapter, envVarFor } from '@midgaard/providers'
+import { createAdapter, envVarFor, type ModelCapabilities } from '@midgaard/providers'
 import { resolveApiKey, type SecretVault } from '@midgaard/secrets'
 import { ASK_PARENT, type ToolContext } from '@midgaard/tools'
+
+/** L'outil qui rend une image : retiré des outils proposés à un modèle qui ne les lit pas. */
+const READ_IMAGE = 'read_image'
+
+/**
+ * Le modèle de la tâche lit-il les images ? (Slice 7, décision 2.)
+ *
+ * Le catalogue du fournisseur l'emporte quand il publie la capacité : une
+ * déclaration contraire serait une erreur de l'utilisateur, et l'image serait
+ * facturée pour rien. Sinon, la déclaration du profil. Sinon, non — en disant
+ * comment la faire. Le motif est lu par le modèle, d'où l'anglais.
+ */
+export function visionOf(
+  caps: ModelCapabilities,
+  declared: boolean | null,
+  providerId: string,
+  model: string,
+): { enabled: boolean; reason: string } {
+  if (caps.vision === true) {
+    return { enabled: true, reason: `the catalogue of provider "${providerId}" says model "${model}" reads images` }
+  }
+  if (caps.vision === false) {
+    return {
+      enabled: false,
+      reason: `model "${model}" cannot read images (catalogue of provider "${providerId}"): use a model that can`,
+    }
+  }
+  if (declared === true) return { enabled: true, reason: `declared on this profile: model "${model}" reads images` }
+  if (declared === false) return { enabled: false, reason: `declared on this profile: model "${model}" does not read images` }
+  return {
+    enabled: false,
+    reason:
+      `provider "${providerId}" does not say whether model "${model}" reads images, and this profile does not ` +
+      'declare it: no image can be shown to it'
+  }
+}
 import { runAgent, type ApprovalOutcome, type InputOutcome, type LoopHooks, type LoopOutcome } from '@midgaard/agent-runtime'
 import type { EngineContext, TaskEngine } from './types.ts'
 
@@ -275,6 +311,18 @@ export class AgentEngine implements TaskEngine {
         payload: { step: 0, message: 'appel du modèle' },
       })
 
+      // Un modèle qui ne lit pas les images ne se voit pas proposer
+      // `read_image` (Slice 7) : un outil qu'il ne peut que se faire refuser
+      // lui coûterait une étape pour rien. La note le dit, avec son motif.
+      let tools = task.parent_task_id ? [...agent.tools, ASK_PARENT] : agent.tools
+      if (tools.includes(READ_IMAGE) && !ready.tools.vision?.enabled) {
+        tools = tools.filter((t) => t !== READ_IMAGE)
+        ctx.bus.record(task.id, null, {
+          type: 'agent.message',
+          payload: { message: `read_image retiré : ${ready.tools.vision?.reason ?? 'capacité inconnue'}`, note: true },
+        })
+      }
+
       outcome = await runAgent({
         // Une sous-tâche reçoit `ask_parent` en plus de ses outils (Slice 6) :
         // ajouté ici, pas au profil, pour qu'un Developer délégué par Claude,
@@ -282,7 +330,7 @@ export class AgentEngine implements TaskEngine {
         agent: {
           ...agent,
           limits: task.limits,
-          tools: task.parent_task_id ? [...agent.tools, ASK_PARENT] : agent.tools,
+          tools,
         },
         delegated: task.parent_task_id !== null,
         objective: task.objective,
@@ -462,9 +510,22 @@ export class AgentEngine implements TaskEngine {
       }
     }
 
+    const adapter = createAdapter({ config: provider, apiKey: found.key, model, pricing: this.deps.pricing(), redact })
+    // La capacité n'est cherchée que pour un profil qui pourrait s'en servir :
+    // lire le catalogue coûte un aller-retour réseau à chaque tâche.
+    const vision = agent.tools.includes(READ_IMAGE)
+      ? visionOf(
+          (await adapter.capabilities?.().catch(() => null)) ?? { vision: null, source: 'unknown' },
+          agent.vision,
+          provider.id,
+          model,
+        )
+      : undefined
+
     return {
-      adapter: createAdapter({ config: provider, apiKey: found.key, model, pricing: this.deps.pricing(), redact }),
+      adapter,
       tools: {
+        vision,
         root: task.project_dir,
         httpPolicy: ctx.config.httpPolicy,
         allowHosts: ctx.config.allowHosts,

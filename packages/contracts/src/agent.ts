@@ -122,6 +122,14 @@ export const agentSchema = z.object({
   limits: agentLimitsSchema,
   /** Un profil désactivé reste visible et consultable, mais refuse les délégations. */
   enabled: z.boolean(),
+  /**
+   * Déclaration de l'utilisateur : le modèle de ce profil lit les images
+   * (Slice 7). `null` tant que rien n'est déclaré. Ne sert que lorsque le
+   * fournisseur ne publie pas la capacité ; le catalogue, quand il la publie,
+   * l'emporte (docs/SLICE7.md, décision 2). Effacée quand le modèle change :
+   * elle portait sur l'ancien.
+   */
+  vision: z.boolean().nullable(),
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),
 })
@@ -178,10 +186,12 @@ export const updateAgentRequestSchema = z
     provider_id: z.string().min(1).max(64).optional(),
     /** Modèle employé ; `null` = celui par défaut du fournisseur. */
     model: z.string().trim().min(1).max(200).nullable().optional(),
+    /** Le modèle lit les images (Slice 7) ; `null` retire la déclaration. */
+    vision: z.boolean().nullable().optional(),
   })
   // Un corps vide n'est pas une erreur de forme, mais il ne demande rien :
   // l'accepter laisserait croire qu'un réglage a été pris en compte.
-  .refine((b) => b.provider_id !== undefined || b.model !== undefined, {
-    message: 'provider_id ou model est requis',
+  .refine((b) => b.provider_id !== undefined || b.model !== undefined || b.vision !== undefined, {
+    message: 'provider_id, model ou vision est requis',
   })
 export type UpdateAgentRequest = z.infer<typeof updateAgentRequestSchema>

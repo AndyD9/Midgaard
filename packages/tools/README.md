@@ -331,6 +331,16 @@ La délégation devient un échange, toujours par le port :
   l'intercepte ; son `run` refuse, pour qu'un oubli d'interception se voie. Le
   daemon ne le donne qu'aux tâches qui ont un parent.
 
+## `read_image` : voir sans rien garder (Slice 7)
+
+Une image du projet, montrée au modèle. Le type se lit dans les premiers
+octets (PNG, JPEG, WebP, GIF ; un SVG est du texte, refusé), la taille est
+plafonnée à 4 Mo, le chemin passe par `openUnderRoot`. Le résultat porte
+l'image dans `images`, que la boucle joint après les résultats de l'étape ; le
+résumé journalisé n'en garde que le chemin, le type, la taille et le début du
+SHA-256. **Sans `ToolContext.vision.enabled`, l'outil refuse**, avec le motif
+que le moteur a posé — fermé par défaut, comme `writable`.
+
 ## `submit_result` : la fin est un acte
 
 Une boucle qui s'arrêterait sur « le modèle n'a demandé aucun outil » s'arrêterait

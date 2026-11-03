@@ -208,6 +208,9 @@ export async function agents(config: HarnessConfig): Promise<number> {
       console.log(`  ${dim(cmd('providers add venice --model deepseek-v4-flash-0731'))}`)
     } else if (a.provider_id) {
       console.log(`  ${dim(`fournisseur ${a.provider_id} · ${a.model ?? 'modèle par défaut'} · outils : ${a.tools.join(', ') || 'aucun'}`)}`)
+      // Seule la déclaration se montre ici : le catalogue du fournisseur, qui
+      // l'emporte, se lit au démarrage de chaque tâche (Slice 7).
+      if (a.vision !== null) console.log(`  ${dim(`lit les images : ${a.vision ? 'oui' : 'non'} (déclaré)`)}`)
       console.log(
         `  ${dim(`limites : ${a.limits.max_steps} étapes, ${a.limits.max_cost_usd} $, ${a.limits.timeout_s} s`)}`,
       )

@@ -97,6 +97,13 @@ export interface ToolContext {
    * qui découpe par ligne et expurge. Ce que le modèle reçoit n'en dépend pas.
    */
   output?: ((stream: 'stdout' | 'stderr', chunk: Buffer) => void) | undefined
+  /**
+   * Le modèle de la tâche lit-il les images ? (Slice 7.) Posé par le moteur
+   * d'après le catalogue du fournisseur ou la déclaration du profil. Absent ou
+   * `enabled: false`, les outils qui rendent des images **refusent**, avec
+   * `reason` — fermé par défaut, comme `writable`.
+   */
+  vision?: { enabled: boolean; reason: string } | undefined
   log: (...a: unknown[]) => void
 }
 

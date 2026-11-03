@@ -53,7 +53,7 @@
  * d'un Researcher, rendaient un résultat présenté comme fiable.
  */
 import { randomUUID } from 'node:crypto'
-import type { Agent, InputRequest, TaskMode, TaskResult, ToolCallStatus, ToolDecision, Usage } from '@midgaard/contracts'
+import type { Agent, InputRequest, TaskMode, TaskResult, ToolCallStatus, ToolDecision, ToolImage, Usage } from '@midgaard/contracts'
 import { addUsage, emptyUsage, wrapUntrusted } from '@midgaard/contracts'
 import type { Message, ProviderAdapter, ToolCallRequest } from '@midgaard/providers'
 import { ProviderError } from '@midgaard/providers'
@@ -466,6 +466,12 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
     const accepted = completion.toolCalls.slice(0, limits.max_tool_calls_per_step)
     const refused = completion.toolCalls.slice(limits.max_tool_calls_per_step)
 
+    // Les images rendues par les outils de l'étape (Slice 7). Elles rejoignent
+    // le modèle **après tous les résultats de l'étape**, dans un message
+    // utilisateur : aucune API n'en admet dans un message de rôle `tool`, et
+    // l'API Chat Completions refuse un message utilisateur glissé entre les
+    // résultats des appels d'un même tour.
+    const images: ToolImage[] = []
     for (const call of accepted) {
       if (call.name === SUBMIT_RESULT) {
         // Un orchestrateur ne conclut pas en laissant une sous-tâche attendre sa
@@ -517,6 +523,7 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
       const ran = await runOneTool(call, input2, step)
       if (ran.untrusted) tainted = true
       messages.push(ran.message)
+      if (ran.images?.length) images.push(...ran.images)
     }
 
     for (const call of refused) {
@@ -525,6 +532,14 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
         callId: call.id,
         name: call.name,
         content: `Refused: at most ${limits.max_tool_calls_per_step} tool calls per step. Ask again next step.`,
+      })
+    }
+
+    if (images.length > 0) {
+      messages.push({
+        role: 'user',
+        content: `${images.length} image(s) returned by your tool calls of the previous step, in the order of the calls:`,
+        images,
       })
     }
   }
@@ -662,7 +677,7 @@ async function runOneTool(
   call: ToolCallRequest,
   input: LoopInput,
   step: number,
-): Promise<{ message: Message; untrusted: boolean }> {
+): Promise<{ message: Message; untrusted: boolean; images?: ToolImage[] | undefined }> {
   const reply = (content: string, untrusted = false) => ({
     message: { role: 'tool', callId: call.id, name: call.name, content } as Message,
     untrusted,
@@ -787,7 +802,9 @@ async function runOneTool(
     // remonter à Claude : l'agent est la première cible d'une page qui essaie
     // de détourner sa tâche.
     const content = result.untrusted ? wrapUntrusted(result.summary, result.content) : result.content
-    return reply(input.redact(content), result.untrusted)
+    // Les images ne passent pas par l'expurgation, qui ne sait pas les lire :
+    // c'est pourquoi elles ne sont jamais journalisées, seulement montrées.
+    return { ...reply(input.redact(content), result.untrusted), images: result.images }
   } catch (e) {
     batcher?.close()
     // Expurgé pour la même raison qu'à la préparation, plus haut.
