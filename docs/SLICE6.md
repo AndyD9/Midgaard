@@ -7,7 +7,7 @@ façon VS Code. Cet atelier comprend un chat, le fil des échanges entre agents,
 fichiers écrits en direct et la sortie des commandes. Il tourne dans une app
 desktop Tauri.
 
-**État : en cours.** Étapes 1 à 5 faites (2026-11-03).
+**État : en cours.** Étapes 1 à 6 faites (2026-11-03).
 
 ---
 
@@ -92,7 +92,7 @@ lancent les agents, et n'expose aucun shell.
 | 3 | Boucle orchestrateur ⇄ Developer : proposition, `accept_result`, `send_message`, `ask_parent`, `wait_for_task` sur attente, cascade | **fait** |
 | 4 | Sortie `exec` en direct, découpée par ligne puis expurgée | **fait** |
 | 5 | Routes de fichiers en lecture seule (arbre, contenu de travail et de départ) | **fait** |
-| 6 | Dashboard façon VS Code : explorateur, éditeur et diff, chat et fil des agents, terminal | à faire |
+| 6 | Dashboard façon VS Code : explorateur, éditeur et diff, chat et fil des agents, terminal | **fait** |
 | 7 | Coque Tauri | à faire |
 | 8 | Preuves : unitaires, `test:orchestrator`, `test:security`, `test:ui`, CI sur trois plateformes | à faire |
 | 9 | Essai réel, dans l'app, contre un vrai fournisseur | à faire |
@@ -414,4 +414,77 @@ L'arbre ne suit aucun lien, replie `node_modules` et ses pareils, et se coupe à
 - les suites de bout en bout.
 
 **Pas encore là :** l'explorateur et l'éditeur qui s'en servent (étape 6).
+
+### Entre les étapes 5 et 6 — la CI, et un test qui comptait sur le temps (2026-11-03)
+
+Les étapes 1 à 5, poussées ensemble, ont passé « Worktrees » sur les trois
+plateformes (passage `41647596672`), et « Bout en bout » sur macOS et Windows.
+Sous Linux, un test **ancien** a échoué (`41647596699`) : `static-files.test.ts`
+attendait 30 ms, en dur, que le fichier servi s'écoule dans une fausse réponse.
+Sur un runner chargé, le corps est arrivé vide. La fausse réponse résout
+désormais une promesse à son `end`, et le test l'attend, avec une borne de 5 s
+désarmée ensuite. Il dure 0,3 s. Rien de la Slice 6 n'était en cause.
+
+### Étape 6 — l'atelier façon VS Code (2026-11-03)
+
+**La disposition.**
+- Une barre d'activité : Tâches, Fichiers, Terminal, Conversation.
+- Un panneau latéral, qui montre la liste des tâches ou l'explorateur.
+- Une zone d'onglets : « Détails », l'inspecteur d'avant, puis un onglet par
+  fichier ouvert.
+- Le terminal en bas, la conversation à droite.
+
+Tout suit la tâche sélectionnée **et son arbre**. Les séparateurs se déplacent,
+et les tailles sont retenues. Les panneaux sont bornés à la largeur de la
+fenêtre : dans un panneau de 800 px, le premier jet écrasait l'éditeur.
+
+**Ce que l'atelier réutilise.** Il n'ajoute aucune route. Le fil, le terminal
+et l'explorateur sont composés du journal par trois modules purs
+(`lib/thread.ts`, `lib/terminal.ts`, `lib/files.ts`), et des deux routes de
+fichiers de l'étape 5. Le fil n'invente rien : chaque élément est un événement,
+à son `seq`.
+
+**Trois choix qui protègent.**
+- **La saisie ne s'ouvre que lorsque la conversation attend l'utilisateur.**
+  Un champ ouvert qui refuse ensuite ferait croire à une panne ; le motif
+  s'affiche à la place.
+- **L'éditeur est en lecture seule à deux niveaux**, et le daemon n'a de toute
+  façon aucune route pour écrire.
+- **Le terminal ne laisse passer que les couleurs.** La sortie vient de
+  commandes lancées dans un worktree que l'agent a écrit, et l'humain la lit
+  pour décider d'une approbation. Une séquence qui efface l'écran ou réécrit une
+  ligne lui ferait voir autre chose que ce qui s'est passé. Le test unitaire a
+  trouvé au premier jet que `ESC c` (réinitialisation complète) et `ESC 7`
+  (sauvegarde du curseur) passaient : le motif n'en retirait qu'une partie.
+
+**« Suivre l'agent ».** Le dernier fichier écrit est retrouvé dans les
+arguments journalisés de `write_file`, `edit_file` et `delete_file`. Ces
+arguments sont tronqués à 4000 caractères, donc pas toujours du JSON entier :
+le chemin est lu par motif. Un point marque ce fichier dans l'arbre, et il
+s'ouvre seul, en diff contre le commit de départ, tant que la case est cochée.
+
+**Le formulaire** propose « Conversation » pour un orchestrateur, cochée par
+défaut, et son champ devient « Premier message ».
+
+**Ce qui a été vu à l'écran.** Sur la base réelle de l'auteur, la tâche de
+l'essai de la Slice 5 se relit dans l'atelier :
+- le fil : l'orchestrateur délègue au Developer, puis leurs deux résultats ;
+- le terminal : `npm test` sous approbation, puis « code 0 en 0.4 s » ;
+- l'explorateur : le worktree conservé, `test/app.test.js` ouvert seul en diff,
+  la route ajoutée en vert.
+
+**Le poids.** CodeMirror et xterm portent le paquet à 1,2 Mo (387 Ko
+compressés). Pour une application servie en local, il n'est pas découpé.
+
+**Vérifié :**
+- `npm run typecheck` ;
+- 10 tests des modules purs (`tests/unit/dashboard-workbench.test.ts`) ;
+- `test:ui` : 13 scénarios, dont D12 (une conversation, saisie ouverte puis
+  refermée) et D13. D13 prouve que le fichier écrit s'ouvre seul, que son diff
+  passe de v1 à v2 **sans rechargement**, et que la première ligne d'une
+  commande est à l'écran pendant que la tâche tourne encore, la seconde pas
+  encore. D11 passe avec la case « Conversation » cochée ;
+- les suites de bout en bout.
+
+**Pas encore là :** la coque Tauri (étape 7).
 

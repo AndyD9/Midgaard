@@ -1,24 +1,64 @@
 /**
- * @file Application du dashboard : deux colonnes, la liste et le panneau principal.
+ * @file Application du dashboard : un atelier façon VS Code (Slice 6).
  *
- * Le routage se fait par le fragment d'URL, sans bibliothèque. Trois routes :
- * `#/tasks/<id>` (une tâche — un lien d'approbation doit pouvoir y pointer),
- * et depuis la Slice 5 `#/new` (le formulaire « Nouvelle tâche ») et `#/agents`
- * (les profils, leur fournisseur et leur modèle). Le daemon sert `index.html`
- * pour toute route inconnue, donc un rechargement fonctionne aussi.
+ * ```text
+ *  ┌ barre d'état ───────────────────────────────────────────────────────┐
+ *  │act.│ panneau latéral │ onglets : Détails │ fichier.ts │ … │ conver- │
+ *  │    │ tâches ou       │ ──────────────────────────────────│ sation  │
+ *  │    │ fichiers        │ éditeur (lecture seule) ou détails│         │
+ *  │    │                 │ ──────────────────────────────────│         │
+ *  │    │                 │ terminal (sortie des commandes)   │         │
+ *  └────┴─────────────────┴───────────────────────────────────┴─────────┘
+ * ```
+ *
+ * Ce qui est affiché suit **la tâche sélectionnée**, et son arbre : la
+ * conversation et le terminal sont ceux de sa racine (l'orchestrateur) et de
+ * ses sous-tâches ; l'explorateur montre le worktree d'un Developer, ou le
+ * dossier du projet.
+ *
+ * Le routage se fait par le fragment d'URL, sans bibliothèque : `#/tasks/<id>`,
+ * `#/new` (le formulaire « Nouvelle tâche ») et `#/agents` (les profils). Le
+ * daemon sert `index.html` pour toute route inconnue, donc un rechargement
+ * fonctionne aussi. Rien ici n'écrit un fichier : le daemon n'en a pas les routes.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Plus, SlidersHorizontal } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FileCode2, ListTree, MessagesSquare, Plus, SlidersHorizontal, SquareTerminal, X } from 'lucide-react'
+import type { Task } from '@midgaard/contracts'
 import { useHarness } from '@/lib/useHarness'
+import { speaker } from '@/lib/thread'
+import { cn } from '@/lib/utils'
 import { AgentsCard } from './components/AgentsCard'
+import { ChatPanel } from './components/ChatPanel'
+import { FileExplorer, type FileSourceOption } from './components/FileExplorer'
+import { FileView } from './components/FileView'
 import { NewTaskForm } from './components/NewTaskForm'
+import { Resizer } from './components/Resizer'
 import { StatusBar } from './components/StatusBar'
 import { TaskInspector } from './components/TaskInspector'
 import { TaskList } from './components/TaskList'
+import { TerminalPanel } from './components/TerminalPanel'
 import { Button } from './components/ui/button'
 
-/** Ce que montre le panneau principal, lu dans le fragment d'URL. */
+/** Ce que montre l'onglet « Détails », lu dans le fragment d'URL. */
 type View = { kind: 'task'; id: string } | { kind: 'new' } | { kind: 'agents' } | { kind: 'none' }
+
+/** Un fichier ouvert dans un onglet : la tâche dont il vient, son chemin. */
+interface FileTab {
+  key: string
+  taskId: string
+  path: string
+  hasBase: boolean
+}
+
+/** Tailles des panneaux, en pixels, retenues d'une visite à l'autre. */
+interface Layout {
+  side: number
+  chat: number
+  bottom: number
+}
+
+const LAYOUT_KEY = 'midgaard.layout'
+const DEFAULT_LAYOUT: Layout = { side: 320, chat: 380, bottom: 220 }
 
 /** Vue désignée par le fragment courant. */
 function viewFromHash(): View {
@@ -28,21 +68,65 @@ function viewFromHash(): View {
   return match ? { kind: 'task', id: match[1]! } : { kind: 'none' }
 }
 
+/** Disposition retenue ; celle par défaut si le navigateur refuse le stockage. */
+function savedLayout(): Layout {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? 'null') as Partial<Layout> | null
+    return { ...DEFAULT_LAYOUT, ...(raw ?? {}) }
+  } catch {
+    return DEFAULT_LAYOUT
+  }
+}
+
+/** Borne une taille de panneau. */
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
+
 export function App() {
   const { state, loadEvents, reportError } = useHarness()
   const [view, setView] = useState<View>(viewFromHash)
+  const [side, setSide] = useState<'tasks' | 'files'>('tasks')
+  const [tabs, setTabs] = useState<FileTab[]>([])
+  const [activeTab, setActiveTab] = useState<string>('details')
+  const [follow, setFollow] = useState(true)
+  const [explorerChoice, setExplorerChoice] = useState<string | null>(null)
+  const [layout, setLayout] = useState<Layout>(savedLayout)
+  const [showTerminal, setShowTerminal] = useState(true)
+  const [showChat, setShowChat] = useState(true)
+  const [width, setWidth] = useState(() => innerWidth)
   const selectedId = view.kind === 'task' ? view.id : null
 
   // Le fragment est la source de vérité de la vue : les boutons Précédent et
   // Suivant du navigateur fonctionnent, et un lien partagé ouvre la bonne tâche.
   useEffect(() => {
-    const onHashChange = () => setView(viewFromHash())
+    const onHashChange = () => {
+      const next = viewFromHash()
+      setView(next)
+      // Le formulaire et les profils s'ouvrent dans l'onglet « Détails ».
+      if (next.kind === 'new' || next.kind === 'agents') setActiveTab('details')
+    }
     addEventListener('hashchange', onHashChange)
     return () => removeEventListener('hashchange', onHashChange)
   }, [])
 
+  // La fenêtre peut rétrécir (app desktop, écran partagé) : les panneaux se
+  // bornent à sa largeur, pour que l'éditeur garde toujours de la place.
+  useEffect(() => {
+    const onResize = () => setWidth(innerWidth)
+    addEventListener('resize', onResize)
+    return () => removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout))
+    } catch {
+      // Stockage refusé : la disposition se perd au rechargement, rien d'autre.
+    }
+  }, [layout])
+
   const select = useCallback((id: string) => {
     location.hash = `#/tasks/${id}`
+    setActiveTab('details')
   }, [])
 
   // À défaut de sélection, on ouvre ce qui attend une décision, sinon la tâche
@@ -55,60 +139,256 @@ export function App() {
 
   // Ce choix par défaut devient aussitôt une sélection explicite, inscrite dans
   // le fragment. Sans cela, il serait recalculé à chaque changement d'état : la
-  // tâche qu'on regarde s'échapperait au moment même où on l'approuve, puisqu'elle
-  // cesse alors d'être celle qui attend une décision.
+  // tâche qu'on regarde s'échapperait au moment même où on l'approuve.
   useEffect(() => {
-    if (view.kind === 'none' && effectiveId) select(effectiveId)
-  }, [view.kind, effectiveId, select])
+    if (view.kind === 'none' && effectiveId) location.hash = `#/tasks/${effectiveId}`
+  }, [view.kind, effectiveId])
 
   const task = state.tasks.find((t) => t.id === effectiveId) ?? null
   const approval = state.approvals.find((a) => a.task_id === effectiveId) ?? null
+
+  // L'arbre de la tâche sélectionnée : sa racine et les sous-tâches de celle-ci.
+  const root: Task | null = task ? (state.tasks.find((t) => t.id === task.parent_task_id) ?? task) : null
+  const children = useMemo(
+    () => (root ? state.tasks.filter((t) => t.parent_task_id === root.id).sort((a, b) => a.created_at.localeCompare(b.created_at)) : []),
+    [root, state.tasks],
+  )
+
+  // L'explorateur : le dossier du projet de la racine, et le worktree de chaque
+  // Developer. Par défaut, le Developer sélectionné, sinon le dernier délégué —
+  // c'est là que l'agent écrit.
+  const explorerOptions: FileSourceOption[] = useMemo(() => {
+    if (!root) return []
+    const developers = [root, ...children].filter((t) => t.agent_id === 'developer')
+    const options = developers.map((t) => ({ taskId: t.id, label: `Worktree — ${speaker(t, t.id === root.id)}` }))
+    if (root.agent_id !== 'developer') options.unshift({ taskId: root.id, label: 'Projet (lecture)' })
+    return options
+  }, [root, children])
+  useEffect(() => setExplorerChoice(null), [root?.id])
+  const explorerSource =
+    (explorerChoice && explorerOptions.some((o) => o.taskId === explorerChoice) ? explorerChoice : null) ??
+    (task && task.agent_id === 'developer' ? task.id : null) ??
+    explorerOptions.filter((o) => o.taskId !== root?.id).at(-1)?.taskId ??
+    explorerOptions[0]?.taskId ??
+    null
+
+  // Les timelines dont le fil, le terminal et l'explorateur ont besoin, chargées
+  // une fois : ensuite, la WebSocket les tient à jour.
+  const requested = useRef(new Set<string>())
+  useEffect(() => {
+    const needed = [task?.id, root?.id, ...children.map((c) => c.id), explorerSource]
+    for (const id of needed) {
+      if (!id || state.events[id] !== undefined || requested.current.has(id)) continue
+      requested.current.add(id)
+      void loadEvents(id)
+    }
+  }, [task?.id, root?.id, children, explorerSource, state.events, loadEvents])
+
+  const terminalSources = useMemo(
+    () => (root ? [root, ...children].map((t) => ({ taskId: t.id, label: speaker(t, t.id === root.id) })) : []),
+    [root, children],
+  )
+
+  const openFile = useCallback((taskId: string, path: string, hasBase: boolean) => {
+    const key = `${taskId}:${path}`
+    setTabs((current) => (current.some((t) => t.key === key) ? current : [...current, { key, taskId, path, hasBase }]))
+    setActiveTab(key)
+  }, [])
+  const closeTab = (key: string) => {
+    setTabs((current) => current.filter((t) => t.key !== key))
+    setActiveTab((current) => (current === key ? 'details' : current))
+  }
+  const fileTab = tabs.find((t) => t.key === activeTab) ?? null
+
+  // Largeurs effectives : celles retenues, bornées pour laisser à la zone
+  // centrale au moins 40 % de la fenêtre.
+  const sideWidth = Math.min(layout.side, Math.round(width * 0.26))
+  const chatWidth = showChat ? Math.min(layout.chat, Math.round(width * 0.3)) : 0
+
+  // Le redimensionnement part de la taille au début du geste.
+  const start = useRef(layout)
+  const resize = (panel: keyof Layout, sign: 1 | -1, min: number, max: number) => (delta: number, phase: 'start' | 'move') => {
+    if (phase === 'start') start.current = layout
+    else setLayout((l) => ({ ...l, [panel]: clamp(start.current[panel] + sign * delta, min, max) }))
+  }
 
   return (
     <div className="flex h-full flex-col">
       <StatusBar status={state.status} health={state.health} error={state.error} gap={state.gap} />
 
-      <main className="grid min-h-0 flex-1 lg:grid-cols-[22rem_1fr]">
-        <aside className="min-h-0 overflow-y-auto border-border lg:border-r">
-          <div className="sticky top-0 z-10 flex items-center gap-1 border-b border-border bg-surface px-4 py-1.5">
-            <h1 className="mr-auto text-xs font-semibold tracking-wide text-muted uppercase">Tâches</h1>
-            <Button size="sm" variant="ghost" onClick={() => (location.hash = '#/agents')} data-testid="nav-agents">
-              <SlidersHorizontal /> Profils
-            </Button>
-            <Button size="sm" onClick={() => (location.hash = '#/new')} data-testid="nav-new">
-              <Plus /> Nouvelle tâche
-            </Button>
-          </div>
-          <TaskList
-            tasks={state.tasks}
-            approvals={state.approvals}
-            selectedId={effectiveId}
-            onSelect={select}
-          />
-        </aside>
+      <div className="flex min-h-0 flex-1">
+        <nav className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-border bg-canvas py-2" aria-label="Activités">
+          <ActivityButton label="Tâches" active={side === 'tasks'} onClick={() => setSide('tasks')} testId="activity-tasks">
+            <ListTree />
+          </ActivityButton>
+          <ActivityButton label="Fichiers" active={side === 'files'} onClick={() => setSide('files')} testId="activity-files">
+            <FileCode2 />
+          </ActivityButton>
+          <ActivityButton label="Terminal" active={showTerminal} onClick={() => setShowTerminal((v) => !v)} testId="activity-terminal">
+            <SquareTerminal />
+          </ActivityButton>
+          <ActivityButton label="Conversation" active={showChat} onClick={() => setShowChat((v) => !v)} testId="activity-chat">
+            <MessagesSquare />
+          </ActivityButton>
+        </nav>
 
-        <section className="min-h-0 overflow-y-auto p-5">
-          {view.kind === 'new' ? (
-            <NewTaskForm onCreated={select} />
-          ) : view.kind === 'agents' ? (
-            <div className="mx-auto max-w-2xl">
-              <AgentsCard editable />
+        <aside className="min-h-0 shrink-0 overflow-hidden" style={{ width: sideWidth }}>
+          {side === 'tasks' ? (
+            <div className="h-full overflow-y-auto">
+              <div className="sticky top-0 z-10 flex items-center gap-1 border-b border-border bg-surface px-3 py-1.5">
+                <h1 className="mr-auto text-xs font-semibold tracking-wide text-muted uppercase">Tâches</h1>
+                <Button size="sm" variant="ghost" onClick={() => (location.hash = '#/agents')} data-testid="nav-agents">
+                  <SlidersHorizontal /> Profils
+                </Button>
+                <Button size="sm" onClick={() => (location.hash = '#/new')} data-testid="nav-new">
+                  <Plus /> Nouvelle tâche
+                </Button>
+              </div>
+              <TaskList tasks={state.tasks} approvals={state.approvals} selectedId={effectiveId} onSelect={select} />
             </div>
-          ) : task ? (
-            <TaskInspector
-              task={task}
-              tasks={state.tasks}
-              approval={approval}
-              events={state.events[task.id]}
-              onLoadEvents={loadEvents}
-              onError={reportError}
-              onSelect={select}
-            />
           ) : (
-            <Empty />
+            <FileExplorer
+              options={explorerOptions}
+              sourceId={explorerSource}
+              onSource={setExplorerChoice}
+              events={explorerSource ? state.events[explorerSource] : undefined}
+              activePath={fileTab?.taskId === explorerSource ? fileTab.path : null}
+              onOpen={(path, hasBase) => explorerSource && openFile(explorerSource, path, hasBase)}
+              follow={follow}
+              onFollow={setFollow}
+            />
           )}
-        </section>
-      </main>
+        </aside>
+        <Resizer axis="x" label="Largeur du panneau latéral" onResize={resize('side', 1, 220, 640)} />
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex shrink-0 items-stretch overflow-x-auto border-b border-border bg-canvas text-xs" role="tablist">
+            <Tab active={activeTab === 'details'} onClick={() => setActiveTab('details')} testId="tab-details">
+              Détails
+            </Tab>
+            {tabs.map((t) => (
+              <Tab key={t.key} active={activeTab === t.key} onClick={() => setActiveTab(t.key)} onClose={() => closeTab(t.key)} title={`${t.path} — tâche ${t.taskId.slice(0, 8)}`} testId={`tab-file-${t.path}`}>
+                {t.path.split('/').at(-1)}
+              </Tab>
+            ))}
+          </div>
+
+          <section className="min-h-0 flex-1 overflow-hidden">
+            {fileTab ? (
+              <FileView key={fileTab.key} taskId={fileTab.taskId} path={fileTab.path} hasBase={fileTab.hasBase} events={state.events[fileTab.taskId]} />
+            ) : (
+              <div className="h-full overflow-y-auto p-5">
+                {view.kind === 'new' ? (
+                  <NewTaskForm onCreated={select} />
+                ) : view.kind === 'agents' ? (
+                  <div className="mx-auto max-w-2xl">
+                    <AgentsCard editable />
+                  </div>
+                ) : task ? (
+                  <TaskInspector
+                    task={task}
+                    tasks={state.tasks}
+                    approval={approval}
+                    events={state.events[task.id]}
+                    onLoadEvents={loadEvents}
+                    onError={reportError}
+                    onSelect={select}
+                  />
+                ) : (
+                  <Empty />
+                )}
+              </div>
+            )}
+          </section>
+
+          {showTerminal && (
+            <>
+              <Resizer axis="y" label="Hauteur du terminal" onResize={resize('bottom', -1, 80, 600)} />
+              <div className="flex shrink-0 flex-col" style={{ height: layout.bottom }}>
+                <div className="flex items-center gap-2 border-b border-border bg-canvas px-3 py-1 text-xs">
+                  <SquareTerminal className="size-3.5 text-muted" />
+                  <span className="font-semibold tracking-wide text-muted uppercase">Terminal</span>
+                  <span className="hidden truncate text-muted xl:inline">— commandes des agents, lecture seule</span>
+                  <button type="button" className="ml-auto text-muted hover:text-ink" onClick={() => setShowTerminal(false)} aria-label="Fermer le terminal">
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1">
+                  <TerminalPanel sources={terminalSources} events={state.events} />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {showChat && (
+          <>
+            <Resizer axis="x" label="Largeur de la conversation" onResize={resize('chat', -1, 280, 720)} />
+            <aside className="min-h-0 shrink-0 overflow-hidden bg-canvas" style={{ width: chatWidth }}>
+              <ChatPanel root={root} tasks={state.tasks} events={state.events} onSelect={select} onError={reportError} />
+            </aside>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Un bouton de la barre d'activité. */
+function ActivityButton(props: { label: string; active: boolean; onClick: () => void; testId: string; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      title={props.label}
+      aria-label={props.label}
+      aria-pressed={props.active}
+      onClick={props.onClick}
+      data-testid={props.testId}
+      className={cn(
+        'grid size-8 place-items-center rounded-md text-muted hover:text-ink [&_svg]:size-4.5',
+        props.active && 'bg-accent-soft text-accent',
+      )}
+    >
+      {props.children}
+    </button>
+  )
+}
+
+/** Un onglet de la zone d'éditeur. */
+function Tab(props: {
+  active: boolean
+  onClick: () => void
+  onClose?: () => void
+  title?: string
+  testId: string
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      role="tab"
+      aria-selected={props.active}
+      title={props.title}
+      className={cn(
+        'flex shrink-0 cursor-pointer items-center gap-1.5 border-r border-border px-3 py-1.5',
+        props.active ? 'bg-surface text-ink' : 'text-muted hover:text-ink',
+      )}
+      onClick={props.onClick}
+      data-testid={props.testId}
+    >
+      <span className="font-mono">{props.children}</span>
+      {props.onClose && (
+        <button
+          type="button"
+          aria-label="Fermer l'onglet"
+          className="rounded text-muted hover:text-ink"
+          onClick={(e) => {
+            e.stopPropagation()
+            props.onClose!()
+          }}
+        >
+          <X className="size-3" />
+        </button>
+      )}
     </div>
   )
 }
@@ -126,7 +406,7 @@ function Empty() {
       <div className="space-y-3 text-center">
         <h2 className="text-lg font-semibold">Rien à observer pour l'instant</h2>
         <p className="text-sm text-muted">
-          Lance une tâche avec « Nouvelle tâche », ou ouvre une session Claude Code sur un dossier où le
+          Lance une conversation avec « Nouvelle tâche », ou ouvre une session Claude Code sur un dossier où le
           serveur <code className="font-mono">midgaard</code> est déclaré, et demande-lui de déléguer. Elle
           apparaîtra ici en direct.
         </p>

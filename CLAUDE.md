@@ -46,7 +46,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:worktrees` | ~8 s — worktrees, écriture et `exec` seuls, sortie en direct et lecture des fichiers d'une tâche comprises (rejoués en CI sur trois plateformes) |
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
-| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer et arbre d'un orchestrateur compris (`npx playwright install chromium` au préalable) |
+| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer, arbre d'un orchestrateur et atelier (conversation, éditeur, terminal) compris (`npx playwright install chromium` au préalable) |
 | `npm run test:developer` | ~35 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris |
 | `npm run test:orchestrator` | ~6 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL` |
 | `npm run test:security` | ~3 s — PLAN §8.4 de bout en bout : base et journal lus octet pour octet, refus tracés, API sur la seule boucle locale |
@@ -155,6 +155,11 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   merge est un acte humain (décision de la Slice 3). Le retrait d'un worktree
   vérifie que le chemin est strictement sous le dossier des worktrees, même
   forcé : le chemin vient de la base, et une ligne fausse ne doit rien effacer.
+- **Le terminal du dashboard ne laisse passer que les couleurs**
+  (`apps/dashboard/src/lib/terminal.ts`, Slice 6). La sortie vient de
+  commandes lancées dans un arbre écrit par l'agent ; une séquence qui efface,
+  déplace le curseur ou réinitialise (`ESC c`) ferait voir à l'humain autre
+  chose que ce qui s'est passé, au moment où il approuve.
 - **Les fichiers d'une tâche se lisent sans jamais toucher `.git`**
   (`daemon/src/files.ts`, Slice 6) : la règle vaut pour le chemin demandé
   **et** pour le chemin réel — un lien posé dans le worktree vers `.git`
@@ -274,7 +279,10 @@ message n'entre que dans une attente, et l'agent lit la version expurgée.
 attend son parent, avec son diff. Étape 4 faite : la sortie d'`exec` en
 direct (`exec.output`), découpée par ligne, expurgée, regroupée, plafonnée.
 Étape 5 faite : les fichiers d'une tâche en lecture seule, arbre et contenu,
-sur le disque et au commit de départ (`/api/tasks/:id/files`).
+sur le disque et au commit de départ (`/api/tasks/:id/files`). Étape 6
+faite : l'atelier façon VS Code au dashboard — conversation et fil des
+agents, explorateur et éditeur (CodeMirror, lecture seule, diff), terminal
+(xterm, lecture seule, séquences d'échappement réduites aux couleurs).
 
 ## Slice 5 terminée — un orchestrateur intégré
 

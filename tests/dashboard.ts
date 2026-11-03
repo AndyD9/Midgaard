@@ -34,7 +34,13 @@
  *  - D11 un orchestrateur lancé du formulaire : dossier refusé avec son motif
  *    puis accepté, sous-tâche rangée sous son parent, carte « Sous-tâches »
  *    avec le plafond théorique et le total de l'arbre **avec sa provenance**,
- *    lien de l'enfant vers son parent.
+ *    lien de l'enfant vers son parent ;
+ *  - D12 une conversation dans l'atelier (Slice 6) : la réplique de
+ *    l'orchestrateur s'affiche, la saisie ne s'ouvre que lorsqu'il attend, le
+ *    message part, et la conversation se ferme sur son résultat ;
+ *  - D13 l'atelier suit un Developer : le fichier écrit s'ouvre seul, son diff
+ *    se met à jour à l'écriture suivante **sans recharger**, et le terminal
+ *    montre la sortie d'une commande **pendant** qu'elle tourne.
  *
  * Playwright est employé en **bibliothèque**, pas en lanceur : les suites de ce
  * dépôt ont leur forme (`scenario`, `summarize`, verdicts), et ajouter un second
@@ -541,6 +547,150 @@ await scenario(outcomes, 'D11 un orchestrateur lancé du formulaire, et son arbr
   } finally {
     provider.server.close()
     rmSync(repo, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+  }
+})
+
+// --- D12 ---------------------------------------------------------------------
+
+/** Déclare (ou redéclare) le faux fournisseur auprès du daemon, sur sa nouvelle adresse. */
+async function useProvider(url: string): Promise<void> {
+  await daemonJson(rt, '/api/providers', {
+    method: 'POST',
+    body: JSON.stringify({ id: 'faux', preset: 'custom', base_url: url, default_model: 'faux-1', api_key: 'sk-faux-0000' }),
+  })
+}
+
+/** Un dépôt Git jetable, avec ses fichiers de départ commités. */
+function makeRepo(files: Record<string, string>): { repo: string; dispose: () => void } {
+  const repo = realpathSync.native(mkdtempSync(join(tmpdir(), 'midgaard-ui-atelier-')))
+  const git = (...a: string[]) =>
+    execFileSync('git', ['-c', 'user.name=u', '-c', 'user.email=u@example.org', '-c', 'commit.gpgsign=false', ...a], {
+      cwd: repo,
+      stdio: 'ignore',
+    })
+  git('init', '-q', '-b', 'main')
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(repo, path, '..'), { recursive: true })
+    writeFileSync(join(repo, path), content)
+  }
+  git('add', '-A')
+  git('commit', '-q', '-m', 'initial')
+  return { repo, dispose: () => rmSync(repo, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) }
+}
+
+await scenario(outcomes, 'D12 une conversation avec l’orchestrateur, dans l’atelier', async () => {
+  const provider = await startFakeProvider()
+  const { repo, dispose } = makeRepo({ 'README.md': '# Projet\n' })
+  try {
+    await useProvider(provider.url)
+    provider.scripts.set('[D12]', [
+      { text: 'Quel fichier dois-je lire ?' },
+      [{ tool: 'submit_result', args: { summary: 'le README dit Projet' } }],
+    ])
+    const { body: created } = await daemonJson<TaskView>(rt, '/api/tasks', {
+      method: 'POST',
+      body: JSON.stringify({ objective: '[D12] aide-moi', agent_id: 'orchestrator', project_dir: repo, conversation: true }),
+    })
+    const id = created.task.id
+    await page.goto(`${rt.dashboard_url}#/tasks/${id}`, { waitUntil: 'domcontentloaded' })
+
+    const chat = page.getByTestId('chat-panel')
+    try {
+      await chat.locator('[data-kind="agent"]').getByText('Quel fichier dois-je lire ?').waitFor({ timeout: UI_TIMEOUT })
+      await page.getByTestId('chat-input').waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+    } catch {
+      return { verdict: 'FAIL', detail: `réplique ou saisie absente (tâche ${(await taskNow(id)).status})` }
+    }
+    await page.getByTestId('chat-input').fill('le README')
+    await page.getByTestId('chat-send').click()
+
+    if (!(await until(async () => (await taskNow(id)).status === 'completed'))) {
+      const t = await taskNow(id)
+      return { verdict: 'FAIL', detail: `conversation non conclue : ${t.status} — ${t.error}` }
+    }
+    try {
+      await chat.locator('[data-kind="user"]').getByText('le README', { exact: true }).waitFor({ timeout: UI_TIMEOUT })
+      await chat.locator('[data-kind="result"]').getByText('le README dit Projet').waitFor({ timeout: UI_TIMEOUT })
+    } catch {
+      return { verdict: 'FAIL', detail: 'le message envoyé ou le résultat manque au fil' }
+    }
+    const closed = (await page.getByTestId('chat-closed').textContent({ timeout: UI_TIMEOUT })) ?? ''
+    if (!/terminée/.test(closed)) return { verdict: 'FAIL', detail: `saisie encore ouverte après la fin : « ${closed} »` }
+    return { verdict: 'PASS', detail: 'réplique vue, message envoyé de la saisie, résultat au fil, saisie refermée' }
+  } finally {
+    provider.server.close()
+    dispose()
+  }
+})
+
+// --- D13 ---------------------------------------------------------------------
+
+await scenario(outcomes, 'D13 l’atelier suit un Developer : fichier, diff et terminal en direct', async () => {
+  const provider = await startFakeProvider()
+  // Une ligne, deux secondes de silence, une autre : la première doit être à
+  // l'écran pendant que la commande tourne encore.
+  const { repo, dispose } = makeRepo({
+    'src/app.ts': 'export const routes = ["/"]\n',
+    'parle.js': "console.log('première ligne'); setTimeout(() => console.log('seconde ligne'), 2500)\n",
+  })
+  try {
+    await useProvider(provider.url)
+    provider.scripts.set('[D13]', [
+      [{ tool: 'write_file', args: { path: 'src/health.ts', content: 'export const health = () => "v1"\n' } }],
+      [{ tool: 'exec', args: { command: 'node', args: ['parle.js'] } }],
+      [{ tool: 'write_file', args: { path: 'src/health.ts', content: 'export const health = () => "v2"\n' } }],
+      [{ tool: 'submit_result', args: { summary: 'route /health ajoutée' } }],
+    ])
+    const { body: created } = await daemonJson<TaskView>(rt, '/api/tasks', {
+      method: 'POST',
+      body: JSON.stringify({ objective: '[D13] ajouter /health', agent_id: 'developer', project_dir: repo }),
+    })
+    const id = created.task.id
+    // La commande attend son approbation : le fichier v1 est écrit, rien d'autre.
+    if (!(await until(async () => (await taskNow(id)).status === 'waiting_approval'))) {
+      return { verdict: 'FAIL', detail: `pas de pause d'approbation : ${(await taskNow(id)).status}` }
+    }
+
+    await page.goto(`${rt.dashboard_url}#/tasks/${id}`, { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('activity-files').click()
+    // « Suivre l'agent » est coché par défaut : le fichier écrit s'ouvre seul.
+    const view = page.locator('[data-testid="file-view"][data-path="src/health.ts"]')
+    try {
+      await page.getByTestId('tab-file-src/health.ts').waitFor({ timeout: UI_TIMEOUT })
+      await view.getByTestId('code-diff').getByText('"v1"').first().waitFor({ timeout: UI_TIMEOUT })
+    } catch {
+      return { verdict: 'FAIL', detail: 'le fichier écrit ne s’est pas ouvert, ou son diff ne montre pas v1' }
+    }
+
+    const approval = (await daemonJson<{ approvals: Approval[] }>(rt, '/api/approvals')).body.approvals.find((a) => a.task_id === id)
+    if (!approval) return { verdict: 'FAIL', detail: 'aucune approbation pour la commande' }
+    await daemonJson(rt, `/api/approvals/${approval.id}/approve`, { method: 'POST', body: JSON.stringify({ by: 'test' }) })
+
+    // Pendant la commande : la première ligne est à l'écran, la seconde pas encore.
+    const rows = page.getByTestId('terminal-panel').locator('.xterm-rows')
+    const live = await until(async () => /première ligne/.test((await rows.textContent()) ?? ''), 10_000)
+    const runningStill = (await taskNow(id)).status === 'running' && !/seconde ligne/.test((await rows.textContent()) ?? '')
+    if (!live) return { verdict: 'FAIL', detail: 'la sortie de la commande n’apparaît pas au terminal' }
+    if (!runningStill) return { verdict: 'FAIL', detail: 'la sortie n’est apparue qu’à la fin : pas en direct' }
+
+    if (!(await until(async () => (await taskNow(id)).status === 'completed'))) {
+      const t = await taskNow(id)
+      return { verdict: 'FAIL', detail: `tâche non terminée : ${t.status} — ${t.error}` }
+    }
+    // La seconde écriture, dans le même onglet, sans rechargement.
+    try {
+      await view.getByTestId('code-diff').getByText('"v2"').first().waitFor({ timeout: UI_TIMEOUT })
+    } catch {
+      return { verdict: 'FAIL', detail: 'le diff ne s’est pas mis à jour après la seconde écriture' }
+    }
+    const terminal = (await rows.textContent()) ?? ''
+    if (!/node parle\.js/.test(terminal) || !/seconde ligne/.test(terminal)) {
+      return { verdict: 'FAIL', detail: 'le terminal ne montre pas la commande entière' }
+    }
+    return { verdict: 'PASS', detail: 'fichier ouvert seul, diff v1 puis v2 sans rechargement, sortie au terminal pendant la commande' }
+  } finally {
+    provider.server.close()
+    dispose()
   }
 })
 

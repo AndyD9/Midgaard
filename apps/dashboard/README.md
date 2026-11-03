@@ -3,8 +3,11 @@
 L'interface d'observation et de décision : la liste des tâches, l'inspecteur avec
 sa timeline temps réel, et les boutons d'approbation. Depuis la Slice 5, aussi
 l'endroit d'où l'on **lance** une tâche sans Claude Code — un orchestrateur en
-particulier, qui ne se lance que d'ici. React + Vite + Tailwind,
-composants dans l'idiome shadcn/ui, recopiés dans `src/components/ui/`.
+particulier, qui ne se lance que d'ici. Depuis la Slice 6, un **atelier façon
+VS Code** : conversation avec l'orchestrateur, fil des échanges entre agents,
+explorateur et éditeur en lecture seule, terminal de sortie des commandes.
+React + Vite + Tailwind, composants dans l'idiome shadcn/ui, recopiés dans
+`src/components/ui/` ; CodeMirror 6 pour l'éditeur, xterm.js pour le terminal.
 
 ```bash
 npm run build            # compile dans apps/dashboard/dist, servi par le daemon
@@ -127,3 +130,52 @@ qu'une suite qui rougit à chaque retouche de style.
 | `components/SubtasksCard.tsx` | Sous-tâches d'un orchestrateur, total de l'arbre, plafond théorique |
 | `lib/tree.ts` | Arbre des tâches, total et provenance, plafond — fonctions pures |
 | `lib/agents.ts` | Motif d'un profil désactivé — fonction pure |
+
+## L'atelier (Slice 6)
+
+```text
+ barre d'activité │ tâches ou fichiers │ onglets : Détails │ fichiers │ conversation
+                  │                    │ éditeur ou détails           │ (fil + saisie)
+                  │                    │ terminal                     │
+```
+
+Tout suit **la tâche sélectionnée et son arbre** : la conversation et le
+terminal sont ceux de sa racine et de ses sous-tâches, l'explorateur montre le
+worktree d'un Developer ou le dossier du projet. Les séparateurs se déplacent à
+la souris ; les tailles sont retenues dans `localStorage` (une commodité :
+sans stockage, la page fonctionne). Les panneaux sont bornés pour laisser à
+l'éditeur au moins 40 % de la fenêtre.
+
+- **Conversation** (`ChatPanel`, `lib/thread.ts`). Le fil est reconstitué du
+  journal, événement par événement : messages de l'utilisateur, répliques de
+  l'orchestrateur, délégations, questions et propositions des sous-tâches,
+  réponses et verdicts. Les notes du harness restent dans la timeline. **La
+  saisie ne s'ouvre que lorsque la conversation attend l'utilisateur** : le
+  daemon refuse un message à une tâche qui travaille, et le motif s'affiche à la
+  place. Le panneau dit qu'une conversation ne survit pas au daemon. Tout le
+  texte est rendu comme du texte.
+- **Explorateur et éditeur** (`FileExplorer`, `FileView`, `CodeView`,
+  `lib/files.ts`). En lecture seule à deux niveaux (`EditorState.readOnly`,
+  `EditorView.editable`), et le daemon n'a aucune route d'écriture. Un fichier
+  d'un worktree s'ouvre en **diff** contre le commit de départ (deux éditeurs
+  côte à côte, parties inchangées repliées). L'arbre et le fichier ouvert se
+  rechargent à chaque fin d'outil (`filesVersion`). **« Suivre l'agent »** ouvre
+  le dernier fichier écrit, retrouvé dans les arguments journalisés.
+- **Terminal** (`TerminalPanel`, `lib/terminal.ts`). xterm.js sans clavier
+  (`disableStdin`) : la commande, sa sortie au fil de l'eau (`exec.output`), sa
+  fin. **La sortie est nettoyée** : seules les couleurs passent. Une séquence qui
+  efface l'écran, déplace le curseur ou réinitialise le terminal (`ESC c`) ferait
+  voir à l'humain autre chose que ce qui s'est passé, au moment où il décide
+  d'une approbation ; le test unitaire a trouvé `ESC c` et `ESC 7` qui passaient
+  au premier jet. Les couleurs du thème (`oklch`) sont converties en `rgb` en
+  peignant un pixel, xterm ne lisant pas `oklch`.
+
+Le formulaire « Nouvelle tâche » propose « Conversation », cochée par défaut,
+pour un orchestrateur seulement.
+
+Prouvé par `test:ui` (D12 : une conversation ; D13 : fichier ouvert seul, diff
+mis à jour sans rechargement, sortie au terminal **pendant** la commande) et
+par `tests/unit/dashboard-workbench.test.ts`. Le paquet compilé pèse 1,2 Mo
+(387 Ko compressés), CodeMirror et xterm compris : servi en local, il n'est pas
+découpé.
+

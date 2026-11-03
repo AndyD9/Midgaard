@@ -62,6 +62,9 @@ export function NewTaskForm({ onCreated }: { onCreated: (taskId: string) => void
   const [objective, setObjective] = useState('')
   const [projectDir, setProjectDir] = useState(lastDir)
   const [context, setContext] = useState('')
+  // Cochée par défaut : un orchestrateur lancé d'ici a un humain en face, et la
+  // conversation est ce que l'atelier montre (Slice 6).
+  const [conversation, setConversation] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -91,6 +94,8 @@ export function NewTaskForm({ onCreated }: { onCreated: (taskId: string) => void
   // Le profil simulé ne lit aucun dossier : le lui demander serait une fausse exigence.
   const needsDir = selected !== null && selected.kind !== 'simulated'
   const ready = selected !== null && objective.trim() !== '' && (!needsDir || projectDir.trim() !== '')
+  // Seul un orchestrateur converse : le daemon refuse la demande pour un autre profil.
+  const converses = selected?.kind === 'orchestrator' && conversation
 
   async function submit(e: FormEvent): Promise<void> {
     e.preventDefault()
@@ -103,6 +108,7 @@ export function NewTaskForm({ onCreated }: { onCreated: (taskId: string) => void
         agent_id: selected.id,
         ...(context.trim() ? { context: context.trim() } : {}),
         ...(needsDir ? { project_dir: projectDir.trim() } : {}),
+        ...(converses ? { conversation: true } : {}),
       })
       if (needsDir) rememberDir(projectDir.trim())
       onCreated(view.task.id)
@@ -171,8 +177,27 @@ export function NewTaskForm({ onCreated }: { onCreated: (taskId: string) => void
             </ul>
           )}
 
+          {selected?.kind === 'orchestrator' && (
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={conversation}
+                onChange={(e) => setConversation(e.target.checked)}
+                data-testid="new-task-conversation"
+              />
+              <span>
+                <span className="font-medium">Conversation</span>
+                <span className="block text-xs text-muted">
+                  L'orchestrateur vous répond et attend votre message, jusqu'à ce que vous lui demandiez de
+                  conclure. Décochée, il travaille d'un trait et rend son résultat.
+                </span>
+              </span>
+            </label>
+          )}
+
           <label className="block space-y-1.5">
-            <span className="font-medium">Objectif</span>
+            <span className="font-medium">{converses ? 'Premier message' : 'Objectif'}</span>
             <textarea
               className={`${FIELD} min-h-24`}
               value={objective}

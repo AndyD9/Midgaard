@@ -15,6 +15,8 @@ import type {
   Agent,
   Approval,
   CreateTaskRequest,
+  FileContentResponse,
+  FileTreeResponse,
   Health,
   ProviderConfig,
   Task,
@@ -194,3 +196,27 @@ export function createTask(
 export function updateAgent(agentId: string, request: UpdateAgentRequest): Promise<{ agent: Agent }> {
   return api(`/api/agents/${encodeURIComponent(agentId)}`, { method: 'PATCH', body: JSON.stringify(request) })
 }
+
+/**
+ * Écrit à une conversation qui attend votre réponse (Slice 6). Le daemon refuse
+ * (`task_not_awaiting_user`) un message à une tâche qui travaille.
+ *
+ * @param conclude demande à l'orchestrateur de conclure ; `text` peut être vide
+ */
+export function postMessage(taskId: string, text: string, conclude = false): Promise<TaskView> {
+  return api(`/api/tasks/${taskId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ text, conclude, by: 'dashboard' }),
+  })
+}
+
+/** Arbre des fichiers d'une tâche, en lecture seule : son worktree, ou son dossier de projet. */
+export function fetchFileTree(taskId: string): Promise<FileTreeResponse> {
+  return api(`/api/tasks/${taskId}/files`)
+}
+
+/** Un fichier d'une tâche, sur le disque (`work`) ou au commit de départ (`base`). */
+export function fetchFileContent(taskId: string, path: string, rev: 'work' | 'base'): Promise<FileContentResponse> {
+  return api(`/api/tasks/${taskId}/files/content?path=${encodeURIComponent(path)}&rev=${rev}`)
+}
+
