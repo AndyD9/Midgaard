@@ -22,6 +22,18 @@ import type { DelegationPort } from '@midgaard/tools'
 import type { EventBus } from '../bus.ts'
 
 /**
+ * Ce que le daemon sait de la vue d'un modèle (Slice 7) : lit-il les images,
+ * d'où le sait-on, et la phrase qui le dit — en anglais, c'est le modèle qui
+ * la lit quand elle motive un refus d'outil.
+ */
+export interface VisionVerdict {
+  enabled: boolean
+  /** `catalog` : publié par le fournisseur ; `declared` : déclaré au profil ; `unknown` : ni l'un ni l'autre. */
+  source: 'catalog' | 'declared' | 'unknown'
+  reason: string
+}
+
+/**
  * Ce qu'un moteur emprunte au daemon.
  *
  * Il n'a **pas** accès au dépôt en écriture : toute écriture passe par le bus,
@@ -82,6 +94,13 @@ export interface EngineContext {
    *               dans une délégation est persisté, et passe donc par elle
    */
   delegationFor(parentTaskId: string, redact: (text: string) => string): DelegationPort
+  /**
+   * Retient ce que le moteur a constaté de la vue du modèle d'un profil
+   * (Slice 7), pour le fournisseur et le modèle **effectifs** : le gérant
+   * refuse ensuite un Navigator aveugle dès la création de la tâche, avec son
+   * motif, et le montre désactivé.
+   */
+  noteVision(agentId: string, providerId: string, model: string, verdict: VisionVerdict): void
 }
 
 /**
@@ -117,6 +136,12 @@ export interface TaskEngine {
    * @returns la tâche relancée, ou `null` si ce moteur n'a pas cette attente en vol
    */
   accept?(task: Task, payload: Record<string, unknown>): Task | null
+  /**
+   * Constate, sans lancer de tâche, si le modèle d'un profil lit les images
+   * (Slice 7), et le dit par {@link EngineContext.noteVision}. Facultatif :
+   * un moteur sans modèle ne l'implémente pas.
+   */
+  probeVision?(agent: Agent): Promise<void>
   /**
    * Signale une demande d'annulation.
    *

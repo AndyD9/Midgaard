@@ -61,9 +61,13 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *  - 12 : Slice 7, étape 2 — un profil porte `vision` (la déclaration de
  *        l'utilisateur), que `PATCH /api/agents/:id` accepte. Un daemon de
  *        protocole 11 rendrait des profils sans le champ, que le serveur MCP
- *        et le dashboard valident désormais.
+ *        et le dashboard valident désormais ;
+ *  - 13 : Slice 7, étape 5 — un profil peut être de type `navigator`, que les
+ *        versions antérieures refuseraient à la validation, et
+ *        `GET /api/agents` rend `disabled_reason`, le motif calculé par le
+ *        daemon (fournisseur absent, ou modèle qui ne lit pas les images).
  */
-export const PROTOCOL_VERSION = 12
+export const PROTOCOL_VERSION = 13
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({

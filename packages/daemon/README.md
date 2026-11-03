@@ -176,6 +176,27 @@ dit dans la timeline. Une déclaration tombe quand le modèle du profil change.
 Aucune image n'est écrite en base (`tests/unit/vision.test.ts` lit la base et
 son WAL).
 
+## Le Navigator : refusé avec son motif quand il est aveugle (Slice 7)
+
+Le profil `navigator` (type `navigator`, `agents.ts`) se sert du navigateur et
+lit le projet ; ni écriture, ni `exec`, ni `http_fetch`. Il voit par des
+captures : son modèle doit lire les images. Le gérant retient ce que le moteur
+a **constaté** (`noteVision`), pour le fournisseur et le modèle effectifs —
+un constat tombe de lui-même quand le profil change de modèle. Le constat se
+fait :
+
+- **au démarrage** du daemon, sans le retarder ;
+- **après un réglage** (`PATCH /api/agents/:id`) ou l'ajout d'un fournisseur,
+  attendu au plus 5 s avant de répondre ;
+- **au départ de chaque tâche**, qui reste l'autorité : un Navigator aveugle
+  s'arrête en `failed` avant tout appel de modèle, avec le motif.
+
+Constaté aveugle, il est **refusé à la création** (`agent_disabled`, rien n'est
+créé) et **montré désactivé avec son motif** par `GET /api/agents`, qui rend
+la vue du profil (`enabled` : utilisable maintenant ; `disabled_reason`) et non
+la ligne en base. Prouvé par `tests/unit/navigator.test.ts`, dans un vrai
+daemon, avec la coupure humaine et la fermeture avant conclusion.
+
 ## Les sessions de navigateur (Slice 7)
 
 `browsers.ts` tient le navigateur isolé de chaque tâche : une session au plus,

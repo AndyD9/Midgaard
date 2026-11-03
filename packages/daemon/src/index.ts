@@ -23,6 +23,9 @@ export {
   ORCHESTRATOR_AGENT_ID,
   ORCHESTRATOR_SYSTEM_PROMPT,
   ORCHESTRATOR_TOOLS,
+  NAVIGATOR_AGENT_ID,
+  NAVIGATOR_SYSTEM_PROMPT,
+  NAVIGATOR_TOOLS,
   updateAgentModel,
 } from './agents.ts'
 export { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'

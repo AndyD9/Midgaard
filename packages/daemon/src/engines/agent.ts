@@ -55,27 +55,51 @@ export function visionOf(
   declared: boolean | null,
   providerId: string,
   model: string,
-): { enabled: boolean; reason: string } {
+): VisionVerdict {
   if (caps.vision === true) {
-    return { enabled: true, reason: `the catalogue of provider "${providerId}" says model "${model}" reads images` }
+    return { enabled: true, source: 'catalog', reason: `the catalogue of provider "${providerId}" says model "${model}" reads images` }
   }
   if (caps.vision === false) {
     return {
       enabled: false,
+      source: 'catalog',
       reason: `model "${model}" cannot read images (catalogue of provider "${providerId}"): use a model that can`,
     }
   }
-  if (declared === true) return { enabled: true, reason: `declared on this profile: model "${model}" reads images` }
-  if (declared === false) return { enabled: false, reason: `declared on this profile: model "${model}" does not read images` }
+  if (declared === true) {
+    return { enabled: true, source: 'declared', reason: `declared on this profile: model "${model}" reads images` }
+  }
+  if (declared === false) {
+    return { enabled: false, source: 'declared', reason: `declared on this profile: model "${model}" does not read images` }
+  }
   return {
     enabled: false,
+    source: 'unknown',
     reason:
       `provider "${providerId}" does not say whether model "${model}" reads images, and this profile does not ` +
       'declare it: no image can be shown to it'
   }
 }
+/**
+ * Pourquoi un Navigator ne peut pas partir, en français : c'est l'erreur de
+ * la tâche, lue par l'utilisateur. Elle dit d'où vient le constat et quoi
+ * faire, comme un profil sans fournisseur.
+ */
+export function navigatorBlindError(model: string, vision: VisionVerdict | undefined): string {
+  const where = '(onglet Profils du dashboard, ou `PATCH /api/agents/navigator`)'
+  if (vision?.source === 'catalog') {
+    return `le modèle « ${model} » ne lit pas les images, d'après le catalogue de son fournisseur : choisis-en un qui les lit ${where}`
+  }
+  if (vision?.source === 'declared') {
+    return `le modèle « ${model} » est déclaré ne pas lire les images : choisis-en un qui les lit ${where}`
+  }
+  return (
+    `rien ne dit que le modèle « ${model} » lit les images : son fournisseur ne le publie pas. Déclare-le au ` +
+    `profil s'il les lit, ou choisis un modèle qui les lit ${where}`
+  )
+}
 import { runAgent, type ApprovalOutcome, type InputOutcome, type LoopHooks, type LoopOutcome } from '@midgaard/agent-runtime'
-import type { EngineContext, TaskEngine } from './types.ts'
+import type { EngineContext, TaskEngine, VisionVerdict } from './types.ts'
 
 /**
  * La commande qui redépose la clé d'un fournisseur, prête à copier.
@@ -111,7 +135,7 @@ export interface AgentEngineDeps {
    * profil ; Researcher, Developer et Orchestrator partagent la même boucle,
    * avec une instance de ce moteur chacun.
    */
-  kind: Extract<AgentKind, 'researcher' | 'developer' | 'orchestrator'>
+  kind: Extract<AgentKind, 'researcher' | 'developer' | 'orchestrator' | 'navigator'>
   ctx: EngineContext
   vault: SecretVault
   /** Lue à chaque tâche : un rafraîchissement des tarifs profite à la suivante. */
@@ -489,33 +513,14 @@ export class AgentEngine implements TaskEngine {
       }
   > {
     const { ctx } = this.deps
-    if (!agent.provider_id) {
-      return { error: `le profil « ${agent.id} » n'a aucun fournisseur configuré` }
-    }
-    const provider = ctx.store.getProvider(agent.provider_id)
-    if (!provider) {
-      return { error: `le fournisseur « ${agent.provider_id} » n'existe plus ; reconfigure le profil` }
-    }
-
-    const envVar = envVarFor(provider)
-    const found = await resolveApiKey(this.deps.vault, provider.secret_ref, envVar, this.deps.env)
-    if (!found) {
-      return {
-        error:
-          `aucune clé d'API pour « ${provider.id} » : dépose-la avec ` +
-          `\`${keyCommand(provider, ctx.config.homeIsExplicit ? ctx.config.home : null)}\`, ` +
-          `ou définis ${envVar} dans l'environnement du daemon`,
-      }
-    }
-    if (found.source === 'env') {
-      ctx.log(`fournisseur ${provider.id} : clé lue dans ${envVar} (dépannage), pas dans le coffre`)
-    }
+    const resolved = await this.resolveProvider(agent)
+    if ('error' in resolved) return resolved
+    const { provider, key, model } = resolved
 
     // Tout ce qui sera journalisé ou persisté passe par là. La clé en est le
     // secret connu ; les motifs couvrent celles qu'on ne connaît pas et qui
     // pourraient traverser un outil.
-    const redact = createRedactor([found.key])
-    const model = agent.model ?? provider.default_model
+    const redact = createRedactor([key])
 
     if (!task.project_dir) {
       return {
@@ -527,7 +532,7 @@ export class AgentEngine implements TaskEngine {
       }
     }
 
-    const adapter = createAdapter({ config: provider, apiKey: found.key, model, pricing: this.deps.pricing(), redact })
+    const adapter = createAdapter({ config: provider, apiKey: key, model, pricing: this.deps.pricing(), redact })
     // La capacité n'est cherchée que pour un profil qui pourrait s'en servir :
     // lire le catalogue coûte un aller-retour réseau à chaque tâche.
     const vision = agent.tools.some((t) => VISION_TOOLS.includes(t))
@@ -538,6 +543,13 @@ export class AgentEngine implements TaskEngine {
           model,
         )
       : undefined
+    if (vision) ctx.noteVision(agent.id, provider.id, model, vision)
+    // Un Navigator voit le navigateur par des captures : aveugle, il ne
+    // ferait que se faire refuser chaque outil. La tâche s'arrête avant tout
+    // appel de modèle, donc sans rien coûter, en disant quoi faire.
+    if (agent.kind === 'navigator' && !vision?.enabled) {
+      return { error: navigatorBlindError(model, vision) }
+    }
 
     return {
       adapter,
@@ -567,6 +579,55 @@ export class AgentEngine implements TaskEngine {
       providerId: provider.id,
       model,
     }
+  }
+
+  /**
+   * Le fournisseur d'un profil, sa clé et le modèle effectif — ou une phrase
+   * qui dit quoi faire.
+   */
+  private async resolveProvider(
+    agent: Agent,
+  ): Promise<{ error: string } | { provider: ProviderConfig; key: string; model: string }> {
+    const { ctx } = this.deps
+    if (!agent.provider_id) {
+      return { error: `le profil « ${agent.id} » n'a aucun fournisseur configuré` }
+    }
+    const provider = ctx.store.getProvider(agent.provider_id)
+    if (!provider) {
+      return { error: `le fournisseur « ${agent.provider_id} » n'existe plus ; reconfigure le profil` }
+    }
+    const envVar = envVarFor(provider)
+    const found = await resolveApiKey(this.deps.vault, provider.secret_ref, envVar, this.deps.env)
+    if (!found) {
+      return {
+        error:
+          `aucune clé d'API pour « ${provider.id} » : dépose-la avec ` +
+          `\`${keyCommand(provider, ctx.config.homeIsExplicit ? ctx.config.home : null)}\`, ` +
+          `ou définis ${envVar} dans l'environnement du daemon`,
+      }
+    }
+    if (found.source === 'env') {
+      ctx.log(`fournisseur ${provider.id} : clé lue dans ${envVar} (dépannage), pas dans le coffre`)
+    }
+    return { provider, key: found.key, model: agent.model ?? provider.default_model }
+  }
+
+  /**
+   * Constate si le modèle d'un profil lit les images, sans lancer de tâche
+   * (Slice 7) : au démarrage du daemon et après un changement de modèle, pour
+   * qu'un Navigator aveugle soit montré refusé **avant** qu'on lui délègue.
+   * Un profil sans fournisseur ou sans clé n'est pas constaté : son refus est
+   * déjà dit par ailleurs.
+   */
+  async probeVision(agent: Agent): Promise<void> {
+    const resolved = await this.resolveProvider(agent)
+    if ('error' in resolved) return
+    const { provider, key, model } = resolved
+    const adapter = createAdapter({
+      config: provider, apiKey: key, model, pricing: this.deps.pricing(), redact: createRedactor([key]),
+    })
+    const caps = (await adapter.capabilities?.().catch(() => null)) ?? { vision: null, source: 'unknown' as const }
+    this.deps.ctx.noteVision(agent.id, provider.id, model, visionOf(caps, agent.vision, provider.id, model))
   }
 
   /** Traduit les crochets de la boucle en écritures du bus. */

@@ -303,8 +303,13 @@ gardé (qui se connecte à l'adresse jugée), aucun processus survivant.
 chaque saisie ou Entrée sont approuvées. **Une saisie approuvée n'est pas
 tapée si la page ou le champ ont changé** pendant la décision. Une capture
 chasse la précédente de la conversation (`transient`). L'humain coupe par
-`POST /api/tasks/:id/browser/close`. Aucun profil n'a encore ces outils :
-c'est l'étape 5.
+`POST /api/tasks/:id/browser/close`. Étape 5 faite : le profil `navigator`
+(type à lui, `PROTOCOL_VERSION` 13), visible de Claude. **Aveugle, il est
+refusé avec son motif** : le gérant retient la vision constatée par le moteur
+(démarrage, réglage, départ de tâche), et `GET /api/agents` rend la **vue**
+d'un profil (`enabled` utilisable maintenant, `disabled_reason`), pas sa ligne
+en base. `tests/unit/navigator.test.ts` l'éprouve dans un vrai daemon,
+coupure humaine et Chromium compté compris.
 
 ## Slice 6 terminée — un atelier façon VS Code
 

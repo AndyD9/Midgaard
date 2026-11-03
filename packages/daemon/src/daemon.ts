@@ -42,6 +42,7 @@ import { EventBus } from './bus.ts'
 import { installation } from './installation.ts'
 import { AgentEngine } from './engines/agent.ts'
 import { BrowserSessions } from './browsers.ts'
+import type { HostGuard } from '@midgaard/browser'
 import type { ProviderServiceDeps } from './providers.ts'
 import { createRequestHandler } from './http.ts'
 import { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'
@@ -107,6 +108,12 @@ export interface StartOptions {
    * dans leur propre environnement.
    */
   env?: NodeJS.ProcessEnv
+  /**
+   * Garde réseau du navigateur des agents (Slice 7). Pour les tests seulement,
+   * qui servent leur page sur la boucle locale que la vraie garde refuse ;
+   * `main.ts` ne la pose jamais, et le daemon prend alors la vraie.
+   */
+  browserGuard?: HostGuard | undefined
 }
 
 /**
@@ -169,12 +176,13 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
 
   // Les navigateurs isolés des tâches (Slice 7) : un par tâche au plus, fermés
   // avec elle, et tous à l'arrêt du daemon.
-  const browsers = new BrowserSessions({ bus, config, log })
+  const browsers = new BrowserSessions({ bus, config, log, guard: options.browserGuard })
 
-  // Researcher, Developer et Orchestrator partagent la boucle : une instance du
-  // même moteur par type de profil. Seul le Developer crée un worktree ; seul
-  // l'Orchestrator reçoit le port de délégation.
-  for (const kind of ['researcher', 'developer', 'orchestrator'] as const) {
+  // Researcher, Developer, Orchestrator et Navigator partagent la boucle : une
+  // instance du même moteur par type de profil. Seul le Developer crée un
+  // worktree ; seul l'Orchestrator reçoit le port de délégation ; le navigateur
+  // va au profil qui en a les outils, le Navigator.
+  for (const kind of ['researcher', 'developer', 'orchestrator', 'navigator'] as const) {
     tasks.register(
       new AgentEngine({
         kind,
@@ -344,6 +352,9 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
   // l'utilisateur ait à supprimer sa base.
   ensureBuiltinAgents(store, log)
   publishRuntime()
+  // La vue des Navigator se constate au catalogue, sans bloquer le démarrage :
+  // un profil aveugle sera montré refusé dès que la réponse arrive (Slice 7).
+  void tasks.probeVision()
 
   const lease = setInterval(checkLease, config.leaseMs)
   lease.unref()

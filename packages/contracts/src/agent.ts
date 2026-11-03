@@ -23,8 +23,12 @@ import { z } from 'zod'
  * `orchestrator` (Slice 5) délègue aux autres profils depuis le daemon, sur
  * n'importe quel modèle. Il ne lit que le projet, n'écrit rien, ne lance rien,
  * et ne se lance que du dashboard : le serveur MCP ne le montre pas à Claude.
+ *
+ * `navigator` (Slice 7) se sert du navigateur isolé, sous session approuvée.
+ * Il lit le projet, n'écrit rien et ne lance rien ; sans modèle qui lit les
+ * images, il est refusé avec son motif.
  */
-export const AGENT_KINDS = ['simulated', 'researcher', 'developer', 'orchestrator'] as const
+export const AGENT_KINDS = ['simulated', 'researcher', 'developer', 'orchestrator', 'navigator'] as const
 export type AgentKind = (typeof AGENT_KINDS)[number]
 
 /** Identifiant du profil simulé, réservé : aucun fournisseur, aucun coût. */
@@ -104,6 +108,26 @@ export const DEFAULT_ORCHESTRATOR_LIMITS: AgentLimits = Object.freeze({
   max_tool_calls_per_step: 4,
 })
 
+/**
+ * Limites par défaut d'un Navigator (Slice 7).
+ *
+ *  - **des étapes** : une page se lit en plusieurs captures, un formulaire en
+ *    plusieurs clics et saisies ;
+ *  - **le budget du Researcher** : chaque étape porte une capture, environ un
+ *    millier de jetons d'entrée relevés à l'étape 1, et la boucle n'en garde
+ *    qu'une — le coût croît avec les étapes, pas avec leur carré ;
+ *  - **trente minutes** : la durée maximale d'une session de navigateur, que
+ *    l'échéance de la tâche borne de toute façon ;
+ *  - **trois appels par étape** : agir, puis regarder ce que l'action a fait.
+ */
+export const DEFAULT_NAVIGATOR_LIMITS: AgentLimits = Object.freeze({
+  max_steps: 30,
+  max_cost_usd: 0.5,
+  timeout_s: 1800,
+  max_output_tokens: 4096,
+  max_tool_calls_per_step: 3,
+})
+
 /** Un profil d'agent, tel que le daemon le stocke et l'expose à Claude. */
 export const agentSchema = z.object({
   id: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9_-]*$/, 'minuscules, chiffres, tiret ou souligné'),
@@ -130,6 +154,13 @@ export const agentSchema = z.object({
    * elle portait sur l'ancien.
    */
   vision: z.boolean().nullable(),
+  /**
+   * Pourquoi le profil ne peut pas recevoir de tâche, calculé par le daemon à
+   * la lecture (Slice 7) ; `null` s'il le peut. Absent d'un profil lu en base :
+   * ce n'est pas une colonne. Un profil peut être activé et refusé quand même —
+   * un Navigator dont le modèle ne lit pas les images.
+   */
+  disabled_reason: z.string().nullable().optional(),
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),
 })

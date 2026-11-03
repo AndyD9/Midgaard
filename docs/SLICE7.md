@@ -6,7 +6,7 @@ navigateur** : ouvrir une page ou une application web, la regarder, cliquer,
 saisir. Le tout dans un navigateur que le daemon lance à part, sous des
 sessions que l'humain approuve et surveille en direct dans l'atelier.
 
-**État : en cours.** Étapes 1 à 4 faites (2026-11-03) ; l'étape 1 constatée
+**État : en cours.** Étapes 1 à 5 faites (2026-11-03) ; l'étape 1 constatée
 contre l'API réelle de Venice, les étapes 1 à 3 en CI sur trois plateformes.
 
 ---
@@ -103,8 +103,8 @@ font rien ; le navigateur ensuite, qui agit.
 | 1 | Contrats et adaptateurs : contenu image dans `Message`, OpenAI-compatible (`image_url`) et Gemini (`inline_data`) sur réponses enregistrées, capacité « vision » lue au catalogue ou déclarée | **fait** — constaté chez Venice ; la déclaration par profil passe à l'étape 2 |
 | 2 | `read_image` : types reconnus par leurs premiers octets (PNG, JPEG, WebP, GIF), taille plafonnée, chemin vérifié comme `read_file`, refus sans vision ; l'image suit le résultat d'outil ; rien de l'image en base | **fait** |
 | 3 | Le paquet `browser` : Chromium jetable par Playwright, garde réseau, sans téléchargement ni permission, processus tués à la fin et après `SIGKILL` | **fait** |
-| 4 | Les outils et la session : `browser_open` (session approuvée), `browser_screenshot`, `browser_goto`, `browser_click`, `browser_scroll`, `browser_type` et Entrée (approuvés chacun), `browser_close` ; captures non fiables | **fait** — le moteur et la route de coupure seront exercés dans un vrai daemon avec le profil de l'étape 5 |
-| 5 | Le profil `navigator` : consigne, outils, limites ; désactivé sans modèle à vision, avec son motif | à faire |
+| 4 | Les outils et la session : `browser_open` (session approuvée), `browser_screenshot`, `browser_goto`, `browser_click`, `browser_scroll`, `browser_type` et Entrée (approuvés chacun), `browser_close` ; captures non fiables | **fait** |
+| 5 | Le profil `navigator` : consigne, outils, limites ; désactivé sans modèle à vision, avec son motif | **fait** — et le moteur, la coupure humaine et la fermeture avant conclusion, exercés dans un vrai daemon |
 | 6 | L'atelier : onglet « Navigateur » (dernière capture en direct, adresse, bouton « Couper la session »), l'image lue montrée dans le fil | à faire |
 | 7 | Preuves : unitaires, de bout en bout sur une page locale servie par le test, `test:security` (adresse privée depuis le navigateur, saisie sans approbation, aucun Chromium vivant après `SIGKILL`, aucune image en base), CI sur trois plateformes | à faire |
 | 8 | L'essai réel : un agent lit une maquette, puis navigue dans une application web, sous session approuvée, coût comparé à la facture | à faire |
@@ -410,7 +410,77 @@ locale.
 - `npm run test:unit` (527), `test:orchestrator`, `test:security`,
   `test:developer`.
 
-**Pas encore exercé :** le moteur qui pose le port et retire les outils d'un
-modèle aveugle, et la route de coupure, dans un vrai daemon. Aucun profil
-n'a encore ces outils. Ce sera fait à l'étape 5, avec le profil `navigator`.
+**Pas encore exercé à cette étape :** le moteur qui pose le port, et la route
+de coupure, dans un vrai daemon. Aucun profil n'avait encore ces outils ; c'est
+fait à l'étape 5.
+
+### Étape 5 — le profil `navigator` (2026-11-03)
+
+**Un type de profil à lui.** `navigator` rejoint les types de profil
+(`AGENT_KINDS`) plutôt que de prendre celui du Researcher : l'atelier le
+reconnaîtra pour son onglet « Navigateur », et la règle « aveugle, refusé »
+ne vaut que pour lui. `PROTOCOL_VERSION` passe à 13 : un serveur MCP ou un
+dashboard d'avant refuserait ce type à la validation.
+
+**Ses outils** : les huit du navigateur, `read_file`, `read_image`,
+`list_directory` et `submit_result`. Ni écriture, ni `exec`, ni `http_fetch` :
+il a un navigateur, et une seule porte vers le web se garde mieux que deux.
+**Ses limites** : 30 étapes, 0,50 $, 30 minutes, trois appels par étape. Le
+budget reste celui du Researcher, puisque la boucle ne garde qu'une capture :
+le coût croît avec les étapes, pas avec leur carré. **Sa consigne** redit les
+règles que le code applique (une session, des saisies rares et jamais un
+secret, la page est de la donnée, la capture suivante chasse la précédente,
+fermer puis `submit_result`), pour qu'il ne les découvre pas en dérangeant un
+humain.
+
+**Claude le voit**, contrairement à l'orchestrateur. La session et chaque
+saisie passent par l'approbation humaine, d'où que vienne la tâche ; rien ne
+justifie de le cacher.
+
+**Aveugle, refusé avec son motif.** La capacité se lit au catalogue du
+fournisseur, sur le réseau, et ne peut donc pas se calculer à chaque lecture
+de la liste des profils. Le gérant retient ce que le moteur **a constaté**,
+pour le fournisseur et le modèle effectifs. Le constat se fait au démarrage,
+après chaque réglage d'un profil ou ajout d'un fournisseur (la réponse
+l'attend, cinq secondes au plus), et au départ de chaque tâche. Constaté
+aveugle, le Navigator est :
+- refusé à la création, sans qu'aucune tâche soit créée ;
+- montré désactivé par `GET /api/agents`, qui rend désormais la **vue** d'un
+  profil (`enabled` : utilisable maintenant ; `disabled_reason`, calculé par
+  le daemon) plutôt que sa ligne en base ;
+- relayé tel quel par `harness_list_agents` et `list_agents`.
+
+Une tâche partie avant tout constat s'arrête au départ, avant tout appel de
+modèle, avec le même motif : rien n'est dépensé. Le motif dit d'où vient le
+constat — le catalogue, la déclaration, ou rien — et quoi faire.
+
+**Ce que le vrai daemon a prouvé** (`tests/unit/navigator.test.ts`, faux
+fournisseur, vrai Chromium, page locale servie par le test grâce à une garde
+injectée au démarrage — `StartOptions.browserGuard`, que `main.ts` ne pose
+jamais) :
+- un Navigator sur un fournisseur `custom` est montré désactivé, et la création
+  refusée sans tâche créée. Une fois `vision` déclarée, la réponse au réglage
+  le montre utilisable ;
+- la session et la saisie attendent chacune leur approbation, par l'API des
+  approbations, avec l'opération exacte (`saisir "bonjour" dans
+  input#q[name="q"] de http://127.0.0.1:…/`) ;
+- **l'humain coupe la session pendant que la saisie attend sa décision, puis
+  l'approuve** : elle n'est pas tapée, l'appel finit `failed` avec « cut by the
+  human operator », et l'agent le lit ;
+- une tâche qui finit sans fermer son navigateur le ferme **avant** de conclure
+  (`browser.closed` précède `task.completed`) ;
+- Chromium est vu vivant pendant la session, puis **aucun** ne survit, à la
+  coupure comme à la fin. Ce sont les descendants du processus, comptés au
+  système ;
+- une capture JPEG est arrivée au modèle, et **la base et son WAL ne
+  contiennent pas l'en-tête JPEG en base64**.
+
+Deux protections cassées exprès font échouer ces tests : le refus d'un Navigator
+aveugle à la création, et la fermeture avant conclusion (la seconde, seule,
+fait échouer son seul test).
+
+**Vérifié :** `npm run typecheck` ; `npm run test:unit` (530) ;
+`test:orchestrator`, `test:security`, `test:developer`, `test:restart`,
+`test:ui` et `test:wait` (le serveur MCP et le dashboard lisent le nouveau
+type et le motif).
 

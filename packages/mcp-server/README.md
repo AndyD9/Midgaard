@@ -25,6 +25,12 @@ un orchestrateur ferait un arbre à deux niveaux. Le refus vit ici parce que le
 daemon ne distingue pas ses clients : MCP et dashboard parlent la même API.
 Prouvé par le scénario S13 de `test:wait`.
 
+**Le Navigator, lui, l'est** (Slice 7) : la session et chaque saisie passent
+par l'approbation humaine, d'où que vienne la tâche. `harness_list_agents`
+relaie le motif que le daemon calcule (`disabled_reason`, protocole 13) : un
+Navigator dont le modèle ne lit pas les images est montré désactivé, avec ce
+motif, plutôt que proposé à Claude pour échouer.
+
 ## Trois invariants
 
 **Aucun outil d'approbation.** Si Claude pouvait approuver, le contrôle humain

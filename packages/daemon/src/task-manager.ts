@@ -51,7 +51,11 @@ import type {
 import { diffWorktree } from '@midgaard/workspace'
 import type { EventBus } from './bus.ts'
 import { SimulatedEngine, STEPS_TOTAL } from './engines/simulated.ts'
-import type { EngineContext, TaskEngine } from './engines/types.ts'
+import type { EngineContext, TaskEngine, VisionVerdict } from './engines/types.ts'
+import { navigatorBlindError } from './engines/agent.ts'
+
+/** Délai maximal d'un constat de vision attendu par une requête : le catalogue ne doit pas bloquer l'API. */
+const VISION_PROBE_WAIT_MS = 5_000
 
 export { STEPS_TOTAL, APPROVAL_STEP } from './engines/simulated.ts'
 
@@ -86,6 +90,13 @@ export class TaskManager {
   private readonly log: (...a: unknown[]) => void
   private readonly engines = new Map<string, TaskEngine>()
   private sweeper: NodeJS.Timeout | null = null
+  /**
+   * Ce que les moteurs ont constaté de la vue des modèles, par profil (Slice 7),
+   * avec le fournisseur et le modèle constatés : un constat ne vaut que pour
+   * eux, et tombe de lui-même quand le profil change de modèle. En mémoire
+   * seulement — il se refait au démarrage.
+   */
+  private readonly vision = new Map<string, { providerId: string; model: string; verdict: VisionVerdict }>()
 
   constructor(config: HarnessConfig, store: HarnessStore, bus: EventBus, log: (...a: unknown[]) => void) {
     this.config = config
@@ -138,7 +149,77 @@ export class TaskManager {
       },
       requestInput: (taskId, request, text, step, extra) => this.openInput(taskId, request, text, step, extra),
       delegationFor: (parentTaskId, redact) => this.delegationFor(parentTaskId, redact),
+      noteVision: (agentId, providerId, model, verdict) => {
+        this.vision.set(agentId, { providerId, model, verdict })
+      },
     }
+  }
+
+  /**
+   * Le constat de vision d'un profil, s'il vaut encore pour son fournisseur et
+   * son modèle actuels ; `null` sinon.
+   */
+  private visionOf(agent: Agent): VisionVerdict | null {
+    const seen = this.vision.get(agent.id)
+    if (!seen || seen.providerId !== agent.provider_id) return null
+    const model = agent.model ?? this.store.getProvider(seen.providerId)?.default_model
+    return seen.model === model ? seen.verdict : null
+  }
+
+  /**
+   * Pourquoi un profil activé ne peut quand même pas recevoir de tâche : un
+   * Navigator dont le modèle est **constaté** aveugle (Slice 7). Sans constat,
+   * `null` — le moteur tranchera au départ de la tâche, avant tout appel.
+   */
+  private blindReason(agent: Agent): { user: string; model: string } | null {
+    if (agent.kind !== 'navigator') return null
+    const verdict = this.visionOf(agent)
+    if (!verdict || verdict.enabled) return null
+    const model = agent.model ?? this.store.getProvider(agent.provider_id ?? '')?.default_model ?? '?'
+    return {
+      user: navigatorBlindError(model, verdict),
+      model: `it sees the browser through screenshots, and ${verdict.reason}`,
+    }
+  }
+
+  /**
+   * Un profil tel que l'API le montre : `enabled` dit s'il peut recevoir une
+   * tâche **maintenant**, et `disabled_reason` pourquoi sinon. Un Navigator
+   * aveugle est montré désactivé, avec son motif, même si sa ligne en base est
+   * active : c'est ce qu'il est (« ne rien décrire qui n'existe pas »).
+   */
+  agentView(agent: Agent): Agent {
+    const blind = agent.enabled ? this.blindReason(agent) : null
+    if (agent.enabled && !blind) return { ...agent, disabled_reason: null }
+    return { ...agent, enabled: false, disabled_reason: blind?.user ?? this.whyDisabled(agent) }
+  }
+
+  /**
+   * Constate la vue des Navigator (Slice 7) : au démarrage, et après un
+   * changement de modèle. Attendu au plus {@link VISION_PROBE_WAIT_MS} : un
+   * catalogue lent ne doit pas faire attendre l'API ; le constat arrivera
+   * ensuite, et la tâche suivante le verra.
+   *
+   * @param agentId un seul profil ; tous les Navigator sinon
+   */
+  async probeVision(agentId?: string): Promise<void> {
+    const agents = this.store
+      .listAgents()
+      .filter((a) => a.kind === 'navigator' && a.enabled && (agentId === undefined || a.id === agentId))
+    const probes = agents.map((a) =>
+      (this.engines.get(a.kind)?.probeVision?.(a) ?? Promise.resolve()).catch((e: unknown) => {
+        this.log(`profil « ${a.id} » : vision non constatée (${(e as Error).message})`)
+      }),
+    )
+    let timer: NodeJS.Timeout | undefined
+    await Promise.race([
+      Promise.all(probes),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, VISION_PROBE_WAIT_MS)
+        timer.unref()
+      }),
+    ])
+    clearTimeout(timer)
   }
 
   /**
@@ -237,6 +318,12 @@ export class TaskManager {
         status: 409,
         detail: { agent_id: agent.id, reason: this.whyDisabled(agent) },
       }
+    }
+    // Un Navigator constaté aveugle est refusé ici, avant que la tâche existe :
+    // rien n'est créé, rien n'est dépensé, et le motif dit quoi faire.
+    const blind = this.blindReason(agent)
+    if (blind) {
+      return { error: 'agent_disabled', status: 409, detail: { agent_id: agent.id, reason: blind.user } }
     }
     let projectDir = input.projectDir
     if (input.parentTaskId) {
@@ -624,8 +711,8 @@ export class TaskManager {
               name: a.name,
               kind: a.kind,
               description: a.description,
-              enabled: a.enabled,
-              disabled_reason: a.enabled ? null : this.whyDisabledForModel(a),
+              enabled: a.enabled && !this.blindReason(a),
+              disabled_reason: !a.enabled ? this.whyDisabledForModel(a) : this.blindReason(a)?.model ?? null,
               limits: a.limits,
             }),
           ),
@@ -838,7 +925,8 @@ export class TaskManager {
         return `unknown profile "${String(d.agent_id)}": call list_agents to see the available ones`
       case 'agent_disabled': {
         const agent = this.store.getAgent(String(d.agent_id))
-        return `profile "${String(d.agent_id)}" is disabled: ${agent ? this.whyDisabledForModel(agent) : 'unknown reason'}`
+        const why = !agent ? 'unknown reason' : agent.enabled ? this.blindReason(agent)?.model ?? 'the profile is disabled' : this.whyDisabledForModel(agent)
+        return `profile "${String(d.agent_id)}" is disabled: ${why}`
       }
       case 'nested_orchestrator':
         return 'you cannot delegate to an orchestrator profile: delegate to an executor instead'

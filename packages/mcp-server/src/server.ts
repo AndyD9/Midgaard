@@ -332,7 +332,12 @@ export function createMcpServer(config: HarnessConfig, log: (...a: unknown[]) =>
           // Un profil désactivé n'est pas caché : il est montré avec sa raison,
           // pour que Claude puisse dire à l'utilisateur quoi configurer plutôt
           // que de prétendre que l'agent n'existe pas.
-          ...(agent.enabled ? {} : { disabled_because: 'no model provider is configured for this agent yet' }),
+          // Le motif vient du daemon (protocole 13) : un fournisseur absent, ou
+          // un Navigator dont le modèle ne lit pas les images. Il est en
+          // français, écrit pour l'utilisateur à qui Claude le relaie.
+          ...(agent.enabled
+            ? {}
+            : { disabled_because: agent.disabled_reason ?? 'no model provider is configured for this agent yet' }),
           tools: agent.tools,
           limits: {
             max_steps: agent.limits.max_steps,

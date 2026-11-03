@@ -35,8 +35,8 @@
  * | GET  | `/api/exec-allow?project_dir=` | Liste blanche `exec` du dépôt, et la globale | 200, 400 |
  * | POST | `/api/exec-allow` | Ajoute un argv exact à la liste du dépôt | 200, 400 |
  * | POST | `/api/exec-allow/remove` | Retire un argv de la liste du dépôt | 200, 400, 404 |
- * | GET  | `/api/agents` | Profils d'agents | 200 |
- * | GET  | `/api/agents/:id` | Un profil | 200, 404 |
+ * | GET  | `/api/agents` | Profils d'agents, en vue : `enabled` et `disabled_reason` disent s'ils peuvent recevoir une tâche maintenant | 200 |
+ * | GET  | `/api/agents/:id` | Un profil, en vue | 200, 404 |
  * | PATCH | `/api/agents/:id` | Fournisseur et modèle d'un profil | 200, 400, 404, 409 |
  * | GET  | `/api/providers` | Fournisseurs **sans aucune clé** | 200 |
  * | POST | `/api/providers` | Déclare un fournisseur, dépose sa clé au coffre | 200, 400, 500 |
@@ -427,18 +427,23 @@ async function handleAgents(
 ): Promise<void> {
   if (!id) {
     if (method !== 'GET') return send(res, 405, { error: 'method_not_allowed' })
-    return send(res, 200, { agents: deps.store.listAgents() })
+    // La vue, pas la ligne : `enabled` et `disabled_reason` disent si le
+    // profil peut recevoir une tâche maintenant (Slice 7, un Navigator aveugle).
+    return send(res, 200, { agents: deps.store.listAgents().map((a) => deps.tasks.agentView(a)) })
   }
   if (method === 'GET') {
     const agent = deps.store.getAgent(id)
-    return agent ? send(res, 200, { agent }) : send(res, 404, { error: 'agent_not_found' })
+    return agent ? send(res, 200, { agent: deps.tasks.agentView(agent) }) : send(res, 404, { error: 'agent_not_found' })
   }
   if (method === 'PATCH') {
     const parsed = updateAgentRequestSchema.safeParse(await readJson(req))
     if (!parsed.success) return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
     const outcome = updateAgentModel(deps.store, id, parsed.data, deps.log)
     if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
-    return send(res, 200, { agent: outcome })
+    // Un autre modèle, une autre vue : constatée avant de répondre, pour que
+    // le dashboard montre tout de suite si le Navigator peut partir.
+    await deps.tasks.probeVision(id)
+    return send(res, 200, { agent: deps.tasks.agentView(deps.store.getAgent(id) ?? outcome) })
   }
   return send(res, 405, { error: 'method_not_allowed' })
 }
@@ -476,6 +481,8 @@ async function handleProviders(
       if (!parsed.success) return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
       const outcome = await upsertProvider(deps.providers, parsed.data)
       if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
+      // Un fournisseur ajouté peut rattacher un Navigator : sa vue se constate.
+      await deps.tasks.probeVision()
       return send(res, 200, { provider: outcome })
     }
     return send(res, 405, { error: 'method_not_allowed' })

@@ -209,6 +209,24 @@ dit pourquoi chaque profil est désactivé. Déclare un fournisseur :
 npm run harness -- providers add venice --model deepseek-v4-flash-0731
 ```
 
+### « Delegation refused (agent_disabled) » pour le `navigator`
+
+Le Navigator voit le navigateur par des captures : son modèle doit lire les
+images (Slice 7). Le motif dit d'où vient le constat :
+
+- « le modèle « … » ne lit pas les images, d'après le catalogue de son
+  fournisseur » : choisir un modèle qui les lit dans « Profils » (chez Venice,
+  `mistral-small-3-2-24b-instruct` par exemple) ;
+- « rien ne dit que le modèle « … » lit les images : son fournisseur ne le
+  publie pas » : si le modèle les lit, le déclarer sur le profil,
+  `PATCH /api/agents/navigator` avec le corps `{"vision": true}` ;
+- « le modèle « … » est déclaré ne pas lire les images » : la déclaration le
+  dit ; changer de modèle, ou corriger la déclaration.
+
+Le daemon constate la capacité au démarrage et à chaque réglage d'un profil ;
+une tâche lancée avant le constat s'arrête en `failed` avec le même motif,
+avant tout appel de modèle, sans rien coûter.
+
 ### « aucune clé d'API pour « … » »
 
 Le fournisseur est déclaré, mais sa clé n'est plus dans le coffre (trousseau
