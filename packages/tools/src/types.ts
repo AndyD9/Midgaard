@@ -119,6 +119,35 @@ export interface SubtaskState {
   usage: Usage
   /** Limites effectivement appliquées à la sous-tâche. */
   limits: AgentLimits
+  /**
+   * Ce que la sous-tâche attend de son parent, si elle attend (Slice 6) :
+   * une réponse à sa question, ou un verdict sur sa proposition. **Donnée**,
+   * écrite par un modèle, comme son résultat. `null` sinon.
+   */
+  awaiting: SubtaskAwaiting | null
+}
+
+/** Ce qu'une sous-tâche en `waiting_input` attend de son parent. */
+export interface SubtaskAwaiting {
+  request: 'question' | 'proposal'
+  /** La question, ou le résumé de la proposition. */
+  text: string
+  /** Le corps de la proposition, s'il y en a un. */
+  details?: string | undefined
+  /**
+   * Le travail proposé, pour un Developer : le diff de son worktree contre son
+   * commit de départ, **non commité** — rien ne l'est avant `accept_result`.
+   */
+  diff?:
+    | {
+        /** `additions`/`deletions` à `null` pour un fichier binaire, comme dans le diff du worktree. */
+        files: { path: string; kind: string; additions: number | null; deletions: number | null }[]
+        additions: number
+        deletions: number
+        patch: string
+        patch_truncated: boolean
+      }
+    | undefined
 }
 
 /** Ce qu'un orchestrateur demande en déléguant. */
@@ -130,7 +159,7 @@ export interface DelegateRequest {
 }
 
 /** Pourquoi une attente de sous-tâche a rendu la main. */
-export type WaitStop = 'ended' | 'parent_stopping' | 'deadline'
+export type WaitStop = 'ended' | 'awaiting_you' | 'parent_stopping' | 'deadline'
 
 /** Refus d'une opération de délégation, en anglais : c'est le modèle qui le lit. */
 export interface DelegationRefusal {
@@ -153,7 +182,8 @@ export interface DelegationPort {
   /**
    * Attend la fin d'une sous-tâche, **pauses d'approbation comprises** : une
    * sous-tâche qui attend un humain est attendue avec lui. Rend la main plus
-   * tôt si la tâche parente s'arrête (`signal`) ou atteint son échéance.
+   * tôt si elle attend **le parent** (question, proposition : `awaiting_you`),
+   * si la tâche parente s'arrête (`signal`) ou atteint son échéance.
    */
   wait(
     taskId: string,
@@ -161,6 +191,21 @@ export interface DelegationPort {
   ): Promise<(SubtaskState & { waited_ms: number; stopped_by: WaitStop }) | DelegationRefusal>
   /** Annule une sous-tâche active. */
   cancel(taskId: string, reason?: string): SubtaskState | DelegationRefusal
+  /**
+   * Répond à une sous-tâche qui attend (Slice 6) : à sa question, ou en
+   * renvoyant sa proposition avec un retour. Elle reprend dans la même
+   * conversation, le même worktree.
+   */
+  send(taskId: string, message: string): SubtaskState | DelegationRefusal
+  /**
+   * Accepte la proposition d'une sous-tâche : le harness commite son travail
+   * et elle se termine. Rend la main une fois **finie**, branche et commit
+   * compris — ou plus tôt si le parent s'arrête.
+   */
+  accept(
+    taskId: string,
+    options: { signal?: AbortSignal | undefined; deadline?: number | undefined },
+  ): Promise<(SubtaskState & { stopped_by: WaitStop }) | DelegationRefusal>
 }
 
 /**

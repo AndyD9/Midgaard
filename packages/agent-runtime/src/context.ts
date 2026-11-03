@@ -93,7 +93,33 @@ export interface ContextInput {
   workspace?: WorkspaceBrief | undefined
   /** Manière dont la tâche converse ; `oneshot` par défaut. */
   mode?: TaskMode | undefined
+  /** Vrai si la tâche a été déléguée par une autre, à qui elle peut poser une question. */
+  delegated?: boolean | undefined
 }
+
+/**
+ * Ce que la consigne ajoute à une sous-tâche (Slice 6) : elle peut demander,
+ * mais ça se paie des deux côtés — sinon le modèle demanderait ce qu'il
+ * trouverait seul en lisant le projet.
+ */
+const DELEGATED_LINES = [
+  'You were delegated by an orchestrator task, which you can ask:',
+  '- If you are blocked by something the task and context do not settle (an ambiguous requirement, a choice ' +
+    'between two designs), call ask_parent with one precise question. Its answer comes back as that call\'s ' +
+    'result. It costs a step on both sides: never ask what you can find in the project yourself.',
+]
+
+/**
+ * Ce que la consigne ajoute en mode `review` : `submit_result` est une
+ * proposition, et le retour arrive en réponse à l'appel. Sans cette phrase, un
+ * modèle renvoyé à sa copie croirait à une erreur de l'outil.
+ */
+const REVIEW_LINES = [
+  '- Your submit_result is a PROPOSAL, reviewed by that orchestrator. It either accepts it (the harness then ' +
+    'commits your work and the task ends) or sends it back with feedback, which you receive as the response ' +
+    'to your submit_result call. Then fix what it asks in your workspace and call submit_result again with ' +
+    'the complete, updated result.',
+]
 
 /**
  * Ce que la consigne ajoute pour une conversation (Slice 6), après celle du
@@ -145,11 +171,12 @@ export function buildMessages(input: ContextInput): Message[] {
       : `- ${limits.timeout_s} seconds wall clock in total, human approvals included.`,
     `- At most ${limits.max_tool_calls_per_step} tool calls per step.`,
     '',
-    ...(input.workspace ? workspaceLines(input.root, input.workspace) : [
+    ...(input.workspace ? workspaceLines(input.root, input.workspace, input.mode === 'review') : [
       `Project root (the only directory you can read): ${input.root}`,
       'Paths you pass to tools may be relative to that root. Anything outside it is refused.',
     ]),
     ...(input.mode === 'chat' ? ['', ...CHAT_LINES] : []),
+    ...(input.delegated ? ['', ...DELEGATED_LINES, ...(input.mode === 'review' ? REVIEW_LINES : [])] : []),
   ].join('\n')
 
   const parts = [input.mode === 'chat' ? `# User's opening message\n\n${input.objective}` : `# Task\n\n${input.objective}`]
@@ -186,7 +213,7 @@ export function buildMessages(input: ContextInput): Message[] {
  *    qui l'autorise à travailler franchement, et lui interdit de prétendre
  *    avoir livré.
  */
-function workspaceLines(root: string, w: WorkspaceBrief): string[] {
+function workspaceLines(root: string, w: WorkspaceBrief, review = false): string[] {
   const lines = [
     `Workspace root (a git worktree of the project; the only directory you can read and write): ${root}`,
     `It is on branch ${w.branch}, created for this task from commit ${w.baseCommit.slice(0, 12)}.`,
@@ -194,7 +221,10 @@ function workspaceLines(root: string, w: WorkspaceBrief): string[] {
     `The orchestrator's context may cite absolute paths in the original repository (${w.originDir}): ` +
       'the same files are at the same relative paths in your workspace. Use relative paths.',
     'Nothing you do reaches the user\'s repository until a human reviews the diff and merges the branch. ' +
-      'The harness commits your work when you call submit_result; do not try to commit yourself.',
+      (review
+        ? 'The harness commits your work when the orchestrator accepts your submit_result; do not try to ' +
+          'commit yourself.'
+        : 'The harness commits your work when you call submit_result; do not try to commit yourself.'),
   ]
   if (w.baseDirty > 0) {
     lines.push(

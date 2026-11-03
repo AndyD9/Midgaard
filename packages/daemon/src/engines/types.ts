@@ -62,11 +62,18 @@ export interface EngineContext {
    * Met la tâche en attente d'un message (Slice 6) : `running → waiting_input`,
    * avec l'événement `input.requested`.
    *
-   * @param text ce que le destinataire doit lire, **déjà expurgé** ; `null`
-   *             pour un chat, dont la réplique est déjà au journal
+   * @param text  ce que le destinataire doit lire, **déjà expurgé** ; `null`
+   *              pour un chat, dont la réplique est déjà au journal
+   * @param extra ce qu'il lit en plus, déjà expurgé : le corps d'une proposition
    * @returns `false` si la tâche n'est plus en état d'attendre (annulée entre-temps)
    */
-  requestInput(taskId: string, request: InputRequest, text: string | null, step: number): boolean
+  requestInput(
+    taskId: string,
+    request: InputRequest,
+    text: string | null,
+    step: number,
+    extra?: Record<string, unknown>,
+  ): boolean
   /**
    * Le port de délégation d'une tâche `orchestrator` (Slice 5) : ce qu'elle
    * peut déléguer, attendre et annuler, rattaché à elle seule.
@@ -103,6 +110,13 @@ export interface TaskEngine {
    * @returns la tâche relancée, ou `null` si ce moteur n'a pas cette attente en vol
    */
   deliver?(task: Task, text: string, kind: 'message.user' | 'message.agent', payload: Record<string, unknown>): Task | null
+  /**
+   * Accepte la proposition d'une tâche en revue (Slice 6) : la boucle conclut,
+   * et le moteur commite. Facultatif, comme {@link TaskEngine.deliver}.
+   *
+   * @returns la tâche relancée, ou `null` si ce moteur n'a pas cette attente en vol
+   */
+  accept?(task: Task, payload: Record<string, unknown>): Task | null
   /**
    * Signale une demande d'annulation.
    *

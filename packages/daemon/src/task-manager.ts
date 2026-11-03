@@ -40,7 +40,15 @@ import {
   tightenLimits,
 } from '@midgaard/contracts'
 import type { HarnessStore } from '@midgaard/persistence'
-import type { DelegableAgent, DelegationPort, DelegationRefusal, SubtaskState, WaitStop } from '@midgaard/tools'
+import type {
+  DelegableAgent,
+  DelegationPort,
+  DelegationRefusal,
+  SubtaskAwaiting,
+  SubtaskState,
+  WaitStop,
+} from '@midgaard/tools'
+import { diffWorktree } from '@midgaard/workspace'
 import type { EventBus } from './bus.ts'
 import { SimulatedEngine, STEPS_TOTAL } from './engines/simulated.ts'
 import type { EngineContext, TaskEngine } from './engines/types.ts'
@@ -128,7 +136,7 @@ export class TaskManager {
       concludeCancellation: (taskId) => {
         this.finishCancellation(taskId)
       },
-      requestInput: (taskId, request, text, step) => this.openInput(taskId, request, text, step),
+      requestInput: (taskId, request, text, step, extra) => this.openInput(taskId, request, text, step, extra),
       delegationFor: (parentTaskId, redact) => this.delegationFor(parentTaskId, redact),
     }
   }
@@ -279,8 +287,14 @@ export class TaskManager {
       needsApproval: input.needsApproval,
       parentTaskId: input.parentTaskId ?? null,
       // Le mode est décidé ici, jamais reçu tel quel : un client demande une
-      // conversation, le daemon dit si elle en est une.
-      mode: input.conversation ? 'chat' : 'oneshot',
+      // conversation, le daemon dit si elle en est une. Un Developer délégué
+      // par un orchestrateur propose son travail au lieu de le livrer (Slice 6) ;
+      // un Researcher rend toujours son résultat d'un coup.
+      mode: input.conversation
+        ? 'chat'
+        : input.parentTaskId && agent.kind === 'developer'
+          ? 'review'
+          : 'oneshot',
     })
     this.log(
       `tâche ${short(task.id)} créée pour ${agent.id} (budget ${limits.max_cost_usd} $)` +
@@ -346,13 +360,19 @@ export class TaskManager {
    * @returns `false` si la tâche n'est plus `running` — annulée pendant la
    *          réplique qui précède l'attente : la boucle conclura l'annulation
    */
-  private openInput(taskId: string, request: InputRequest, text: string | null, step: number): boolean {
+  private openInput(
+    taskId: string,
+    request: InputRequest,
+    text: string | null,
+    step: number,
+    extra: Record<string, unknown> = {},
+  ): boolean {
     const task = this.store.getTask(taskId)
     if (!task || task.status !== 'running') return false
     this.bus.record(
       taskId,
       'waiting_input',
-      { type: 'input.requested', payload: { request, step, ...(text !== null ? { text } : {}) } },
+      { type: 'input.requested', payload: { ...extra, request, step, ...(text !== null ? { text } : {}) } },
       { awaiting_input: request, step },
     )
     this.log(`tâche ${short(taskId)} en attente d'un message (${request})`)
@@ -630,7 +650,7 @@ export class TaskManager {
         const child = own(taskId)
         if ('refused' in child) return child
         const started = Date.now()
-        if (!isTerminal(child.status)) {
+        if (!isTerminal(child.status) && !awaitsParent(child)) {
           // Le statut du parent ne change pas (`running`) : sans cet événement,
           // le dashboard montrerait un orchestrateur immobile sans dire qui il
           // attend (décision 3).
@@ -643,7 +663,43 @@ export class TaskManager {
           }
         }
         const stopped = await this.waitForEnd(taskId, options.signal, options.deadline)
-        return { ...subtaskState(this.store.getTask(taskId)!), waited_ms: Date.now() - started, stopped_by: stopped }
+        const now = this.store.getTask(taskId)!
+        return { ...(await this.stateFor(now, redact)), waited_ms: Date.now() - started, stopped_by: stopped }
+      },
+
+      send: (taskId, message) => {
+        const child = own(taskId)
+        if ('refused' in child) return child
+        if (child.status !== 'waiting_input' || child.awaiting_input === 'chat' || child.awaiting_input === null) {
+          return { refused: `subtask ${taskId} is not waiting for you (status ${child.status}): call wait_for_task` }
+        }
+        const engine = this.engineFor(child)
+        // Le texte est écrit par le modèle du parent, qui a pu lire une clé : il
+        // passe par son expurgation, puis par celle de l'enfant (`deliver`).
+        const resumed = engine?.deliver?.(child, redact(message), 'message.agent', {
+          from_task_id: parentId,
+          in_reply_to: child.awaiting_input,
+        })
+        if (!resumed) return { refused: `subtask ${taskId} is not waiting for you any more` }
+        return subtaskState(resumed)
+      },
+
+      accept: async (taskId, options) => {
+        const child = own(taskId)
+        if ('refused' in child) return child
+        if (child.status !== 'waiting_input' || child.awaiting_input !== 'proposal') {
+          return {
+            refused:
+              `subtask ${taskId} has no proposal waiting for your review (status ${child.status}): ` +
+              'call wait_for_task until its next_action is review_proposal',
+          }
+        }
+        const resumed = this.engineFor(child)?.accept?.(child, { from_task_id: parentId })
+        if (!resumed) return { refused: `subtask ${taskId} has no proposal waiting any more` }
+        // Rendre la main une fois le commit fait : l'orchestrateur a besoin de la
+        // branche et du commit pour les nommer à l'humain.
+        const stopped = await this.waitForEnd(taskId, options.signal, options.deadline)
+        return { ...subtaskState(this.store.getTask(taskId)!), stopped_by: stopped }
       },
 
       cancel: (taskId, reason) => {
@@ -661,8 +717,53 @@ export class TaskManager {
     }
   }
 
+  /** Le moteur du profil d'une tâche, s'il est enregistré. */
+  private engineFor(task: Task): TaskEngine | undefined {
+    const agent = this.store.getAgent(task.agent_id)
+    return agent ? this.engines.get(agent.kind) : undefined
+  }
+
   /**
-   * Attend qu'une tâche atteigne un statut final.
+   * L'état d'une sous-tâche pour son parent, avec ce qu'elle attend de lui :
+   * sa question, ou sa proposition et — pour un Developer — le diff de son
+   * worktree, **non commité**. Le patch est écrit par l'enfant : il passe par
+   * l'expurgation du parent avant d'entrer dans sa conversation.
+   */
+  private async stateFor(task: Task, redact: (text: string) => string): Promise<SubtaskState> {
+    const state = subtaskState(task)
+    if (!awaitsParent(task)) return state
+    const asked = this.store.lastEventOfType(task.id, 'input.requested')
+    const awaiting: SubtaskAwaiting = {
+      request: task.awaiting_input as 'question' | 'proposal',
+      text: typeof asked?.payload.text === 'string' ? asked.payload.text : '',
+      ...(typeof asked?.payload.details === 'string' && asked.payload.details
+        ? { details: asked.payload.details }
+        : {}),
+    }
+    const workspace = task.awaiting_input === 'proposal' ? this.store.workspaceForTask(task.id) : null
+    if (workspace) {
+      try {
+        const diff = await diffWorktree(workspace.worktree_path, workspace.base_commit, PROPOSAL_PATCH_BYTES)
+        awaiting.diff = {
+          files: diff.files.map((f) => ({ path: f.path, kind: f.kind, additions: f.additions, deletions: f.deletions })),
+          additions: diff.additions,
+          deletions: diff.deletions,
+          patch: redact(diff.patch),
+          patch_truncated: diff.patch_truncated,
+        }
+      } catch (e) {
+        // Un diff illisible ne doit pas empêcher la revue : l'orchestrateur a
+        // encore le résumé, et peut renvoyer la proposition.
+        this.log(`sous-tâche ${short(task.id)} : diff de la proposition illisible`, e)
+      }
+    }
+    return { ...state, awaiting }
+  }
+
+  /**
+   * Attend qu'une tâche atteigne un statut final, **ou qu'elle attende son
+   * parent** (Slice 6) : une question ou une proposition rend la main à
+   * l'orchestrateur, qui seul peut répondre.
    *
    * **Une pause d'approbation n'interrompt pas l'attente** (décision 2) :
    * l'orchestrateur n'a aucun moyen d'approuver, et lui rendre la main ne
@@ -685,7 +786,9 @@ export class TaskManager {
         resolve(why)
       }
       const unsubscribe = this.bus.subscribe(({ task }) => {
-        if (task.id === taskId && isTerminal(task.status)) finish('ended')
+        if (task.id !== taskId) return
+        if (isTerminal(task.status)) finish('ended')
+        else if (awaitsParent(task)) finish('awaiting_you')
       })
       const onAbort = () => finish('parent_stopping')
       signal?.addEventListener('abort', onAbort, { once: true })
@@ -694,6 +797,7 @@ export class TaskManager {
       // la lecture de l'appelant et l'abonnement serait sinon manquée.
       const now = this.store.getTask(taskId)
       if (!now || isTerminal(now.status)) finish('ended')
+      else if (awaitsParent(now)) finish('awaiting_you')
       else if (signal?.aborted) finish('parent_stopping')
     })
   }
@@ -822,9 +926,22 @@ export class TaskManager {
   }
 }
 
-/** Ce qu'une sous-tâche montre à son orchestrateur. */
+/**
+ * Taille du patch d'une proposition remis à l'orchestrateur. Sa réponse entière
+ * est bornée à 60 Ko (`MAX_TOOL_RESULT_BYTES`) ; le patch en laisse pour le
+ * résumé et les détails.
+ */
+const PROPOSAL_PATCH_BYTES = 30_000
+
+/** Vrai si une sous-tâche attend son parent : une question, ou un verdict. */
+function awaitsParent(task: Task): boolean {
+  return task.status === 'waiting_input' && (task.awaiting_input === 'question' || task.awaiting_input === 'proposal')
+}
+
+/** Ce qu'une sous-tâche montre à son orchestrateur ; `awaiting` est complété par `stateFor`. */
 function subtaskState(task: Task): SubtaskState {
   return {
+    awaiting: null,
     task_id: task.id,
     agent_id: task.agent_id,
     status: task.status,

@@ -33,6 +33,13 @@
  * ne compte pas dans le délai de la tâche : un humain qui réfléchit une heure
  * ne doit pas faire expirer un agent qui n'a rien fait pendant ce temps.
  *
+ * **Une proposition attend son verdict** (Slice 6). En mode `review` — un
+ * Developer délégué par un orchestrateur —, `submit_result` ne termine pas
+ * aussitôt : la boucle attend que le parent accepte (la tâche se termine, le
+ * moteur commite) ou renvoie la proposition avec un retour, que le modèle reçoit
+ * comme réponse à son `submit_result`. De même, `ask_parent` suspend la tâche
+ * jusqu'à la réponse du parent.
+ *
  * **Tout ce qui vient du dehors est encadré, même pour l'agent.** Un résultat
  * `untrusted` est enveloppé avant d'être réinjecté dans la conversation de
  * l'agent lui-même, pas seulement avant de remonter à Claude. L'agent est la
@@ -51,7 +58,9 @@ import { addUsage, emptyUsage, wrapUntrusted } from '@midgaard/contracts'
 import type { Message, ProviderAdapter, ToolCallRequest } from '@midgaard/providers'
 import { ProviderError } from '@midgaard/providers'
 import {
+  ASK_PARENT,
   SUBMIT_RESULT,
+  askParentSchema,
   canonicalRoot,
   findTool,
   submitResultSchema,
@@ -79,11 +88,13 @@ export interface ApprovalRequest {
  * Issue de l'attente d'un message :
  *  - `message` : le texte reçu, **déjà expurgé** par le daemon — l'agent lit ce
  *    qui est écrit au journal, ni plus ni moins ;
+ *  - `accepted` : le parent accepte la proposition (mode `review` seulement) ;
  *  - `cancelled` : la tâche a été annulée pendant l'attente ;
  *  - `expired` : personne n'a répondu à temps ; `detail` dit combien de temps.
  */
 export type InputOutcome =
   | { kind: 'message'; text: string }
+  | { kind: 'accepted' }
   | { kind: 'cancelled' }
   | { kind: 'expired'; detail: string }
 
@@ -138,8 +149,21 @@ export interface LoopHooks {
    * @param request ce qu'attend la tâche
    * @param text    ce que le destinataire doit lire (question, proposition) ;
    *                `null` pour un chat, dont le texte est déjà au journal
+   * @param extra   ce que le destinataire lit en plus, déjà expurgé — le corps
+   *                d'une proposition
    */
-  awaitInput?(request: InputRequest, text: string | null, step: number): Promise<InputOutcome>
+  awaitInput?(
+    request: InputRequest,
+    text: string | null,
+    step: number,
+    extra?: Record<string, unknown>,
+  ): Promise<InputOutcome>
+  /**
+   * Pourquoi `submit_result` ne peut pas conclure **maintenant**, ou `null`
+   * (Slice 6) : un orchestrateur dont une sous-tâche attend sa réponse ou son
+   * verdict la laisserait en plan. Le refus est rendu au modèle, qui continue.
+   */
+  finishBlocked?(): string | null
   /** Vrai si une annulation a été demandée depuis le dernier point de contrôle. */
   isCancelled(): boolean
 }
@@ -165,6 +189,8 @@ export interface LoopInput {
   workspace?: WorkspaceBrief | undefined
   /** Manière dont la tâche converse ; `oneshot` par défaut. */
   mode?: TaskMode | undefined
+  /** Vrai si la tâche a un parent à qui poser une question (`ask_parent`). */
+  delegated?: boolean | undefined
 }
 
 /** Ce que rend une boucle terminée. */
@@ -253,7 +279,38 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
     budgetEnforceable: true,
     workspace: input.workspace,
     mode,
+    delegated: input.delegated ?? false,
   })
+
+  /**
+   * Attend un message, sans que l'attente compte dans le délai : l'échéance est
+   * repoussée de sa durée, et celle des outils suit si c'est la boucle qui
+   * l'avait posée — une commande lancée après une heure d'attente ne doit pas
+   * se croire en retard.
+   */
+  const pause = async (
+    request: InputRequest,
+    text: string | null,
+    extra?: Record<string, unknown>,
+  ): Promise<InputOutcome> => {
+    const pausedAt = now()
+    const reply = await input.hooks.awaitInput!(request, text, step, extra)
+    deadline += now() - pausedAt
+    if (input.tools.deadline === undefined) {
+      tools = { ...tools, deadline }
+      input2 = { ...input, tools }
+    }
+    return reply
+  }
+
+  /** Issue d'une attente qui s'arrête sans message : annulée, ou expirée. */
+  const stopped = (reply: InputOutcome): LoopOutcome | null => {
+    if (reply.kind === 'cancelled') {
+      return { status: 'cancelled', error: 'annulée pendant l\'attente d\'un message', usage }
+    }
+    if (reply.kind === 'expired') return { status: 'timed_out', error: reply.detail, usage }
+    return null
+  }
 
   let budgetWarned = false
   // Vrai dès qu'un contenu non fiable est entré dans la conversation : il
@@ -348,19 +405,11 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
     if (completion.toolCalls.length === 0 && mode === 'chat' && input.hooks.awaitInput) {
       // En conversation, un texte sans outil est une réplique : la boucle
       // attend la suivante au lieu de relancer puis d'échouer.
-      const pausedAt = now()
-      const reply = await input.hooks.awaitInput('chat', null, step)
-      deadline += now() - pausedAt
-      // L'échéance des outils suit, si c'est la boucle qui l'avait posée : une
-      // commande lancée après une heure d'attente ne doit pas se croire en retard.
-      if (input.tools.deadline === undefined) {
-        tools = { ...tools, deadline }
-        input2 = { ...input, tools }
-      }
-      if (reply.kind === 'cancelled') {
-        return { status: 'cancelled', error: 'annulée pendant l\'attente d\'un message', usage }
-      }
-      if (reply.kind === 'expired') return { status: 'timed_out', error: reply.detail, usage }
+      const reply = await pause('chat', null)
+      const end = stopped(reply)
+      if (end) return end
+      // `accepted` n'existe qu'en revue : ici, il n'y a qu'un message.
+      if (reply.kind !== 'message') continue
       messages.push({ role: 'user', content: reply.text })
       // La relance de la sortie `oneshot` vaut pour une réponse, pas pour toute
       // la conversation : un nouveau message rouvre le droit à l'erreur.
@@ -410,16 +459,50 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
 
     for (const call of accepted) {
       if (call.name === SUBMIT_RESULT) {
-        const submitted = finishWith(call, input, step, usage, tainted)
-        if (submitted) return submitted
-        // Charge utile invalide : on le dit au modèle et on continue, plutôt que
-        // de perdre une tâche entière sur un champ mal rempli.
+        // Un orchestrateur ne conclut pas en laissant une sous-tâche attendre sa
+        // réponse : elle serait annulée par la cascade, travail compris.
+        const blocked = input.hooks.finishBlocked?.() ?? null
+        if (blocked) {
+          input.hooks.onNote(`submit_result refusé : ${blocked}`, step)
+          messages.push({ role: 'tool', callId: call.id, name: call.name, content: `submit_result refused: ${blocked}` })
+          continue
+        }
+        const review = mode === 'review' && input.hooks.awaitInput !== undefined
+        const submitted = finishWith(call, input, step, usage, tainted, review)
+        if (!submitted) {
+          // Charge utile invalide : on le dit au modèle et on continue, plutôt que
+          // de perdre une tâche entière sur un champ mal rempli.
+          messages.push({
+            role: 'tool',
+            callId: call.id,
+            name: call.name,
+            content: 'submit_result rejected: the payload did not match the schema. Fix it and call it again.',
+          })
+          continue
+        }
+        if (!review || submitted.status !== 'completed') return submitted
+        // En revue, le résultat est une proposition : le parent l'accepte, ou la
+        // renvoie avec un retour que le modèle lit en réponse à son appel.
+        const verdict = await pause('proposal', submitted.result.summary, { details: submitted.result.details })
+        const end = stopped(verdict)
+        if (end) return end
+        if (verdict.kind === 'accepted') return submitted
+        if (verdict.kind !== 'message') continue
         messages.push({
           role: 'tool',
           callId: call.id,
           name: call.name,
-          content: 'submit_result rejected: the payload did not match the schema. Fix it and call it again.',
+          content:
+            'The orchestrator reviewed your proposal and sent it back. Nothing was committed. Its feedback:\n\n' +
+            `${verdict.text}\n\nAddress it in your workspace, then call submit_result again with the complete, ` +
+            'updated result.',
         })
+        continue
+      }
+      if (call.name === ASK_PARENT && input.delegated && input.hooks.awaitInput) {
+        const answered = await askParent(call, input, step, usage, pause)
+        if ('status' in answered) return answered
+        messages.push(answered.message)
         continue
       }
       const ran = await runOneTool(call, input2, step)
@@ -449,6 +532,7 @@ function finishWith(
   step: number,
   usage: Usage,
   tainted: boolean,
+  proposal = false,
 ): LoopOutcome | null {
   let parsed: unknown
   try {
@@ -479,7 +563,7 @@ function finishWith(
   })
   input.hooks.onToolCompleted(id, {
     status: 'succeeded',
-    summary: `résultat soumis (confiance : ${validated.data.confidence})`,
+    summary: `${proposal ? 'proposition soumise au parent' : 'résultat soumis'} (confiance : ${validated.data.confidence})`,
     bytes: null,
     durationMs: 0,
     error: null,
@@ -499,6 +583,61 @@ function finishWith(
     workspace: null,
   }
   return { status: 'completed', result, usage }
+}
+
+/**
+ * Traite `ask_parent` : valide la question, la journalise comme un appel
+ * d'outil, suspend la tâche jusqu'à la réponse du parent, et rend cette
+ * réponse au modèle comme résultat de l'appel.
+ *
+ * @returns le message à réinjecter, ou l'issue de la boucle si l'attente a fini
+ *          sans réponse (annulation, expiration)
+ */
+async function askParent(
+  call: ToolCallRequest,
+  input: LoopInput,
+  step: number,
+  usage: Usage,
+  pause: (request: InputRequest, text: string | null) => Promise<InputOutcome>,
+): Promise<{ message: Message } | LoopOutcome> {
+  const reply = (content: string): { message: Message } => ({
+    message: { role: 'tool', callId: call.id, name: call.name, content },
+  })
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(call.argumentsJson)
+  } catch {
+    parsed = null
+  }
+  const validated = askParentSchema.safeParse(parsed)
+  if (!validated.success) return reply('ask_parent rejected: pass one question as {"question": "..."}.')
+
+  // La question est écrite au journal, donc expurgée : un Developer a pu lire
+  // une clé dans le projet et la recopier.
+  const question = input.redact(validated.data.question)
+  const id = input.hooks.onToolRequested({
+    step,
+    callId: call.id,
+    name: ASK_PARENT,
+    decision: 'allow',
+    status: 'running',
+    argumentsJson: JSON.stringify({ question }),
+  })
+  const started = Date.now()
+  const answer = await pause('question', question)
+  input.hooks.onToolCompleted(id, {
+    status: answer.kind === 'message' ? 'succeeded' : 'failed',
+    summary: answer.kind === 'message' ? 'réponse du parent reçue' : null,
+    bytes: answer.kind === 'message' ? Buffer.byteLength(answer.text) : null,
+    durationMs: Date.now() - started,
+    error: answer.kind === 'message' ? null : `aucune réponse (${answer.kind})`,
+  })
+  if (answer.kind === 'cancelled') {
+    return { status: 'cancelled', error: 'annulée pendant l\'attente d\'une réponse du parent', usage }
+  }
+  if (answer.kind === 'expired') return { status: 'timed_out', error: answer.detail, usage }
+  if (answer.kind !== 'message') return reply('No answer: continue with your best judgement and say so in your result.')
+  return reply(`Answer from the orchestrator:\n\n${answer.text}`)
 }
 
 /**

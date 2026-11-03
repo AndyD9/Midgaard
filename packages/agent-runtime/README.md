@@ -90,6 +90,14 @@ conversation. Trois règles :
 Une annulation pendant l'attente rend `cancelled`, une attente expirée
 `timed_out`, sans appel modèle de plus.
 
+En mode `review` (un Developer délégué par un orchestrateur), `submit_result`
+est une **proposition** : la boucle attend le verdict du parent. Acceptée, elle
+rend le résultat tel qu'il a été soumis ; renvoyée, le modèle lit le retour en
+réponse à son appel et recommence. `ask_parent` suspend de même la tâche jusqu'à
+la réponse. `finishBlocked` refuse le `submit_result` d'un parent dont un enfant
+attend, et le modèle continue. La consigne le dit, sur une tâche déléguée
+seulement.
+
 ## Statuts d'arrêt
 
 | Raison | Statut | Pourquoi pas `failed` |

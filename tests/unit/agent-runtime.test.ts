@@ -148,6 +148,7 @@ async function run(
     ctx?: Partial<ToolContext>
     mode?: TaskMode
     now?: () => number
+    delegated?: boolean
   } = {},
 ) {
   const root = makeRoot()
@@ -164,6 +165,7 @@ async function run(
       redact: (t) => t,
       signal: new AbortController().signal,
       mode: over.mode,
+      delegated: over.delegated,
       ...(over.now ? { now: over.now } : {}),
     })
     return { outcome, ...rec, calls, callCount: callCount() }
@@ -376,6 +378,71 @@ describe('conversation', () => {
     const oneshot = buildMessages(base)
     assert.doesNotMatch(oneshot[0]!.content, /CONVERSATION/)
     assert.match(oneshot[1]!.content, /# Task\n\nbonjour/)
+  })
+})
+
+describe('revue et question au parent', () => {
+  it('ne rend pas une proposition annulée pendant sa revue comme un résultat', async () => {
+    const asked: string[] = []
+    const awaitInput: LoopHooks['awaitInput'] = async (request) => {
+      asked.push(request)
+      return { kind: 'cancelled' }
+    }
+    const { outcome } = await run([{ toolCalls: submit('ma proposition') }], { mode: 'review', hooks: { awaitInput } })
+    assert.deepEqual(asked, ['proposal'])
+    assert.equal(outcome.status, 'cancelled', 'rien n\'est accepté : le moteur ne commitera pas')
+  })
+
+  it('rend la proposition acceptée telle qu\'elle a été soumise', async () => {
+    const awaitInput: LoopHooks['awaitInput'] = async () => ({ kind: 'accepted' })
+    const { outcome } = await run([{ toolCalls: submit('ma proposition') }], { mode: 'review', hooks: { awaitInput } })
+    assert.equal(outcome.status, 'completed')
+    assert.equal(outcome.status === 'completed' && outcome.result.summary, 'ma proposition')
+  })
+
+  it('refuse submit_result tant que le daemon le bloque, et laisse le modèle continuer', async () => {
+    let blocked = true
+    const { outcome, notes, callCount } = await run(
+      [{ toolCalls: submit('trop tôt') }, { toolCalls: submit('maintenant') }],
+      { hooks: { finishBlocked: () => (blocked ? ((blocked = false), 'a subtask waits for you') : null) } },
+    )
+    assert.equal(outcome.status, 'completed')
+    assert.equal(outcome.status === 'completed' && outcome.result.summary, 'maintenant')
+    assert.equal(callCount, 2)
+    assert.ok(notes.some((n) => /submit_result refusé : a subtask waits for you/.test(n)))
+  })
+
+  it('rend au modèle une question mal formée, sans suspendre la tâche', async () => {
+    let waited = false
+    const awaitInput: LoopHooks['awaitInput'] = async () => {
+      waited = true
+      return { kind: 'message', text: 'x' }
+    }
+    const { outcome, calls } = await run(
+      [
+        { toolCalls: [{ id: 'q1', name: 'ask_parent', argumentsJson: '{"sujet":"port"}' }] },
+        { toolCalls: submit('fini') },
+      ],
+      { agent: { tools: ['ask_parent', 'submit_result'] }, hooks: { awaitInput }, delegated: true },
+    )
+    assert.equal(outcome.status, 'completed')
+    assert.equal(waited, false)
+    assert.match(String(calls[1]!.messages[3]!.content), /ask_parent rejected/)
+  })
+
+  it('ne suspend pas une tâche sans parent qui appellerait ask_parent', async () => {
+    let waited = false
+    const awaitInput: LoopHooks['awaitInput'] = async () => {
+      waited = true
+      return { kind: 'message', text: 'x' }
+    }
+    const { outcome, tools } = await run(
+      [{ toolCalls: [{ id: 'q1', name: 'ask_parent', argumentsJson: '{"question":"port ?"}' }] }, { toolCalls: submit('fini') }],
+      { hooks: { awaitInput } },
+    )
+    assert.equal(outcome.status, 'completed')
+    assert.equal(waited, false, 'personne à qui demander')
+    assert.equal(tools.find((t) => t.name === 'ask_parent')?.decision, 'deny', 'absent du profil : refusé sans approbation')
   })
 })
 

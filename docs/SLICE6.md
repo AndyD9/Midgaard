@@ -7,7 +7,7 @@ façon VS Code. Cet atelier comprend un chat, le fil des échanges entre agents,
 fichiers écrits en direct et la sortie des commandes. Il tourne dans une app
 desktop Tauri.
 
-**État : en cours.** Étapes 1 et 2 faites (2026-11-03).
+**État : en cours.** Étapes 1 à 3 faites (2026-11-03).
 
 ---
 
@@ -89,7 +89,7 @@ lancent les agents, et n'expose aucun shell.
 |---|---|---|
 | 1 | Contrats et persistance : `waiting_input`, `awaiting_input`, `tasks.mode` (migration 9), événements `input.requested`, `message.user`, `message.agent`, `exec.output`, `PROTOCOL_VERSION` 11 | **fait** |
 | 2 | Chat : attente d'un message dans la boucle, délai sur temps actif, `POST /api/tasks/:id/messages`, consigne de l'orchestrateur en conversation | **fait** |
-| 3 | Boucle orchestrateur ⇄ Developer : proposition, `accept_result`, `send_message`, `ask_parent`, `wait_for_task` sur attente, cascade | à faire |
+| 3 | Boucle orchestrateur ⇄ Developer : proposition, `accept_result`, `send_message`, `ask_parent`, `wait_for_task` sur attente, cascade | **fait** |
 | 4 | Sortie `exec` en direct, découpée par ligne puis expurgée | à faire |
 | 5 | Routes de fichiers en lecture seule (arbre, contenu de travail et de départ) | à faire |
 | 6 | Dashboard façon VS Code : explorateur, éditeur et diff, chat et fil des agents, terminal | à faire |
@@ -219,4 +219,90 @@ ne vérifiait d'abord que le journal.
 
 **Pas encore là :** aucune interface. On converse par HTTP seulement ; le
 formulaire et le fil arrivent à l'étape 6.
+
+### Étape 3 — la boucle entre agents (2026-11-03)
+
+**Une seule attente pour tout.** La question d'un enfant et sa proposition
+reprennent le mécanisme du chat : `waiting_input`, avec `question` ou `proposal`
+dans `awaiting_input`. Le crochet `awaitInput` reçoit en plus le corps d'une
+proposition, écrit dans son `input.requested`. Le délai de l'enfant s'arrête
+pendant qu'il attend, comme en conversation.
+
+**La proposition.** Seul un **Developer** délégué par un orchestrateur passe en
+`review` : son résultat est du code, que l'orchestrateur peut relire au diff.
+Un Researcher rend toujours son résultat d'un coup ; s'il ne convient pas,
+l'orchestrateur en délègue un autre. En `review`, `submit_result` met la tâche
+en attente de verdict. Deux suites :
+- **renvoyée** (`send_message`) : le modèle lit le retour **en réponse à son
+  `submit_result`**, puis recommence dans le même worktree. Le protocole des
+  fournisseurs exige de toute façon une réponse à chaque appel d'outil ;
+- **acceptée** (`accept_result`) : la boucle rend le résultat tel qu'il a été
+  soumis, et `commitWork` commite. L'acceptation s'écrit comme un message du
+  parent (`message.agent`, `verdict: accepted`), avec la reprise en `running` le
+  temps du commit — c'est ce que fait la tâche.
+
+`accept_result` rend la main une fois l'enfant **fini** : l'orchestrateur a
+besoin de la branche et du commit pour les nommer à l'humain, et un
+`wait_for_task` de plus lui coûterait une étape.
+
+**L'invariant de branche change de mot, pas de sens** : « la branche ne bouge
+qu'à l'acceptation ». Pour un Developer délégué par Claude, accepter et
+`submit_result` ne font qu'un. `accept_result` n'est **pas** une approbation :
+il ne fait que ce que `submit_result` faisait seul jusqu'ici, rien n'est mergé,
+et le merge reste humain. Le test relit la branche **à l'instant** où le
+Developer attend son verdict, par `Daemon.subscribe` (ajouté pour cela, en
+lecture seule) : deux propositions, la branche au commit de départ les deux
+fois, puis un seul commit qui contient les deux passes.
+
+**La question.** `ask_parent` est intercepté par la boucle, comme
+`submit_result`, et journalisé comme un appel d'outil, question expurgée. Le
+moteur ne l'ajoute qu'aux tâches qui ont un parent, et pas au profil : un
+Developer délégué par Claude ne le voit pas. Le faux fournisseur note désormais
+les outils proposés, ce qui permet de le vérifier. Une question mal formée est
+rendue au modèle sans suspendre la tâche.
+
+**L'orchestrateur relit.**
+- `wait_for_task` rend la main quand un enfant attend son parent (`awaiting_you`),
+  avec un `next_action` : `answer_question`, `review_proposal`, `result_ready`,
+  `task_ended_without_result` ou `wait_again`.
+- Une proposition arrive avec son diff contre `base_commit`, non commité, le
+  patch borné à 30 Ko et **expurgé par le parent** avant d'entrer dans sa
+  conversation. Tout reste `untrusted` et encadré.
+- Le `subtask.waiting` n'est plus écrit pour un enfant qui attend déjà son
+  parent : ce serait dire l'inverse de ce qui se passe.
+
+**Il ne conclut pas en laissant quelqu'un attendre.** Le crochet `finishBlocked`
+du moteur refuse le `submit_result` d'un orchestrateur dont un enfant est en
+`waiting_input`, en nommant les enfants et les trois issues (`send_message`,
+`accept_result`, `cancel_task`). Sans lui, la cascade emporterait l'enfant et
+son travail non commité. S'il s'arrête autrement (annulation, budget, échec), la
+cascade annule l'enfant, qui conclut sans commit. Le test le vérifie :
+- en comptant les tâches actives en base ;
+- en relisant la branche ;
+- avec un parent **en conversation**, qui attend l'utilisateur pendant que son
+  enfant attend son verdict. Les deux sont à l'arrêt, et l'annulation tombe à
+  coup sûr.
+
+**La consigne.** L'orchestrateur reçoit un paragraphe « Review loop » et les
+deux outils. Une sous-tâche reçoit, dans le contexte assemblé, ce qu'elle peut
+demander et, en `review`, que son `submit_result` est une proposition. La ligne
+du worktree dit que le commit vient à l'acceptation.
+
+**Ce que la suite de bout en bout a montré.** O1 (`test:orchestrator`)
+déléguait un Developer, l'attendait, puis concluait. Avec la revue, son
+`submit_result` est refusé, et le script s'arrêtait là. Le scénario accepte
+désormais la proposition : cinq tours, cinq appels de modèle. C'est l'effet
+voulu de la décision 7, et le seul scénario existant qu'elle a touché.
+
+**Vérifié :**
+- `npm run typecheck` ;
+- 5 cas de la boucle (« revue et question au parent ») ;
+- 4 cas des outils (`delegation-tools.test.ts`), et les deux nouveaux outils
+  refusés sans port ;
+- 5 scénarios sur le vrai moteur et un vrai dépôt
+  (`tests/unit/review-loop.test.ts`) ;
+- les suites de bout en bout, O1 compris après sa mise à jour.
+
+**Pas encore là :** le fil de ces échanges au dashboard (étape 6), et les
+scénarios `SIGKILL` d'un enfant qui attend, prévus à l'étape 8.
 

@@ -182,6 +182,8 @@ await scenario(outcomes, 'O1 délégation parallèle ; l\'approbation d\'un enfa
     ],
     [{ tool: 'wait_for_task', args: { task_id: '{{task_id:1}}' } }],
     [{ tool: 'wait_for_task', args: { task_id: '{{task_id:0}}' } }],
+    // Le Developer propose (Slice 6) : rien n'est commité avant l'acceptation.
+    [{ tool: 'accept_result', args: { task_id: '{{task_id:0}}' } }],
     submit('synthèse'),
   ])
 
@@ -226,8 +228,8 @@ await scenario(outcomes, 'O1 délégation parallèle ; l\'approbation d\'un enfa
   else if (!git(repo, 'ls-tree', '--name-only', branch).split('\n').includes('fait')) {
     problems.push('le marqueur de la commande approuvée n\'est pas sur la branche')
   }
-  // Attendre ne coûte pas d'étape : quatre tours scriptés, quatre appels de modèle.
-  if (done.usage.model_calls !== 4) problems.push(`${done.usage.model_calls} appels de modèle pour 4 tours`)
+  // Attendre ne coûte pas d'étape : cinq tours scriptés, cinq appels de modèle.
+  if (done.usage.model_calls !== 5) problems.push(`${done.usage.model_calls} appels de modèle pour 5 tours`)
   if (done.result?.untrusted !== true) problems.push('le résultat de l\'orchestrateur n\'est pas marqué non fiable')
   // Chaque tâche de l'arbre a démarré avant de finir, et aucun enfant avant son
   // parent. Lu en base pour les enfants : `started_at` a longtemps été transmis
@@ -241,7 +243,7 @@ await scenario(outcomes, 'O1 délégation parallèle ; l\'approbation d\'un enfa
     verdict: problems.length ? 'FAIL' : 'PASS',
     detail: problems.length
       ? problems.join(' ; ')
-      : `Researcher fini pendant la pause du Developer ; orchestrateur en attente sans approbation à son nom ; 4 appels de modèle ; branche ${branch}`,
+      : `Researcher fini pendant la pause du Developer ; orchestrateur en attente sans approbation à son nom ; proposition acceptée ; 5 appels de modèle ; branche ${branch}`,
   }
 })
 

@@ -36,7 +36,7 @@ import { createRedactor, harnessCommand, isTerminal, type Usage } from '@midgaar
 import { agentIdentity, commitAll, createWorktree, diffWorktree, inspectRepository, WorkspaceError } from '@midgaard/workspace'
 import { createAdapter, envVarFor } from '@midgaard/providers'
 import { resolveApiKey, type SecretVault } from '@midgaard/secrets'
-import type { ToolContext } from '@midgaard/tools'
+import { ASK_PARENT, type ToolContext } from '@midgaard/tools'
 import { runAgent, type ApprovalOutcome, type InputOutcome, type LoopHooks, type LoopOutcome } from '@midgaard/agent-runtime'
 import type { EngineContext, TaskEngine } from './types.ts'
 
@@ -140,6 +140,24 @@ export class AgentEngine implements TaskEngine {
     const done = this.deps.ctx.bus.record(task.id, 'running', { type: kind, payload: { ...payload, text: clean } })
     if (!done) return null
     state.reply({ kind: 'message', text: clean })
+    return done.task
+  }
+
+  /**
+   * Accepte la proposition d'une tâche en revue. L'acceptation s'écrit comme un
+   * message du parent (`message.agent`, `verdict: accepted`), avec la reprise :
+   * la tâche repasse `running` le temps que la boucle conclue et que le moteur
+   * commite — c'est ce qu'elle fait réellement.
+   */
+  accept(task: Task, payload: Record<string, unknown>): Task | null {
+    const state = this.running.get(task.id)
+    if (!state?.reply) return null
+    const done = this.deps.ctx.bus.record(task.id, 'running', {
+      type: 'message.agent',
+      payload: { ...payload, verdict: 'accepted', text: 'Proposition acceptée.' },
+    })
+    if (!done) return null
+    state.reply({ kind: 'accepted' })
     return done.task
   }
 
@@ -258,7 +276,15 @@ export class AgentEngine implements TaskEngine {
       })
 
       outcome = await runAgent({
-        agent: { ...agent, limits: task.limits },
+        // Une sous-tâche reçoit `ask_parent` en plus de ses outils (Slice 6) :
+        // ajouté ici, pas au profil, pour qu'un Developer délégué par Claude,
+        // qui n'a personne à qui demander, ne le voie jamais.
+        agent: {
+          ...agent,
+          limits: task.limits,
+          tools: task.parent_task_id ? [...agent.tools, ASK_PARENT] : agent.tools,
+        },
+        delegated: task.parent_task_id !== null,
         objective: task.objective,
         context: task.context,
         adapter: ready.adapter,
@@ -540,9 +566,9 @@ export class AgentEngine implements TaskEngine {
           }
         }),
 
-      awaitInput: (request, text, step) =>
+      awaitInput: (request, text, step, extra) =>
         new Promise<InputOutcome>((resolve) => {
-          if (!ctx.requestInput(taskId, request, text, step)) return resolve({ kind: 'cancelled' })
+          if (!ctx.requestInput(taskId, request, text, step, extra)) return resolve({ kind: 'cancelled' })
           // Le message arrivera par `deliver`, l'annulation ou l'expiration par
           // `cancel`. Résolue une seule fois, comme une approbation.
           let settled = false
@@ -553,6 +579,18 @@ export class AgentEngine implements TaskEngine {
             resolve(outcome)
           }
         }),
+
+      finishBlocked: () => {
+        // Une sous-tâche qui attend sa réponse ou son verdict serait emportée
+        // par la cascade dès la fin du parent, travail non commité compris.
+        const waiting = ctx.store.childTasks(taskId, { active: true }).filter((c) => c.status === 'waiting_input')
+        if (waiting.length === 0) return null
+        const ids = waiting.map((c) => `${c.id} (${c.awaiting_input})`).join(', ')
+        return (
+          `${waiting.length} subtask(s) wait for you: ${ids}. Answer a question or send a proposal back with ` +
+          'send_message, accept a proposal with accept_result, or cancel_task, before you finish.'
+        )
+      },
 
       isCancelled: () => {
         if (state.cancelled) return true

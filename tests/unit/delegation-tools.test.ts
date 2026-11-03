@@ -35,12 +35,15 @@ function ended(result: Partial<TaskResult> = {}): SubtaskState {
     error: null,
     usage: { ...emptyUsage(), model_calls: 2, cost_usd: 0.004, cost_source: 'provider' },
     limits: DEFAULT_RESEARCHER_LIMITS,
+    awaiting: null,
   }
 }
 
 /** Faux port : rend ce qu'on lui dit, et garde trace de ce qu'on lui demande. */
 function fakePort(over: Partial<DelegationPort> = {}) {
-  const asked: { delegated: unknown[]; cancelled: string[] } = { delegated: [], cancelled: [] }
+  const asked: { delegated: unknown[]; cancelled: string[]; sent: [string, string][]; accepted: string[] } = {
+    delegated: [], cancelled: [], sent: [], accepted: [],
+  }
   const port: DelegationPort = {
     listAgents: () => [
       {
@@ -60,6 +63,14 @@ function fakePort(over: Partial<DelegationPort> = {}) {
     cancel: (taskId) => {
       asked.cancelled.push(taskId)
       return { ...ended(), status: 'cancelled', result: null }
+    },
+    send: (taskId, message) => {
+      asked.sent.push([taskId, message])
+      return { ...ended(), status: 'running', ended: false, result: null }
+    },
+    accept: async (taskId) => {
+      asked.accepted.push(taskId)
+      return { ...ended(), stopped_by: 'ended' }
     },
     ...over,
   }
@@ -82,7 +93,11 @@ async function call(name: string, args: unknown, context: ToolContext) {
 describe('sans port de délégation', () => {
   for (const name of DELEGATION_TOOLS) {
     it(`${name} refuse, sans demander d'approbation`, async () => {
-      const args = name === 'delegate_task' ? { agent_id: 'researcher', objective: 'o' } : name === 'list_agents' ? {} : { task_id: CHILD }
+      const args =
+        name === 'delegate_task' ? { agent_id: 'researcher', objective: 'o' }
+        : name === 'list_agents' ? {}
+        : name === 'send_message' ? { task_id: CHILD, message: 'm' }
+        : { task_id: CHILD }
       const { verdict, result } = await call(name, args, ctx())
       assert.equal(verdict.decision, 'deny')
       assert.match(verdict.reason, /only an orchestrator task can delegate/)
@@ -135,6 +150,58 @@ describe('avec un port', () => {
     assert.equal(shown.cost_usd, 0.004)
     assert.equal(shown.cost_source, 'provider')
     assert.equal(shown.note, undefined)
+  })
+
+  it('wait_for_task rend une proposition à relire, avec son diff, comme donnée', async () => {
+    const proposal: SubtaskState = {
+      ...ended(),
+      agent_id: 'developer',
+      status: 'waiting_input',
+      ended: false,
+      result: null,
+      awaiting: {
+        request: 'proposal',
+        text: 'route /health ajoutée',
+        details: 'src/health.ts',
+        diff: { files: [{ path: 'src/health.ts', kind: 'added', additions: 3, deletions: 0 }], additions: 3, deletions: 0, patch: '+x', patch_truncated: false },
+      },
+    }
+    const { port } = fakePort({ wait: async () => ({ ...proposal, waited_ms: 5, stopped_by: 'awaiting_you' }) })
+    const { result } = await call('wait_for_task', { task_id: CHILD }, ctx(port))
+    assert.equal(result!.untrusted, true, 'la proposition et son patch sont écrits par un autre agent')
+    const shown = JSON.parse(result!.content)
+    assert.equal(shown.next_action, 'review_proposal')
+    assert.equal(shown.awaiting.text, 'route /health ajoutée')
+    assert.equal(shown.awaiting.diff.files[0].path, 'src/health.ts')
+    assert.equal(shown.note, undefined, 'une sous-tâche qui attend n\'est pas une attente interrompue')
+  })
+
+  it('wait_for_task dit qu\'une question attend une réponse', async () => {
+    const question: SubtaskState = {
+      ...ended(), status: 'waiting_input', ended: false, result: null,
+      awaiting: { request: 'question', text: 'Quel port ?' },
+    }
+    const { port } = fakePort({ wait: async () => ({ ...question, waited_ms: 5, stopped_by: 'awaiting_you' }) })
+    const shown = JSON.parse((await call('wait_for_task', { task_id: CHILD }, ctx(port))).result!.content)
+    assert.equal(shown.next_action, 'answer_question')
+    assert.equal(shown.awaiting.text, 'Quel port ?')
+  })
+
+  it('send_message transmet la réponse, et dit d\'attendre à nouveau', async () => {
+    const { port, asked } = fakePort()
+    const { result } = await call('send_message', { task_id: CHILD, message: 'le port 7777' }, ctx(port))
+    assert.deepEqual(asked.sent, [[CHILD, 'le port 7777']])
+    assert.equal(JSON.parse(result!.content).next_action, 'wait_again')
+    assert.equal(result!.untrusted, false, 'ce que rend send_message vient du harness')
+  })
+
+  it('accept_result rend l\'état final de la sous-tâche, comme donnée', async () => {
+    const { port, asked } = fakePort()
+    const { result } = await call('accept_result', { task_id: CHILD }, ctx(port))
+    assert.deepEqual(asked.accepted, [CHILD])
+    const shown = JSON.parse(result!.content)
+    assert.equal(shown.next_action, 'result_ready')
+    assert.equal(result!.untrusted, true)
   })
 
   it('wait_for_task dit pourquoi il rend une sous-tâche inachevée', async () => {

@@ -170,10 +170,15 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - **Une phrase de documentation est une affirmation à prouver.** À l'étape 3,
   « binaire résolu avant la demande » a été écrit sans être vrai, et le test du
   même sujet vérifiait le défaut (docs/SLICE3.md, leçon n° 10).
-- **La branche ne bouge qu'à `submit_result`.** Le harness commite le travail
+- **La branche ne bouge qu'à l'acceptation.** Le harness commite le travail
   d'une tâche **aboutie**, et seulement elle : une tâche qui échoue laisse sa
   branche au commit de départ, son travail lisible dans le worktree, jamais une
   branche qui a l'air d'un résultat. Le worktree est conservé dans tous les cas.
+  Pour un Developer délégué par Claude, accepter et `submit_result` ne font
+  qu'un ; délégué par un orchestrateur (`review`), son `submit_result` est une
+  **proposition**, commitée seulement quand l'orchestrateur l'accepte
+  (`accept_result`, Slice 6). Ce n'est pas une approbation : rien n'est mergé,
+  et le merge reste humain.
 - **Une liste blanche `exec` se range sous la racine canonique du dépôt**, d'où
   que la CLI soit lancée : rangée ailleurs, elle aurait l'air de marcher et ne
   servirait jamais. Le moteur la lit au départ de la tâche, jamais en route.
@@ -192,7 +197,9 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - **Aucune sous-tâche ne survit à son parent.** Un parent en
   `cancel_requested` ou dans un statut final emporte ses sous-tâches actives ;
   le vérifier en **comptant les tâches actives en base**. Profondeur 1 : un
-  orchestrateur ne délègue jamais à un orchestrateur.
+  orchestrateur ne délègue jamais à un orchestrateur. Et il **ne conclut pas**
+  tant qu'une sous-tâche attend sa réponse ou son verdict (`finishBlocked`) :
+  la cascade emporterait son travail non commité.
 
 ## Pièges d'environnement
 
@@ -252,6 +259,9 @@ le dashboard du daemon. Décisions et découpage en neuf étapes :
 `PROTOCOL_VERSION` 11. Étape 2 faite : le chat, par HTTP
 (`POST /api/tasks/:id/messages`) ; l'attente ne consomme pas le délai, un
 message n'entre que dans une attente, et l'agent lit la version expurgée.
+Étape 3 faite : la boucle entre agents — proposition, `send_message`,
+`accept_result`, `ask_parent` ; `wait_for_task` rend la main quand un enfant
+attend son parent, avec son diff.
 
 ## Slice 5 terminée — un orchestrateur intégré
 

@@ -29,7 +29,7 @@ et les coûts.
 | 3 | Agent Developer, worktrees Git, approbations bloquantes, diffs | ✅ **Terminée** : un Developer a implémenté `/health` en vraie session, dans un worktree, sous approbation, coût **exact au microdollar** ; suites vertes sur macOS, Linux et Windows |
 | 4 | Durcissement sécurité, installation depuis un clone | ✅ **Terminée** : suite de sécurité, crash et concurrence, toutes les suites en CI sur macOS, Linux et Windows ; depuis un clone frais, le scénario §12 rejoué en vraie session sous macOS, coût **exact** contre le solde Venice. La distribution npm a été **abandonnée** : Midgaard s'installe depuis un clone ([docs/SLICE4.md](docs/SLICE4.md)) |
 | 5 | Orchestrateur intégré sur n'importe quel modèle, lancé du dashboard | ✅ **Terminée** le 2026-11-01 — essai réel : un orchestrateur sur Venice délègue à un Developer sous approbation, coût exact ([docs/SLICE5.md](docs/SLICE5.md)) |
-| 6 | Atelier façon VS Code dans une app Tauri : chat avec l'orchestrateur, boucle orchestrateur ⇄ Developer, fichiers et terminal en direct | 🚧 **En cours** — étapes 1 et 2 sur 9 faites : statut `waiting_input`, migration 9, conversation avec l'orchestrateur par HTTP ([docs/SLICE6.md](docs/SLICE6.md)) |
+| 6 | Atelier façon VS Code dans une app Tauri : chat avec l'orchestrateur, boucle orchestrateur ⇄ Developer, fichiers et terminal en direct | 🚧 **En cours** — étapes 1 à 3 sur 9 faites : conversation avec l'orchestrateur par HTTP, revue et questions entre l'orchestrateur et ses sous-tâches ([docs/SLICE6.md](docs/SLICE6.md)) |
 
 Le détail des slices est dans [docs/PLAN.md](docs/PLAN.md). Ce que chaque slice a
 prouvé et appris : [docs/SLICE0.md](docs/SLICE0.md), [docs/SLICE1.md](docs/SLICE1.md),

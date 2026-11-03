@@ -110,6 +110,26 @@ attend dans `awaiting_input`. Le moteur l'ouvre par
 Prouvé par `tests/unit/conversation.test.ts`, sur le vrai moteur et un faux
 fournisseur, en HTTP compris.
 
+La même attente porte **l'échange entre un orchestrateur et ses sous-tâches** :
+
+- **Un Developer délégué par un orchestrateur est en `review`** (`create`). Son
+  `submit_result` le met en attente (`proposal`) ; rien n'est commité.
+  `accept` (port) l'écrit comme un message du parent (`verdict: accepted`), la
+  boucle conclut, et `commitWork` commite. `send` le relance avec un retour.
+- **Une question** (`ask_parent`, toute sous-tâche) le met en attente
+  (`question`) ; `send` y répond.
+- **`waitForEnd` rend la main sur une attente du parent** (`awaiting_you`), et
+  `stateFor` y joint la question, ou la proposition et son diff, expurgé par le
+  parent.
+- **Le parent ne conclut pas** tant qu'un enfant attend : le crochet
+  `finishBlocked` du moteur refuse son `submit_result`, que le modèle reçoit.
+  S'il s'arrête autrement, la cascade annule l'enfant, sans commit.
+
+Prouvé par `tests/unit/review-loop.test.ts`, sur un vrai dépôt Git : la
+branche d'un Developer est relue à **l'instant** où il attend son verdict.
+`Daemon.subscribe` existe pour cela : s'abonner au bus du même processus, sans
+pouvoir y écrire.
+
 ## Installation
 
 `/api/health` annonce `install` : le dossier canonique du paquet

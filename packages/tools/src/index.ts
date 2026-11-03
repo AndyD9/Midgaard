@@ -14,11 +14,19 @@ import { submitResultTool } from './result.ts'
 import { deleteFileTool, editFileTool, writeFileTool } from './write.ts'
 import { gitDiffTool } from './git.ts'
 import { execTool } from './exec.ts'
-import { cancelTaskTool, delegateTaskTool, listAgentsTool, waitForTaskTool } from './delegation.ts'
+import {
+  acceptResultTool,
+  cancelTaskTool,
+  delegateTaskTool,
+  listAgentsTool,
+  sendMessageTool,
+  waitForTaskTool,
+} from './delegation.ts'
+import { askParentTool } from './ask.ts'
 
 export type {
   Tool, ToolContext, HttpPolicy, PreparedOperation,
-  DelegableAgent, DelegateRequest, DelegationPort, DelegationRefusal, SubtaskState, WaitStop,
+  DelegableAgent, DelegateRequest, DelegationPort, DelegationRefusal, SubtaskAwaiting, SubtaskState, WaitStop,
 } from './types.ts'
 export { ToolError, HTTP_POLICIES, MAX_TOOL_RESULT_BYTES, truncate } from './types.ts'
 export { canonicalRoot, isUnder, openUnderRoot, resolveUnderRoot } from './paths.ts'
@@ -33,9 +41,16 @@ export {
 export type { ExecOutcome } from './exec.ts'
 export { submitResultSchema } from './result.ts'
 export type { SubmitResultArgs } from './result.ts'
+export { ASK_PARENT, askParentSchema } from './ask.ts'
+export type { AskParentArgs } from './ask.ts'
 
-/** Outils de délégation : réservés au profil `orchestrator` (Slice 5). */
-export const DELEGATION_TOOLS = ['list_agents', 'delegate_task', 'wait_for_task', 'cancel_task'] as const
+/**
+ * Outils de délégation : réservés au profil `orchestrator`. Les quatre premiers
+ * datent de la Slice 5 ; `send_message` et `accept_result`, de la Slice 6.
+ */
+export const DELEGATION_TOOLS = [
+  'list_agents', 'delegate_task', 'wait_for_task', 'cancel_task', 'send_message', 'accept_result',
+] as const
 
 /** Nom de l'outil terminal, que la boucle intercepte. */
 export const SUBMIT_RESULT = 'submit_result'
@@ -62,6 +77,9 @@ export const TOOLBOX: Readonly<Record<string, Tool<never>>> = Object.freeze({
   delegate_task: delegateTaskTool as Tool<never>,
   wait_for_task: waitForTaskTool as Tool<never>,
   cancel_task: cancelTaskTool as Tool<never>,
+  send_message: sendMessageTool as Tool<never>,
+  accept_result: acceptResultTool as Tool<never>,
+  ask_parent: askParentTool as Tool<never>,
   submit_result: submitResultTool as Tool<never>,
 })
 

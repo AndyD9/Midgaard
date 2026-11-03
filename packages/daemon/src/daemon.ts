@@ -81,6 +81,13 @@ export interface Daemon {
   dashboardUrl: string | null
   store: HarnessStore
   tasks: TaskManager
+  /**
+   * S'abonne à ce que diffuse le bus, **dans ce processus** : chaque écriture,
+   * au moment même où elle est faite. Lecture seule — toute écriture passe par
+   * le gérant. Sert aux tests qui doivent constater un état à un instant précis
+   * (la branche d'un Developer pendant qu'il attend son verdict, Slice 6).
+   */
+  subscribe: EventBus['subscribe']
   /** Arrêt propre et idempotent. */
   close: (reason?: string) => void
   /** Promesse résolue quand le daemon s'est arrêté, quelle qu'en soit la cause. */
@@ -341,7 +348,7 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
   log(`à l'écoute sur http://127.0.0.1:${port} (pid ${process.pid}, protocole ${PROTOCOL_VERSION})`)
   if (files.available) log(`dashboard : http://127.0.0.1:${port}/`)
 
-  return { port, dashboardUrl: dashboardUrl(), store, tasks, close, stopped }
+  return { port, dashboardUrl: dashboardUrl(), store, tasks, subscribe: (listener) => bus.subscribe(listener), close, stopped }
 }
 
 /**

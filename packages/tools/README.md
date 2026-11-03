@@ -307,6 +307,23 @@ Trois choses que les outils garantissent seuls :
   `cost_usd` **et** `cost_source`, et la branche d'un Developer, que
   l'orchestrateur relaie à l'humain qui seul merge.
 
+## Échanger : questions et propositions (Slice 6)
+
+La délégation devient un échange, toujours par le port :
+
+- **`wait_for_task` rend la main quand un enfant attend son parent**, avec une
+  consigne (`next_action`) : `answer_question`, `review_proposal`,
+  `result_ready`, `task_ended_without_result` ou `wait_again`. Une proposition
+  arrive avec son diff, **non commité**. Tout reste `untrusted`.
+- **`send_message`** répond à une question ou renvoie une proposition ;
+  l'enfant reprend dans la même conversation et le même worktree.
+- **`accept_result`** accepte une proposition et rend la main une fois
+  l'enfant fini, branche et commit compris. C'est le harness qui commite, pas
+  l'outil, et rien n'est mergé : ce n'est pas une approbation.
+- **`ask_parent`** est la question d'un enfant. Comme `submit_result`, la boucle
+  l'intercepte ; son `run` refuse, pour qu'un oubli d'interception se voie. Le
+  daemon ne le donne qu'aux tâches qui ont un parent.
+
 ## `submit_result` : la fin est un acte
 
 Une boucle qui s'arrêterait sur « le modèle n'a demandé aucun outil » s'arrêterait

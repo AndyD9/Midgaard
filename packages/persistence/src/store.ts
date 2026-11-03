@@ -606,6 +606,20 @@ export class HarnessStore {
     ).map(toEvent)
   }
 
+  /**
+   * Dernier événement d'un type pour une tâche, ou `null`. Sert à relire ce
+   * qu'une tâche en attente a demandé (`input.requested`) sans charger toute
+   * sa timeline (Slice 6).
+   */
+  lastEventOfType(taskId: string, type: EventType): TaskEvent | null {
+    const found = row<EventRow>(
+      this.db
+        .prepare('SELECT * FROM task_events WHERE task_id = :id AND type = :type ORDER BY task_seq DESC LIMIT 1')
+        .get({ id: taskId, type }),
+    )
+    return found ? toEvent(found) : null
+  }
+
   /** Timeline complète d'une tâche, dans l'ordre. */
   taskEvents(taskId: string): TaskEvent[] {
     return rows<EventRow>(
