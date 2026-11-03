@@ -40,7 +40,8 @@
     "test:wait": "node --conditions=midgaard-dev tests/long-wait.ts",
     "test:ui": "node --conditions=midgaard-dev tests/dashboard.ts",
     "test:orchestrator": "node --conditions=midgaard-dev tests/orchestrator.ts",
-    "test:live": "node --conditions=midgaard-dev tests/live-agent.ts"
+    "test:live": "node --conditions=midgaard-dev tests/live-agent.ts",
+    "test:live-vision": "node --conditions=midgaard-dev tests/live-vision.ts"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

@@ -36,8 +36,10 @@ la réponse est `null`, « inconnu », jamais devinée d'après le nom du modèl
 Un catalogue illisible rend aussi « inconnu », sans faire échouer la tâche.
 
 Les tests vérifient la forme envoyée et la lecture du catalogue sur réponses
-enregistrées. **Qu'une image passe réellement, et ce qu'elle coûte, reste à
-constater contre l'API réelle.**
+enregistrées. Contre l'API réelle, `npm run test:live-vision` (opt-in, payant)
+joint l'icône de la coque à `mistral-small-3-2-24b-instruct` : le modèle a
+nommé la lettre, et l'image a coûté environ mille jetons d'entrée, facturés
+par Venice au montant de l'estimation (`docs/SLICE7.md`).
 
 ## Pourquoi pas les SDK officiels
 

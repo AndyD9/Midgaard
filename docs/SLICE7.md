@@ -6,8 +6,8 @@ navigateur** : ouvrir une page ou une application web, la regarder, cliquer,
 saisir. Le tout dans un navigateur que le daemon lance à part, sous des
 sessions que l'humain approuve et surveille en direct dans l'atelier.
 
-**État : en cours.** Étape 1 faite (2026-11-03), sur réponses enregistrées ;
-le passage d'une image contre l'API réelle reste à constater.
+**État : en cours.** Étape 1 faite et constatée contre l'API réelle de Venice
+(2026-11-03).
 
 ---
 
@@ -100,7 +100,7 @@ font rien ; le navigateur ensuite, qui agit.
 
 | # | Étape | État |
 |---|---|---|
-| 1 | Contrats et adaptateurs : contenu image dans `Message`, OpenAI-compatible (`image_url`) et Gemini (`inline_data`) sur réponses enregistrées, capacité « vision » lue au catalogue ou déclarée | **fait** — sauf l'API réelle ; la déclaration par profil passe à l'étape 2 |
+| 1 | Contrats et adaptateurs : contenu image dans `Message`, OpenAI-compatible (`image_url`) et Gemini (`inline_data`) sur réponses enregistrées, capacité « vision » lue au catalogue ou déclarée | **fait** — constaté chez Venice ; la déclaration par profil passe à l'étape 2 |
 | 2 | `read_image` : types reconnus par leurs premiers octets (PNG, JPEG, WebP, GIF), taille plafonnée, chemin vérifié comme `read_file`, refus sans vision ; l'image suit le résultat d'outil ; rien de l'image en base | à faire |
 | 3 | Le paquet `browser` : Chromium jetable par Playwright, garde réseau, sans téléchargement ni permission, processus tués à la fin et après `SIGKILL` | à faire |
 | 4 | Les outils et la session : `browser_open` (session approuvée), `browser_screenshot`, `browser_click`, `browser_scroll`, `browser_type` et `browser_key` (approuvés chacun), `browser_close` ; captures non fiables | à faire |
@@ -163,7 +163,19 @@ quand le fournisseur ne la publie pas. Elle ne sert qu'au refus de
   heure, illisible sans échec, et aucune requête chez OpenAI ;
 - `npm run test:unit` : 492 tests.
 
-**Pas encore constaté :** qu'une image passe réellement chez Venice, et ce
-qu'elle coûte. C'est la vigilance de cette étape ; il faut un appel payant
-(une fraction de centime) à un modèle qui lit les images.
+**Constaté contre l'API réelle**, avec l'accord de l'auteur
+(`npm run test:live-vision`, opt-in, hors de `npm test`). L'image est l'icône
+de la coque, un PNG de 1 401 octets ; la question ne nomme ni la lettre ni la
+couleur.
+
+| # | Verdict | Constat |
+|---|---|---|
+| V1 | ✅ | `mistral-small-3-2-24b-instruct` : `supportsVision` lu au catalogue Venice |
+| V2 | ✅ | « The letter "M" is drawn in the image, and the background color is blue. » — le violet de l'icône lu « blue », la lettre juste |
+| V3 | ✅ | 0,0001073125 $ facturés par Venice, estimation égale ; 1 094 jetons en entrée pour une question de vingt mots : l'image en compte environ mille |
+
+L'essai lit la base en lecture seule et le coffre de l'utilisateur, sans rien
+y écrire. Il prend la référence de clé dans la ligne du fournisseur : la
+référence par installation (`provider.<empreinte>.<id>`, Slice 4) ne se devine
+pas.
 

@@ -54,6 +54,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:developer` | ~35 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris |
 | `npm run test:orchestrator` | ~10 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL`, conversation qui pilote une revue, `SIGKILL` pendant une attente |
 | `npm run test:security` | ~4 s — PLAN §8.4 de bout en bout : base et journal lus octet pour octet (conversation, questions, propositions et sortie en direct comprises), refus tracés, API sur la seule boucle locale |
+| `npm run test:live-vision` | Payant, opt-in — une image envoyée à un modèle Venice qui la lit, coût relevé |
 | `npm run test:wait` | ~3 min — 13 scénarios de bout en bout MCP |
 
 ## Invariants à ne pas casser
@@ -271,7 +272,7 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
 
-## Slice 7 décidée — les agents voient
+## Slice 7 en cours — les agents voient
 
 Décidée le 2026-11-03, pas commencée : lire des images d'abord, puis piloter
 un **navigateur isolé** (Chromium jetable lancé par le daemon, jamais le
@@ -281,7 +282,9 @@ points de vigilance : [docs/SLICE7.md](docs/SLICE7.md). À retenir avant d'y
 toucher : **aucune image n'est écrite en base**, la capacité « vision » d'un
 modèle est **constatée** au catalogue du fournisseur (sinon déclarée, et dite
 comme telle), et une capture d'une page rend la tâche non fiable. Le modèle des
-essais de la Slice 6 ne lit pas les images.
+essais de la Slice 6 ne lit pas les images. Étape 1 faite : un message
+utilisateur porte des images, les deux adaptateurs les traduisent, la capacité
+se lit au catalogue Venice ; constaté contre l'API réelle (`test:live-vision`).
 
 ## Slice 6 terminée — un atelier façon VS Code
 
