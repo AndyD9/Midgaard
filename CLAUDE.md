@@ -43,7 +43,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme), `revoke` |
 | `npm run test:unit` | ~5 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git) |
 | `npm run test:vault` | ~1 s — les coffres seuls, sur le coffre réel de la machine |
-| `npm run test:worktrees` | ~7 s — worktrees, écriture et `exec` seuls, sortie en direct comprise (rejoués en CI sur trois plateformes) |
+| `npm run test:worktrees` | ~8 s — worktrees, écriture et `exec` seuls, sortie en direct et lecture des fichiers d'une tâche comprises (rejoués en CI sur trois plateformes) |
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
 | `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer et arbre d'un orchestrateur compris (`npx playwright install chromium` au préalable) |
@@ -155,6 +155,11 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   merge est un acte humain (décision de la Slice 3). Le retrait d'un worktree
   vérifie que le chemin est strictement sous le dossier des worktrees, même
   forcé : le chemin vient de la base, et une ligne fausse ne doit rien effacer.
+- **Les fichiers d'une tâche se lisent sans jamais toucher `.git`**
+  (`daemon/src/files.ts`, Slice 6) : la règle vaut pour le chemin demandé
+  **et** pour le chemin réel — un lien posé dans le worktree vers `.git`
+  reste sous la racine, et passait sans cette relecture. Ces routes n'ont
+  aucune méthode d'écriture.
 - **On n'écrit que dans un worktree, jamais sous `.git`, jamais dans un
   sous-module.** Sans `ToolContext.writable`, les outils d'écriture
   **refusent** — pas d'approbation à la place. Dans un worktree, `.git` est un
@@ -268,6 +273,8 @@ message n'entre que dans une attente, et l'agent lit la version expurgée.
 `accept_result`, `ask_parent` ; `wait_for_task` rend la main quand un enfant
 attend son parent, avec son diff. Étape 4 faite : la sortie d'`exec` en
 direct (`exec.output`), découpée par ligne, expurgée, regroupée, plafonnée.
+Étape 5 faite : les fichiers d'une tâche en lecture seule, arbre et contenu,
+sur le disque et au commit de départ (`/api/tasks/:id/files`).
 
 ## Slice 5 terminée — un orchestrateur intégré
 

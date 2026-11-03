@@ -26,6 +26,8 @@
  * | POST | `/api/tasks/:id/messages` | Message de l'utilisateur à une conversation qui l'attend | 200, 400, 404, 409 |
  * | GET  | `/api/tasks/:id/tools` | Appels d'outils d'une tâche | 200, 404 |
  * | GET  | `/api/tasks/:id/workspace` | Worktree et diff, calculé à la demande | 200, 404 |
+ * | GET  | `/api/tasks/:id/files` | Arbre des fichiers de la tâche, en lecture seule, sans `.git` | 200, 404 |
+ * | GET  | `/api/tasks/:id/files/content?path=&rev=work\|base` | Un fichier, sur le disque ou au commit de départ | 200, 400, 404, 409 |
  * | GET  | `/api/workspaces` | Tous les worktrees, état sur le disque, orphelins | 200 |
  * | POST | `/api/workspaces/:id/remove` | Retire un worktree (la branche reste) | 200, 404, 409 |
  * | GET  | `/api/exec-allow?project_dir=` | Liste blanche `exec` du dépôt, et la globale | 200, 400 |
@@ -73,6 +75,7 @@ import {
 } from './providers.ts'
 import { checkEnvelope, checkToken, type SecurityContext } from './security.ts'
 import { execAllowFor, listWorkspaces, removeWorkspace, workspaceView } from './workspaces.ts'
+import { FileAccessError, taskFileContent, taskFileTree } from './files.ts'
 import { updateAgentModel } from './agents.ts'
 import { checkProjectDir } from './project-dir.ts'
 
@@ -313,6 +316,22 @@ async function handleTasks(
   if (method === 'GET' && action === 'events') return send(res, 200, { events: deps.tasks.events(id) })
   if (method === 'GET' && action === 'tools') return send(res, 200, { tool_calls: deps.tasks.toolCalls(id) })
   if (method === 'GET' && action === 'workspace') return send(res, 200, await workspaceView(deps.store, id))
+
+  // Lecture seule : aucune méthode d'écriture n'existe sur ces chemins (Slice 6).
+  if (method === 'GET' && action === 'files') {
+    const sub = url.pathname.split('/').filter(Boolean)[4]
+    if (sub === undefined) return send(res, 200, await taskFileTree(deps.store, view.task))
+    if (sub !== 'content') return send(res, 404, { error: 'not_found' })
+    const path = url.searchParams.get('path') ?? ''
+    const rev = url.searchParams.get('rev') ?? 'work'
+    if (rev !== 'work' && rev !== 'base') return send(res, 400, { error: 'invalid_rev', allowed: ['work', 'base'] })
+    try {
+      return send(res, 200, await taskFileContent(deps.store, view.task, path, rev))
+    } catch (e) {
+      if (e instanceof FileAccessError) return send(res, e.status, { error: e.code, reason: e.message })
+      throw e
+    }
+  }
 
   if (method === 'GET' && action === 'wait') {
     const asked = Number(url.searchParams.get('timeout_ms') ?? 25_000)

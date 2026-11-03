@@ -140,3 +140,56 @@ export const workspaceDiffSchema = z.object({
   patch_truncated: z.boolean(),
 })
 export type WorkspaceDiff = z.infer<typeof workspaceDiffSchema>
+
+// --- Fichiers en lecture seule (Slice 6) ------------------------------------
+
+/**
+ * Une entrée de l'arbre d'une tâche, pour l'explorateur du dashboard.
+ * `path` est relatif à la racine, séparateur `/` sur toutes les plateformes.
+ */
+export const fileTreeEntrySchema = z.object({
+  path: z.string(),
+  /** Un lien symbolique est montré comme tel, jamais suivi. */
+  type: z.enum(['file', 'dir', 'symlink']),
+  /** Taille d'un fichier ; `null` pour un dossier ou un lien. */
+  size: z.number().int().min(0).nullable(),
+  /** Dossier de dépendances ou de build, listé sans son contenu. */
+  collapsed: z.boolean(),
+})
+export type FileTreeEntry = z.infer<typeof fileTreeEntrySchema>
+
+/** Réponse de `GET /api/tasks/:id/files`. */
+export const fileTreeResponseSchema = z.object({
+  /** `worktree` pour un Developer, `project` pour une tâche qui ne fait que lire. */
+  source: z.enum(['worktree', 'project']).nullable(),
+  /** Racine canonique de l'arbre ; `null` s'il n'y en a pas. */
+  root: z.string().nullable(),
+  entries: z.array(fileTreeEntrySchema),
+  /** Vrai si l'arbre a été coupé au plafond d'entrées. */
+  truncated: z.boolean(),
+  /** Pourquoi il n'y a pas d'arbre (worktree retiré, tâche sans dossier) ; `null` sinon. */
+  unavailable: z.string().nullable(),
+})
+export type FileTreeResponse = z.infer<typeof fileTreeResponseSchema>
+
+/**
+ * Réponse de `GET /api/tasks/:id/files/content?path=&rev=` : un fichier, dans
+ * sa version de travail (`work`) ou au commit de départ (`base`).
+ *
+ * Un fichier absent d'une des deux versions (créé, ou supprimé, par l'agent)
+ * rend `exists: false`, sans erreur : c'est un côté vide du diff.
+ */
+export const fileContentResponseSchema = z.object({
+  path: z.string(),
+  rev: z.enum(['work', 'base']),
+  exists: z.boolean(),
+  size: z.number().int().min(0).nullable(),
+  /** Vrai si le fichier contient un octet nul : son contenu n'est pas rendu. */
+  binary: z.boolean(),
+  /** Vrai au-delà du plafond de lecture : son contenu n'est pas rendu. */
+  too_large: z.boolean(),
+  /** Le texte, en UTF-8 ; `null` s'il est absent, binaire ou trop gros. */
+  text: z.string().nullable(),
+})
+export type FileContentResponse = z.infer<typeof fileContentResponseSchema>
+

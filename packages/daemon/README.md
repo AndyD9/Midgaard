@@ -140,6 +140,31 @@ reconnexion : un terminal rechargé retrouve ce qu'il avait. Prouvé par
 `tests/unit/exec-output.test.ts`, avec une vraie commande qui écrit une clé en
 deux fois.
 
+## Fichiers d'une tâche, en lecture seule (Slice 6)
+
+`GET /api/tasks/:id/files` rend l'arbre du worktree d'un Developer, ou du
+dossier de projet d'une tâche qui ne fait que lire. `GET
+/api/tasks/:id/files/content?path=&rev=work|base` rend un fichier sur le disque
+ou au commit de départ (`files.ts`). Aucune méthode d'écriture n'existe sur
+ces chemins. Ce que le daemon garantit :
+
+- **Le chemin est traité comme celui d'un modèle** : relatif, sans `..`,
+  résolu et ouvert par `openUnderRoot` (racine canonique, identité du
+  descripteur revérifiée).
+- **Rien sous `.git`**, à aucun niveau, en toute casse, **et sur le chemin
+  réel** : un lien posé dans le worktree (`x → .git`) reste sous la racine, et
+  n'est arrêté que par cette relecture. Un refus ne dit pas où mène un lien.
+- **L'arbre ne suit aucun lien**, et replie les dossiers de dépendances
+  (`node_modules`, `dist`…). Il est coupé à 5000 entrées, et le dit.
+- **La version de départ se lit par `git cat-file blob`** : aucun filtre ni
+  `textconv` venu de l'arbre, hooks neutralisés par `git()`. Un fichier absent
+  d'une version rend `exists: false`, un côté vide du diff.
+- **Un binaire (octet nul) ou un fichier de plus de 1 Mo** ne rend pas son
+  contenu (`binary`, `too_large`).
+
+Prouvé par `tests/unit/task-files.test.ts`, en HTTP. Le lien vers `.git` y a été
+vu passer sans la relecture du chemin réel.
+
 ## Installation
 
 `/api/health` annonce `install` : le dossier canonique du paquet

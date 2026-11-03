@@ -7,7 +7,7 @@ façon VS Code. Cet atelier comprend un chat, le fil des échanges entre agents,
 fichiers écrits en direct et la sortie des commandes. Il tourne dans une app
 desktop Tauri.
 
-**État : en cours.** Étapes 1 à 4 faites (2026-11-03).
+**État : en cours.** Étapes 1 à 5 faites (2026-11-03).
 
 ---
 
@@ -91,7 +91,7 @@ lancent les agents, et n'expose aucun shell.
 | 2 | Chat : attente d'un message dans la boucle, délai sur temps actif, `POST /api/tasks/:id/messages`, consigne de l'orchestrateur en conversation | **fait** |
 | 3 | Boucle orchestrateur ⇄ Developer : proposition, `accept_result`, `send_message`, `ask_parent`, `wait_for_task` sur attente, cascade | **fait** |
 | 4 | Sortie `exec` en direct, découpée par ligne puis expurgée | **fait** |
-| 5 | Routes de fichiers en lecture seule (arbre, contenu de travail et de départ) | à faire |
+| 5 | Routes de fichiers en lecture seule (arbre, contenu de travail et de départ) | **fait** |
 | 6 | Dashboard façon VS Code : explorateur, éditeur et diff, chat et fil des agents, terminal | à faire |
 | 7 | Coque Tauri | à faire |
 | 8 | Preuves : unitaires, `test:orchestrator`, `test:security`, `test:ui`, CI sur trois plateformes | à faire |
@@ -363,4 +363,55 @@ et la commande et sa capture continuent.
 
 **Pas encore là :** le terminal du dashboard (étape 6). D'ici là, la sortie
 apparaît dans la timeline, ligne par lot.
+
+### Étape 5 — les fichiers d'une tâche, en lecture seule (2026-11-03)
+
+**Deux routes, aucune écriture.**
+- `GET /api/tasks/:id/files` rend l'arbre d'une tâche : son worktree si elle en
+  a un, son dossier de projet sinon.
+- `GET /api/tasks/:id/files/content?path=&rev=work|base` rend un fichier sur le
+  disque ou au commit de départ.
+
+Toute autre méthode répond 405. Le dashboard y trouvera les deux côtés d'un
+diff : un fichier créé ou supprimé par l'agent rend `exists: false` de l'autre
+côté, sans erreur.
+
+**Un chemin venu de HTTP est traité comme celui d'un modèle.** Il est vérifié
+avant tout accès au disque : relatif, sans `..`, `\` lu comme `/` (séparateur
+sous Windows, caractère sous POSIX), sans `.git`. Il est ensuite résolu et
+ouvert par `resolveUnderRoot` et `openUnderRoot`, les outils des agents. Un
+refus ne dit pas où mène un lien.
+
+**`.git`, jusque sur le chemin réel.** C'est ce que le test a trouvé. Un lien
+posé dans le worktree (`lien-git → .git`) mène sous la racine : `openUnderRoot`
+l'accepte, puisque la cible est sous la racine. Sans relire le chemin **réel**
+après l'ouverture, la route rendait le fichier `.git` du worktree, qui désigne
+le dépôt de l'utilisateur. L'agent ne peut pas poser ce lien avec ses outils,
+mais une commande approuvée le pourrait. La relecture est faite, et le test vu
+échouer sans elle. La règle vaut en toute casse : un système de fichiers
+insensible à la casse ouvre `.GIT/config`.
+
+**La version de départ, sans rien lancer.** Elle est lue par
+`git cat-file blob`, qui n'applique ni filtre ni `textconv`, à travers `git()`,
+qui neutralise les hooks. Sa taille est lue d'abord (`cat-file -s`) : un fichier
+trop gros n'est pas transféré.
+
+**Ce que le contenu ne rend pas.** Un binaire (un octet nul) et un fichier de
+plus de 1 Mo rendent leur taille, sans leur contenu (`binary`, `too_large`).
+L'arbre ne suit aucun lien, replie `node_modules` et ses pareils, et se coupe à
+5000 entrées en le disant (`truncated`).
+
+**Vérifié :**
+- `npm run typecheck` ;
+- 20 tests en HTTP sur un vrai daemon et un vrai dépôt
+  (`tests/unit/task-files.test.ts`) : un Developer modifie, crée et supprime ;
+  binaire et fichier trop gros ; dix chemins hostiles refusés dans les deux
+  versions ; un lien vers l'extérieur et un lien vers `.git` ; aucune méthode
+  d'écriture ;
+- le fichier est ajouté à `test:worktrees`. Sous Windows, les deux tests de
+  liens sautent en le disant : y créer un lien demande des droits
+  d'administrateur ;
+- les suites de bout en bout.
+
+**Pas encore là :** l'explorateur et l'éditeur qui s'en servent (étape 6).
 
