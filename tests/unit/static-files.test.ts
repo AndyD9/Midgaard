@@ -35,9 +35,15 @@ afterEach(() => rmSync(root, { recursive: true, force: true }))
  */
 function fakeResponse() {
   const captured = { status: 0, headers: {} as Record<string, string>, body: '' }
-  const res = new EventEmitter() as unknown as ServerResponse & { captured: typeof captured }
+  // Résolue à la fin de la réponse : attendre cela, et non un délai fixe. Trente
+  // millisecondes suffisaient sur un poste, pas sur un runner de CI chargé —
+  // le corps arrivait vide (passage 41647596699, Linux).
+  let ended!: () => void
+  const finished = new Promise<void>((r) => (ended = r))
+  const res = new EventEmitter() as unknown as ServerResponse & { captured: typeof captured; finished: Promise<void> }
   Object.assign(res, {
     captured,
+    finished,
     writableEnded: false,
     destroyed: false,
     writeHead(status: number, headers: Record<string, string>) {
@@ -48,6 +54,7 @@ function fakeResponse() {
     end(chunk?: string) {
       if (chunk) captured.body += chunk
       captured.status ||= 200
+      ended()
       return res
     },
     write(chunk: Buffer | string) {
@@ -61,11 +68,16 @@ function fakeResponse() {
   return res
 }
 
-/** Sert un chemin et rend la réponse, après avoir laissé le flux s'écouler. */
+/** Sert un chemin et rend la réponse, une fois qu'elle est **finie**. */
 async function serve(files: StaticFiles, path: string) {
   const res = fakeResponse()
   files.serve(path, res)
-  await new Promise((r) => setTimeout(r, 30))
+  // Borne de sécurité seulement : un `end` jamais appelé ferait échouer le test
+  // sur son assertion, pas le bloquer. Désarmée ensuite, sans quoi elle
+  // retiendrait le processus cinq secondes de plus.
+  let timer: NodeJS.Timeout | undefined
+  await Promise.race([res.finished, new Promise((r) => (timer = setTimeout(r, 5000)))])
+  clearTimeout(timer)
   return res.captured
 }
 
