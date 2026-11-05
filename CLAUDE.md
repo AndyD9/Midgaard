@@ -325,7 +325,8 @@ départ** (`daemon/src/mcp-sessions.ts`), tout ou rien, et un échec arrête la
 tâche avant tout appel de modèle. **L'empreinte se compare au catalogue
 annoncé au lancement**, pas à celui enregistré : un test qui redéclare le
 serveur ne le prouve pas (le catalogue enregistré est effacé), il faut un
-serveur mis à jour sur place. Étape 4 faite : `create_agent` (orchestrateur
+serveur mis à jour sur place. Étape 4 faite, verte en CI sur trois plateformes (passage `42016819429`) :
+`create_agent` (orchestrateur
 seulement, sans approbation, décision de l'auteur) crée un exécutant **pour
 son arbre** (`created_agents`, migration 13), résolu à partir de son profil de
 base par `TaskManager.agentFor` — mêmes outils, consigne du profil **puis** le

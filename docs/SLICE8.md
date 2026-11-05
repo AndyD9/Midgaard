@@ -10,7 +10,8 @@ agents à la volée** au lieu de piocher dans cinq profils figés.
 faite le même jour, verte en CI sur macOS, Linux et Windows (passage
 `42002800496`) ; étape 2 faite le même jour, verte en CI sur les trois plateformes (passage
 `42007433791`) ; étape 3 faite le même jour, verte en CI sur les trois plateformes (passage
-`42011901280`) ; étape 4 faite le même jour, verte sous macOS.
+`42011901280`) ; étape 4 faite le même jour, verte en CI sur les trois plateformes (passage
+`42016819429`).
 
 ---
 
@@ -166,7 +167,7 @@ ouvert.
 | 1 | Le paquet `mcp-client` : lancer un serveur stdio sous la garde, `initialize`, `tools/list`, `tools/call`, annulation, délai ; aucun processus survivant, `SIGKILL` du daemon compris ; éprouvé contre un faux serveur MCP de test | **fait** — 15 tests, vus échouer sans la garde et sans le groupe ; verts en CI sur trois plateformes |
 | 2 | La déclaration : migration (serveurs, outils cochés et leurs empreintes), `harness mcp add/list/test/allow/remove`, routes `/api/mcp`, « Tester la connexion » qui lit vraiment le catalogue | **fait** — migration 11, `PROTOCOL_VERSION` 14 ; deux défauts trouvés par la vraie CLI, réglés ; verte en CI sur trois plateformes |
 | 3 | Les outils MCP derrière `ToolContext.mcp` : noms préfixés, liste blanche à empreinte, approbation sur arguments exacts, encadrement, plafond, expurgation ; `mcp_servers` sur un profil ; `PROTOCOL_VERSION` | **fait** — migration 12, `PROTOCOL_VERSION` 15 ; un agent réel du daemon appelle un serveur MCP, vu échouer sur deux défauts introduits ; verte en CI sur trois plateformes |
-| 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | **fait** — migration 13, budget d'arbre ; trois défauts introduits vus échouer, un trou trouvé en écrivant ; CI à constater |
+| 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | **fait** — migration 13, budget d'arbre ; trois défauts introduits vus échouer, un trou trouvé en écrivant ; verte en CI sur trois plateformes |
 | 5 | Le dashboard : page « Serveurs MCP » (déclarer, tester, cocher), serveurs d'un profil, appels MCP dans le fil, agents créés et leur consigne dans l'arbre | à faire |
 | 6 | Preuves : `test:orchestrator` (création, délégation parallèle, outil MCP), `test:security` (outil non coché refusé sans atteindre le serveur, empreinte changée → plus libre, agent créé qui tente de dépasser son type, rien de non expurgé en base, aucun serveur vivant après `SIGKILL`), CI sur trois plateformes | à faire |
 | 7 | L'essai réel : un orchestrateur sur Venice crée deux agents de reverse sur REA et un Developer, analyse un binaire, rend une synthèse ; coût relevé | à faire |
@@ -410,5 +411,6 @@ contrôle d'arbre sauté au premier appel. Et dans `tests/unit/mcp-agents.test.t
 le **vrai moteur de l'orchestrateur** face au faux fournisseur : il crée un
 agent avec le serveur MCP du Researcher, lui délègue, et l'agent reçoit la
 consigne du profil, puis le rôle, puis les outils du serveur.
-`test:orchestrator`, `test:security` et `test:developer` restent verts.
+`test:orchestrator`, `test:security` et `test:developer` restent verts, et la
+CI (passage `42016819429`) passe ces scénarios sous macOS, Linux et Windows.
 
