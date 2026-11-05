@@ -6,9 +6,9 @@ navigateur** : ouvrir une page ou une application web, la regarder, cliquer,
 saisir. Le tout dans un navigateur que le daemon lance à part, sous des
 sessions que l'humain approuve et surveille en direct dans l'atelier.
 
-**État : en cours.** Étapes 1 à 6 faites (2026-11-03), étape 7 faite en local
+**État : en cours.** Étapes 1 à 6 faites (2026-11-03), étape 7 faite
 (2026-11-05) ; l'étape 1 constatée contre l'API réelle de Venice, les étapes 1
-à 6 en CI sur trois plateformes.
+à 7 en CI sur trois plateformes.
 
 ---
 
@@ -107,7 +107,7 @@ font rien ; le navigateur ensuite, qui agit.
 | 4 | Les outils et la session : `browser_open` (session approuvée), `browser_screenshot`, `browser_goto`, `browser_click`, `browser_scroll`, `browser_type` et Entrée (approuvés chacun), `browser_close` ; captures non fiables | **fait** |
 | 5 | Le profil `navigator` : consigne, outils, limites ; désactivé sans modèle à vision, avec son motif | **fait** — et le moteur, la coupure humaine et la fermeture avant conclusion, exercés dans un vrai daemon |
 | 6 | L'atelier : onglet « Navigateur » (dernière capture en direct, adresse, bouton « Couper la session »), l'image lue montrée dans le fil | **fait** — et la case « lit les images » aux Profils |
-| 7 | Preuves : unitaires, de bout en bout sur une page locale servie par le test, `test:security` (adresse privée depuis le navigateur, saisie sans approbation, aucun Chromium vivant après `SIGKILL`, aucune image en base), CI sur trois plateformes | **fait** en local — X7 à X9 ; un défaut IPv6 et un test de garde qui ne prouvait rien, réglés ; CI à constater |
+| 7 | Preuves : unitaires, de bout en bout sur une page locale servie par le test, `test:security` (adresse privée depuis le navigateur, saisie sans approbation, aucun Chromium vivant après `SIGKILL`, aucune image en base), CI sur trois plateformes | **fait** — X7 à X9, verts en CI sur trois plateformes ; un défaut IPv6 et un test de garde qui ne prouvait rien, réglés |
 | 8 | L'essai réel : un agent lit une maquette, puis navigue dans une application web, sous session approuvée, coût comparé à la facture | à faire |
 
 ### Ce que chaque étape doit surveiller
@@ -669,4 +669,9 @@ l'essai réel :
 - `npm run test:security` : 9 scénarios, X7 à X9 compris ;
 - chaque contre-épreuve du tableau, défaut en place puis retiré.
 
-*La CI sur trois plateformes reste à constater après la publication.*
+*Constaté en CI sur `5047060` : « Worktrees » (`41962836174`) et « Bout en
+bout » (`41962836162`) verts sous macOS, Linux et Windows, du premier coup.
+X7 à X9 passent sur les trois postes. Chromium est vu sous le daemon avant le
+`SIGKILL` (4 processus sous macOS et Windows, 6 sous Linux), et aucun ne
+survit. Sous Windows, il n'est pas figé avant : X9 n'y prouve que l'absence de
+survivant, et le dit.*

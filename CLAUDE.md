@@ -314,7 +314,7 @@ coupure humaine et Chromium compté compris. Étape 6 faite : l'onglet
 `GET /api/tasks/:id/browser/frame`, approbation au-dessus, « Couper la
 session »), l'image lue dans le fil (relue sur le disque, montrée seulement si
 son SHA-256 est celui journalisé), la case « lit les images » aux Profils
-(D14 dans `test:ui`). Étape 7 faite en local : X7 à X9 dans `test:security`
+(D14 dans `test:ui`). Étape 7 faite : X7 à X9 dans `test:security`, verts en CI sur trois plateformes
 (saisie et Entrée refusées n'atteignent pas la page, sept écritures d'adresses
 privées refusées, aucun Chromium après `SIGKILL` du daemon, aucune capture en
 base). Trouvé en chemin : un littéral IPv6 entre crochets était jugé comme un
