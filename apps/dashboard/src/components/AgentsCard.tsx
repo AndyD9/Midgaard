@@ -19,19 +19,28 @@
  * un profil qui a des outils d'image, quand le fournisseur ne publie pas la
  * capacité. Le catalogue du fournisseur, quand il la publie, l'emporte : la case
  * le dit, et le motif d'un Navigator refusé vient du daemon, qui l'a constaté.
+ *
+ * **Depuis la Slice 8**, les serveurs MCP d'un profil (`PUT /api/agents/:id/mcp`),
+ * pour le Researcher, le Developer et le Navigator — jamais l'orchestrateur, qui
+ * délègue à un profil qui en a.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Bot, Save } from 'lucide-react'
-import type { Agent, ProviderConfig } from '@midgaard/contracts'
-import { ApiError, fetchAgents, fetchProviders, updateAgent } from '@/lib/api'
+import type { Agent, McpServerView, ProviderConfig } from '@midgaard/contracts'
+import { ApiError, fetchAgents, fetchMcpServers, fetchProviders, setAgentMcp, updateAgent } from '@/lib/api'
 import { disabledReason } from '@/lib/agents'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import { Card, CardBody, CardHeader, CardTitle } from './ui/card'
 
+/** Types de profils qui reçoivent des outils MCP, comme `MCP_CAPABLE_KINDS` du daemon. */
+const MCP_KINDS = new Set(['researcher', 'developer', 'navigator'])
+
 interface Loaded {
   agents: Agent[]
   providers: ProviderConfig[]
+  /** Serveurs MCP déclarés ; vide si la liste n'a pas pu être lue. */
+  mcp: McpServerView[]
   pricing: { updated_at: string; models: number }
 }
 
@@ -44,9 +53,11 @@ export function AgentsCard({ editable = false }: { editable?: boolean }) {
 
   const load = useCallback(() => {
     let abandoned = false
-    Promise.all([fetchAgents(), fetchProviders()])
-      .then(([a, p]) => {
-        if (!abandoned) setData({ agents: a.agents, providers: p.providers, pricing: p.pricing })
+    // La liste MCP manquante ne doit pas faire disparaître la carte : c'est
+    // celle qui dit à un nouveau venu qu'aucun fournisseur n'est configuré.
+    Promise.all([fetchAgents(), fetchProviders(), fetchMcpServers().catch(() => ({ servers: [] }))])
+      .then(([a, p, m]) => {
+        if (!abandoned) setData({ agents: a.agents, providers: p.providers, pricing: p.pricing, mcp: m.servers })
       })
       .catch(() => {})
     return () => {
@@ -105,6 +116,13 @@ export function AgentsCard({ editable = false }: { editable?: boolean }) {
               )}
               {editable && agent.provider_id !== null && agent.tools.some((t) => t === 'read_image' || t.startsWith('browser_')) && (
                 <VisionEditor agent={agent} onSaved={load} />
+              )}
+              {editable && MCP_KINDS.has(agent.kind) && data.mcp.length > 0 ? (
+                <McpEditor agent={agent} servers={data.mcp} onSaved={load} />
+              ) : (
+                agent.mcp_servers.length > 0 && (
+                  <p className="text-xs text-muted">Serveurs MCP : {agent.mcp_servers.join(', ')}</p>
+                )
               )}
             </li>
           ))}
@@ -269,3 +287,48 @@ function VisionEditor({ agent, onSaved }: { agent: Agent; onSaved: () => void })
     </div>
   )
 }
+
+/**
+ * Les serveurs MCP d'un profil (Slice 8) : une case par serveur déclaré. Les
+ * agents du profil en reçoivent les outils à partir de la tâche suivante —
+ * libres s'ils sont cochés au serveur, approuvés à chaque appel sinon.
+ */
+function McpEditor({ agent, servers, onSaved }: { agent: Agent; servers: McpServerView[]; onSaved: () => void }) {
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function toggle(id: string, on: boolean): Promise<void> {
+    setSaving(true)
+    setMessage(null)
+    const next = on ? [...agent.mcp_servers, id] : agent.mcp_servers.filter((s) => s !== id)
+    try {
+      await setAgentMcp(agent.id, next)
+      setMessage({ ok: true, text: 'enregistré — vaut pour les tâches à venir' })
+      onSaved()
+    } catch (e) {
+      setMessage({ ok: false, text: e instanceof ApiError && e.reason ? e.reason : (e as Error).message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-xs" data-testid={`agent-mcp-${agent.id}`}>
+      <span className="text-muted">Serveurs MCP :</span>
+      {servers.map((s) => (
+        <label key={s.id} className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={agent.mcp_servers.includes(s.id)}
+            disabled={saving}
+            onChange={(e) => void toggle(s.id, e.target.checked)}
+            data-testid={`agent-mcp-${agent.id}-${s.id}`}
+          />
+          <span className="font-mono">{s.id}</span>
+        </label>
+      ))}
+      {message && <span className={message.ok ? 'text-done' : 'text-danger'}>{message.text}</span>}
+    </div>
+  )
+}
+

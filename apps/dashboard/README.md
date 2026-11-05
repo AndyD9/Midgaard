@@ -131,7 +131,9 @@ Deux niveaux, et le second a longtemps manqué :
   connexion se voient. Depuis la Slice 5 : le formulaire (D9), le choix du
   modèle (D10), et un orchestrateur lancé du formulaire jusqu'à son arbre
   (D11), sur un faux fournisseur. Depuis la Slice 7 : une page plus vieille
-  que son daemon se recharge, et pas une page à jour (D15 et D7). Il lui faut le dashboard compilé et
+  que son daemon se recharge, et pas une page à jour (D15 et D7). Depuis la
+  Slice 8 : les serveurs MCP aux Profils (D16) et l'exécutant créé par un
+  orchestrateur, avec son rôle (D17). Il lui faut le dashboard compilé et
   `npx playwright install chromium`, que `npm ci` ne fait pas.
 
 Ce que cette suite ne fait **pas** : comparer des pixels. Elle vérifie des
@@ -151,8 +153,10 @@ qu'une suite qui rougit à chaque retouche de style.
 | `components/Timeline.tsx` | Le journal, rendu lisible |
 | `components/NewTaskForm.tsx` | « Nouvelle tâche » : profils actifs seulement, dossier vérifié par le daemon |
 | `components/AgentsCard.tsx` | Exécutants ; en vue « Profils », fournisseur et modèle de chacun |
-| `components/SubtasksCard.tsx` | Sous-tâches d'un orchestrateur, total de l'arbre, plafond théorique |
-| `lib/tree.ts` | Arbre des tâches, total et provenance, plafond — fonctions pures |
+| `components/SubtasksCard.tsx` | Sous-tâches d'un orchestrateur, total et budget de l'arbre, agents créés et leur rôle |
+| `components/McpServersCard.tsx` | Serveurs MCP : test, catalogue, outils cochés (Slice 8) |
+| `lib/tree.ts` | Arbre des tâches, total et provenance, budget de l'arbre, agents créés — fonctions pures |
+| `lib/mcp.ts` | Noms d'outils MCP, proposition « lecture seule », avertissement — fonctions pures |
 | `lib/agents.ts` | Motif d'un profil désactivé — fonction pure |
 
 ## L'atelier (Slice 6)
@@ -234,4 +238,27 @@ pour lui passer une garde qui admet la page locale) et par
 `tests/unit/dashboard-workbench.test.ts`. Vu à l'écran : la demande
 d'approbation pousse la capture sous le pli ; il faut défiler pour la voir
 entière.
+
+## Les serveurs MCP et les agents créés (Slice 8)
+
+**Aux Profils**, la carte « Serveurs MCP » montre chaque serveur déclaré, son
+dernier test et son catalogue. On y **teste la connexion** (le daemon lance le
+serveur et relit ses outils) et on **coche** les outils libres. Cocher
+s'annonce et se confirme, avec le même avertissement que
+`harness mcp allow` : une autorisation durable, et un outil MCP n'est pas borné
+au projet. Décocher ne demande rien : c'est revenir à l'approbation. Un outil
+coché que le serveur annonce désormais autrement est montré **changé**, case
+vide. Chaque profil qui peut en recevoir (`researcher`, `developer`,
+`navigator`) a une case par serveur ; l'orchestrateur n'en a pas.
+
+**Ce qui ne se fait pas ici** : déclarer ou retirer un serveur. C'est un
+programme que le daemon lancera ; la CLI le résout par le `PATH` du terminal,
+rend absolus ses arguments-fichiers et saisit une valeur secrète sans écho. La
+carte donne les commandes.
+
+**Dans les appels d'outils**, un appel MCP porte le nom de son serveur. **Dans
+la carte « Sous-tâches »**, le budget de l'arbre — depuis la Slice 8, le
+`max_cost_usd` de l'orchestrateur couvre ses sous-tâches — et les agents qu'il
+a créés, lus dans son journal (`agent.created`), **avec le rôle** qu'il leur a
+donné : c'est là que l'humain le relit.
 

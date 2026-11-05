@@ -1,21 +1,26 @@
 /**
  * @file Les sous-tâches d'un orchestrateur (Slice 5) : ce qu'il a délégué, à
- * qui, ce que chacune a coûté, et ce que coûte l'arbre entier.
+ * qui, ce que chacune a coûté, ce que coûte l'arbre entier — et, depuis la
+ * Slice 8, les exécutants qu'il a créés.
  *
- * **Deux chiffres, et aucun n'est un budget d'arbre.** Les budgets sont séparés
- * — chaque tâche compte ses propres appels —, donc l'arbre n'a pas de plafond
- * en dollars. Il en a un en nombre : l'orchestrateur ne peut pas lancer plus de
- * `max_steps × max_tool_calls_per_step` sous-tâches. La carte montre ce
- * **plafond théorique**, et le **total** réellement dépensé, avec la plus faible
- * des provenances de ses termes (`treeTotal`) : aucun montant sans sa provenance.
+ * **Le budget de l'arbre** (Slice 8) : le `max_cost_usd` de l'orchestrateur
+ * couvre ses appels et ceux de chaque sous-tâche (`treeBudget`). La carte le
+ * montre à côté du **total** réellement dépensé, avec la plus faible des
+ * provenances de ses termes (`treeTotal`) : aucun montant sans sa provenance.
+ * Le **plafond théorique** en nombre de sous-tâches reste affiché.
+ *
+ * **Les agents créés** sont lus dans le journal de l'orchestrateur
+ * (`agent.created`) : nom, profil de base, modèle, serveurs MCP, et le **rôle**
+ * qu'il a écrit — ajouté à la consigne du profil. C'est ici que l'humain le
+ * relit (docs/SLICE8.md, décision 14).
  *
  * La sous-tâche que l'orchestrateur attend est désignée, d'après le dernier
  * `subtask.waiting` de sa timeline : son statut à lui reste `running`, et sans
  * cela on ne saurait pas ce qui le retient.
  */
-import { GitBranch, Hourglass, Network } from 'lucide-react'
+import { GitBranch, Hourglass, Network, UserPlus } from 'lucide-react'
 import type { Task, TaskEvent, Usage } from '@midgaard/contracts'
-import { subtaskCeiling, subtasksOf, treeTotal } from '@/lib/tree'
+import { createdAgents, subtaskCeiling, subtasksOf, treeBudget, treeTotal } from '@/lib/tree'
 import { formatCost } from '@/lib/utils'
 import { Badge, toneForStatus, type BadgeTone } from './ui/badge'
 import { Card, CardBody, CardHeader, CardTitle } from './ui/card'
@@ -47,6 +52,8 @@ export function SubtasksCard({
   if (children.length === 0 && task.agent_id !== 'orchestrator') return null
 
   const total = treeTotal([task, ...children])
+  const budget = treeBudget(task, children)
+  const created = createdAgents(events)
   const waitingOn = [...(events ?? [])].reverse().find((e) => e.type === 'subtask.waiting')?.payload.task_id
   const awaited = children.find((c) => c.id === waitingOn && !ENDED.has(c.status)) ?? null
 
@@ -73,10 +80,32 @@ export function SubtasksCard({
             <span className="text-muted">aucun appel de modèle encore</span>
           )}
         </div>
-        <p className="text-xs text-muted">
-          Chaque tâche a son propre budget : l'arbre n'a pas de plafond en dollars, seulement en nombre de
-          sous-tâches.
+        <p className="text-xs text-muted" data-testid="subtasks-budget">
+          Budget de l'arbre : {formatCost(budget.spent)} sur {formatCost(budget.limit)} — l'orchestrateur et ses
+          sous-tâches ensemble ; atteint, tout s'arrête.
+          {budget.unknown > 0 && ` ${budget.unknown} tâche(s) au coût inconnu ne sont pas comptées.`}
         </p>
+
+        {created.length > 0 && (
+          <ul className="space-y-2 rounded-md border border-border px-3 py-2" data-testid="created-agents">
+            {created.map((a) => (
+              <li key={a.agent_id} className="space-y-1" data-testid={`created-agent-${a.agent_id}`}>
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <UserPlus className="size-3 text-muted" />
+                  <span className="font-medium">{a.name}</span>
+                  <span className="font-mono text-muted">{a.agent_id}</span>
+                  <Badge tone="neutral">{a.base}</Badge>
+                  <span className="text-muted">{a.model ?? 'modèle du profil'}</span>
+                  {a.mcp_servers.length > 0 && <span className="text-muted">· MCP : {a.mcp_servers.join(', ')}</span>}
+                </div>
+                <p className="text-xs whitespace-pre-wrap text-muted">
+                  <span className="text-ink">Rôle donné par l'orchestrateur</span>, ajouté à la consigne du profil :{' '}
+                  {a.role}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
 
         {children.length > 0 && (
           <ul className="divide-y divide-border rounded-md border border-border" data-testid="subtasks-list">

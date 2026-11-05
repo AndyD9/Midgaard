@@ -51,7 +51,14 @@
  *    jamais, et la vraie refuse la boucle locale ;
  *  - D15 une page plus vieille que son daemon **se recharge** : remplacé par
  *    un daemon qui sert un autre bundle, l'ancien code ne tourne pas contre
- *    lui. C'est ce qui laissait vide la fenêtre desktop (Slice 7).
+ *    lui. C'est ce qui laissait vide la fenêtre desktop (Slice 7) ;
+ *  - D16 les serveurs MCP aux Profils (Slice 8) : « Tester la connexion »
+ *    relit le vrai catalogue, cocher demande confirmation et rend l'outil
+ *    libre **en base**, décocher le rend approuvé, et un serveur se donne au
+ *    Researcher — jamais proposé à l'orchestrateur ;
+ *  - D17 un orchestrateur crée un exécutant (Slice 8) : la carte
+ *    « Sous-tâches » montre l'agent créé **avec son rôle**, et le budget de
+ *    l'arbre.
  *
  * Playwright est employé en **bibliothèque**, pas en lanceur : les suites de ce
  * dépôt ont leur forme (`scenario`, `summarize`, verdicts), et ajouter un second
@@ -77,6 +84,7 @@ import { cpSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, write
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startFakeProvider } from './fake-provider.ts'
+import { fileURLToPath } from 'node:url'
 import { childEnv, nodeArgsFor, running, scenario, summarize, tempHome, type Outcome } from './helpers.ts'
 
 /** Durée d'une tâche simulée : 5 étapes, donc 2 s par étape. Assez lent pour se voir. */
@@ -864,6 +872,106 @@ await scenario(outcomes, 'D14 l’atelier montre ce que voit un Navigator, et l�
 })
 
 // --- D7 (en dernier : il tue le daemon) --------------------------------------
+
+// --- D16 ---------------------------------------------------------------------
+
+/** Le faux serveur MCP des tests, lancé par le daemon. */
+const FAKE_MCP = fileURLToPath(new URL('./fake-mcp-server.ts', import.meta.url))
+
+await scenario(outcomes, 'D16 les serveurs MCP aux Profils : test, outils cochés, serveur d’un profil', async () => {
+  const declared = await daemonJson(rt, '/api/mcp', {
+    method: 'POST',
+    body: JSON.stringify({ id: 'fake', command: process.execPath, args: [FAKE_MCP] }),
+  })
+  if (declared.status !== 200) return { verdict: 'FAIL', detail: `déclaration refusée : ${JSON.stringify(declared.body)}` }
+  await page.goto(`${rt.dashboard_url}#/agents`, { waitUntil: 'domcontentloaded' })
+  const server = page.getByTestId('mcp-server-fake')
+  await server.waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+  if (!/jamais testé/.test((await page.getByTestId('mcp-test-badge-fake').textContent()) ?? '')) {
+    return { verdict: 'FAIL', detail: 'un serveur jamais testé n’est pas dit tel' }
+  }
+
+  await page.getByTestId('mcp-test-fake').click()
+  if (!(await until(async () => /répond/.test((await page.getByTestId('mcp-test-badge-fake').textContent()) ?? '')))) {
+    return { verdict: 'FAIL', detail: `test sans succès : ${await page.getByTestId('mcp-server-fake').textContent()}` }
+  }
+  await page.getByTestId('mcp-tool-echo').waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+
+  // Cocher demande confirmation, avec l'avertissement : on l'accepte, et on le lit.
+  let warning = ''
+  page.once('dialog', (d) => {
+    warning = d.message()
+    void d.accept()
+  })
+  await page.getByTestId('mcp-allow-readonly-fake').click()
+  const allowed = async () =>
+    (await daemonJson<{ server: { tools: { name: string; status: string }[] } }>(rt, '/api/mcp/fake')).body.server.tools.find(
+      (t) => t.name === 'echo',
+    )?.status
+  if (!(await until(async () => (await allowed()) === 'allowed'))) return { verdict: 'FAIL', detail: 'echo non coché en base' }
+  if (!/SANS APPROBATION/.test(warning)) return { verdict: 'FAIL', detail: `confirmation sans l’avertissement : « ${warning} »` }
+  // La case suit la réponse de l'API, qui arrive après l'écriture en base : on l'attend.
+  if (!(await until(() => page.getByTestId('mcp-tool-check-echo').isChecked()))) {
+    return { verdict: 'FAIL', detail: 'la case ne montre pas echo libre' }
+  }
+
+  // Décocher : sans confirmation, et l'outil redevient approuvé.
+  await page.getByTestId('mcp-tool-check-echo').click()
+  if (!(await until(async () => (await allowed()) === 'approval'))) return { verdict: 'FAIL', detail: 'echo toujours libre en base' }
+
+  // Le serveur se donne au Researcher ; l'orchestrateur n'a pas de case.
+  await page.getByTestId('agent-mcp-researcher-fake').click()
+  const attached = async () => (await daemonJson<{ agent: Agent }>(rt, '/api/agents/researcher')).body.agent.mcp_servers
+  if (!(await until(async () => (await attached()).includes('fake')))) return { verdict: 'FAIL', detail: 'serveur non donné au Researcher' }
+  if ((await page.getByTestId('agent-mcp-orchestrator').count()) !== 0) {
+    return { verdict: 'FAIL', detail: 'l’orchestrateur se voit proposer des serveurs MCP' }
+  }
+  // Rendu au profil sans serveur, pour les scénarios suivants.
+  await daemonJson(rt, '/api/agents/researcher/mcp', { method: 'PUT', body: JSON.stringify({ servers: [] }) })
+  return { verdict: 'PASS', detail: 'test relu, echo coché après avertissement puis décoché, serveur donné au Researcher, pas à l’orchestrateur' }
+})
+
+// --- D17 ---------------------------------------------------------------------
+
+await scenario(outcomes, 'D17 un orchestrateur crée un exécutant : son rôle et le budget de l’arbre', async () => {
+  const provider = await startFakeProvider()
+  const repo = realpathSync.native(mkdtempSync(join(tmpdir(), 'midgaard-ui-cree-')))
+  try {
+    await daemonJson(rt, '/api/providers', {
+      method: 'POST',
+      body: JSON.stringify({ id: 'faux', preset: 'custom', base_url: provider.url, default_model: 'faux-1', api_key: 'sk-faux-0000' }),
+    })
+    const role = 'Lis le README et résume-le en une phrase.'
+    provider.scripts.set('[D17]', [
+      [{ tool: 'create_agent', args: { name: 'Lecteur', base: 'researcher', role } }],
+      [{ tool: 'delegate_task', args: { agent_id: '{{agent_id}}', objective: '[D17-enfant] lis le README' } }],
+      [{ tool: 'wait_for_task', args: { task_id: '{{task_id}}' } }],
+      [{ tool: 'submit_result', args: { summary: 'délégué à un exécutant créé' } }],
+    ])
+    provider.scripts.set('[D17-enfant]', [[{ tool: 'submit_result', args: { summary: 'Projet' } }]])
+    const created = await daemonJson<{ task: Task }>(rt, '/api/tasks', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: 'orchestrator', objective: '[D17] crée un lecteur', project_dir: repo }),
+    })
+    if (created.status !== 201) return { verdict: 'FAIL', detail: `orchestrateur refusé : ${JSON.stringify(created.body)}` }
+    const parentId = created.body.task.id
+    if (!(await until(async () => (await taskNow(parentId)).status === 'completed'))) {
+      const t = await taskNow(parentId)
+      return { verdict: 'FAIL', detail: `orchestrateur non terminé : ${t.status} — ${t.error}` }
+    }
+    await page.goto(`${rt.dashboard_url}#/tasks/${parentId}`, { waitUntil: 'domcontentloaded' })
+    const list = page.getByTestId('created-agents')
+    await list.waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+    const shown = (await list.textContent()) ?? ''
+    if (!shown.includes('Lecteur') || !shown.includes(role)) return { verdict: 'FAIL', detail: `agent créé sans son nom ou son rôle : « ${shown} »` }
+    const budget = (await page.getByTestId('subtasks-budget').textContent()) ?? ''
+    if (!/Budget de l'arbre/.test(budget)) return { verdict: 'FAIL', detail: `budget de l’arbre absent : « ${budget} »` }
+    return { verdict: 'PASS', detail: `exécutant « Lecteur » créé et montré avec son rôle ; ${budget.trim().slice(0, 60)}…` }
+  } finally {
+    provider.server.close()
+    rmSync(repo, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+  }
+})
 
 await scenario(outcomes, 'D7 la perte de la WebSocket se voit, et le retour aussi', async () => {
   if (!daemon?.pid) return { verdict: 'FAIL', detail: 'pas de daemon à arrêter' }

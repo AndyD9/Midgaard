@@ -7,11 +7,15 @@
  * Les arguments affichés sont ceux **expurgés** par le harness avant
  * persistance : si une clé avait traversé un outil, elle n'est ni en base ni
  * ici.
+ *
+ * Un appel à un outil d'un serveur MCP (Slice 8) porte le nom du serveur : son
+ * résultat est toujours non fiable, et l'humain doit savoir d'où il vient.
  */
 import { useEffect, useState } from 'react'
 import { ChevronRight, Wrench } from 'lucide-react'
 import type { ToolCall, ToolCallStatus } from '@midgaard/contracts'
 import { fetchToolCalls } from '@/lib/api'
+import { splitMcpName } from '@/lib/mcp'
 import { Badge, type BadgeTone } from './ui/badge'
 import { Card, CardBody, CardHeader, CardTitle } from './ui/card'
 
@@ -62,6 +66,11 @@ export function ToolCalls({ taskId, version }: { taskId: string; version: number
             <li key={call.id} className="px-4 py-2.5">
               <div className="flex items-center gap-2">
                 <span className="font-mono text-sm">{call.name}</span>
+                {splitMcpName(call.name) && (
+                  <Badge tone="neutral" data-testid={`tool-call-mcp-${call.id}`}>
+                    MCP · {splitMcpName(call.name)!.server}
+                  </Badge>
+                )}
                 <Badge tone={TONE[call.status]}>{call.status}</Badge>
                 {call.decision !== 'allow' && <Badge tone="waiting">{call.decision}</Badge>}
                 <span className="ml-auto font-mono text-[11px] text-muted">

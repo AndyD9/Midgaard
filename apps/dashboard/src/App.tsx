@@ -31,6 +31,7 @@ import type { Task } from '@midgaard/contracts'
 import { useHarness } from '@/lib/useHarness'
 import { speaker } from '@/lib/thread'
 import { cn } from '@/lib/utils'
+import { McpServersCard } from './components/McpServersCard'
 import { AgentsCard } from './components/AgentsCard'
 import { BrowserPanel, browserSources } from './components/BrowserPanel'
 import { ChatPanel } from './components/ChatPanel'
@@ -316,8 +317,9 @@ export function App() {
                 {view.kind === 'new' ? (
                   <NewTaskForm onCreated={select} />
                 ) : view.kind === 'agents' ? (
-                  <div className="mx-auto max-w-2xl">
+                  <div className="mx-auto max-w-2xl space-y-4">
                     <AgentsCard editable />
+                    <McpServersCard />
                   </div>
                 ) : task ? (
                   <TaskInspector

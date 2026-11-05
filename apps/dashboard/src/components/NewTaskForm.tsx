@@ -157,11 +157,13 @@ export function NewTaskForm({ onCreated }: { onCreated: (taskId: string) => void
                 {selected.limits.timeout_s} s — limites du profil
               </p>
               {selected.kind === 'orchestrator' && (
-                // Les budgets sont séparés : le plafond de l'arbre n'est pas un
-                // montant, c'est un nombre de sous-tâches. On le dit tel quel.
+                // Depuis la Slice 8, le budget de l'orchestrateur couvre tout
+                // son arbre : on le dit avant le lancement, avec le plafond en
+                // nombre, qui reste.
                 <p data-testid="new-task-ceiling">
-                  Ce budget ne couvre que l'orchestrateur. Il peut lancer jusqu'à {subtaskCeiling(selected)}{' '}
-                  sous-tâches, chacune sous les limites de son propre profil.
+                  Ce budget couvre tout l'arbre : l'orchestrateur et chacune de ses sous-tâches. Il peut lancer
+                  jusqu'à {subtaskCeiling(selected)} sous-tâches, et créer ses propres exécutants à partir des
+                  profils, sans jamais dépasser leurs limites.
                 </p>
               )}
             </div>

@@ -11,7 +11,7 @@ faite le même jour, verte en CI sur macOS, Linux et Windows (passage
 `42002800496`) ; étape 2 faite le même jour, verte en CI sur les trois plateformes (passage
 `42007433791`) ; étape 3 faite le même jour, verte en CI sur les trois plateformes (passage
 `42011901280`) ; étape 4 faite le même jour, verte en CI sur les trois plateformes (passage
-`42016819429`).
+`42016819429`) ; étape 5 faite le même jour, verte sous macOS.
 
 ---
 
@@ -168,7 +168,7 @@ ouvert.
 | 2 | La déclaration : migration (serveurs, outils cochés et leurs empreintes), `harness mcp add/list/test/allow/remove`, routes `/api/mcp`, « Tester la connexion » qui lit vraiment le catalogue | **fait** — migration 11, `PROTOCOL_VERSION` 14 ; deux défauts trouvés par la vraie CLI, réglés ; verte en CI sur trois plateformes |
 | 3 | Les outils MCP derrière `ToolContext.mcp` : noms préfixés, liste blanche à empreinte, approbation sur arguments exacts, encadrement, plafond, expurgation ; `mcp_servers` sur un profil ; `PROTOCOL_VERSION` | **fait** — migration 12, `PROTOCOL_VERSION` 15 ; un agent réel du daemon appelle un serveur MCP, vu échouer sur deux défauts introduits ; verte en CI sur trois plateformes |
 | 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | **fait** — migration 13, budget d'arbre ; trois défauts introduits vus échouer, un trou trouvé en écrivant ; verte en CI sur trois plateformes |
-| 5 | Le dashboard : page « Serveurs MCP » (déclarer, tester, cocher), serveurs d'un profil, appels MCP dans le fil, agents créés et leur consigne dans l'arbre | à faire |
+| 5 | Le dashboard : page « Serveurs MCP » (déclarer, tester, cocher), serveurs d'un profil, appels MCP dans le fil, agents créés et leur consigne dans l'arbre | **fait** — la déclaration reste à la CLI ; D16 et D17 dans `test:ui` ; vu dans le navigateur ; CI à constater |
 | 6 | Preuves : `test:orchestrator` (création, délégation parallèle, outil MCP), `test:security` (outil non coché refusé sans atteindre le serveur, empreinte changée → plus libre, agent créé qui tente de dépasser son type, rien de non expurgé en base, aucun serveur vivant après `SIGKILL`), CI sur trois plateformes | à faire |
 | 7 | L'essai réel : un orchestrateur sur Venice crée deux agents de reverse sur REA et un Developer, analyse un binaire, rend une synthèse ; coût relevé | à faire |
 
@@ -413,4 +413,39 @@ agent avec le serveur MCP du Researcher, lui délègue, et l'agent reçoit la
 consigne du profil, puis le rôle, puis les outils du serveur.
 `test:orchestrator`, `test:security` et `test:developer` restent verts, et la
 CI (passage `42016819429`) passe ces scénarios sous macOS, Linux et Windows.
+
+### Étape 5 — l'atelier montre les serveurs MCP et les agents créés (2026-11-05)
+
+**Aux Profils**, une carte « Serveurs MCP » (`McpServersCard`) : chaque
+serveur, son dernier test, son catalogue ; « Tester la connexion » ; une case
+par outil, cochée s'il est libre. Cocher passe par une confirmation qui porte
+**le même avertissement que la CLI** ; décocher, non. « Cocher les outils de
+lecture » propose ce que propose `mcp allow --read-only`, et le test vérifie
+que les deux fonctions disent la même chose. Chaque profil qui peut recevoir
+des outils MCP a une case par serveur (`PUT /api/agents/:id/mcp`).
+
+**Dans la carte « Sous-tâches »**, deux choses de l'étape 4 qui ne se
+voyaient pas : le **budget de l'arbre** — la carte affirmait encore « l'arbre
+n'a pas de plafond en dollars », faux depuis l'étape 4, et le formulaire
+« Nouvelle tâche » disait « ce budget ne couvre que l'orchestrateur » ; les
+deux sont corrigés — et les **agents créés**, lus dans le journal de
+l'orchestrateur, **avec leur rôle**. Un appel d'outil MCP porte le nom de son
+serveur dans la liste des appels.
+
+**Ce qui a été tranché** : **la déclaration d'un serveur reste à la CLI**
+(décision 1 la permettait aux deux). Déclarer, c'est désigner un programme que
+le daemon lancera : la CLI le résout par le `PATH` du terminal, rend absolus
+les arguments-fichiers (le défaut de l'étape 2) et saisit une valeur secrète
+sans écho ; un formulaire devrait refaire les trois, moins bien. La carte
+donne les commandes exactes.
+
+**Les preuves.** `tests/unit/dashboard-mcp.test.ts` (fonctions pures : noms
+MCP, proposition « lecture seule » comparée à celle de la CLI, budget de
+l'arbre, agents lus dans le journal). Dans `test:ui`, D16 — test relu, outil
+coché après avertissement **et constaté en base**, décoché, serveur donné au
+Researcher, aucune case pour l'orchestrateur — et D17 — un orchestrateur crée
+un exécutant, la carte le montre avec son rôle et le budget de l'arbre. Le
+premier jet de D16 lisait la case juste après la base, avant la réponse de
+l'API : une course du test, pas du dashboard. Vu enfin dans le navigateur
+intégré, sur un daemon jetable : carte, catalogue, case du Researcher.
 

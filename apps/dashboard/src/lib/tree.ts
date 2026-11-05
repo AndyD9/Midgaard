@@ -6,7 +6,7 @@
  * qui pourraient mentir à l'écran — l'ordre de la liste, et le total d'un arbre
  * avec sa provenance.
  */
-import type { Task, Usage } from '@midgaard/contracts'
+import type { Task, TaskEvent, Usage } from '@midgaard/contracts'
 
 /** Une ligne de la liste : la tâche, sa profondeur, et combien d'enfants elle a. */
 export interface TreeRow {
@@ -88,8 +88,61 @@ export function treeTotal(tasks: readonly Task[]): { cost_usd: number; cost_sour
 /**
  * Plafond théorique de sous-tâches d'un orchestrateur : il ne peut pas en
  * lancer plus d'une par appel d'outil, ni plus d'appels que ses étapes n'en
- * permettent. C'est la seule borne de l'arbre, les budgets étant séparés.
+ * permettent. Depuis la Slice 8, ce n'est plus la seule borne : le budget de
+ * l'orchestrateur couvre tout l'arbre ({@link treeBudget}), et le nombre de
+ * sous-tâches actives en même temps est plafonné par le daemon.
  */
 export function subtaskCeiling(task: Pick<Task, 'limits'>): number {
   return task.limits.max_steps * task.limits.max_tool_calls_per_step
 }
+
+/**
+ * Le budget de l'arbre (Slice 8) : le `max_cost_usd` de l'orchestrateur couvre
+ * ses appels et ceux de chaque sous-tâche. Seuls les montants **connus**
+ * comptent, comme dans le daemon (`TaskManager.treeBudget`) : un coût inconnu
+ * n'est pas zéro, il n'entre pas dans la somme — et le nombre de tâches
+ * écartées le dit.
+ *
+ * @returns le plafond, ce qui est dépensé, et combien de tâches ont un coût inconnu
+ */
+export function treeBudget(
+  parent: Task,
+  children: readonly Task[],
+): { limit: number; spent: number; unknown: number } {
+  const measured = [parent, ...children].filter((t) => t.usage.model_calls > 0)
+  return {
+    limit: parent.limits.max_cost_usd,
+    spent: measured.filter((t) => t.usage.cost_source !== 'unknown').reduce((sum, t) => sum + t.usage.cost_usd, 0),
+    unknown: measured.filter((t) => t.usage.cost_source === 'unknown').length,
+  }
+}
+
+/** Un agent créé par l'orchestrateur, tel que son journal le raconte. */
+export interface CreatedAgentView {
+  agent_id: string
+  name: string
+  base: string
+  model: string | null
+  mcp_servers: string[]
+  /** Le rôle écrit par l'orchestrateur, **ajouté** à la consigne du profil. */
+  role: string
+}
+
+/**
+ * Les agents qu'un orchestrateur a créés, lus dans son journal
+ * (`agent.created`, Slice 8). Le journal suffit : c'est lui que l'humain doit
+ * pouvoir relire, et il porte le rôle tel qu'il a été enregistré.
+ */
+export function createdAgents(events: readonly TaskEvent[] | undefined): CreatedAgentView[] {
+  return (events ?? [])
+    .filter((e) => e.type === 'agent.created')
+    .map((e) => ({
+      agent_id: String(e.payload.agent_id),
+      name: String(e.payload.name),
+      base: String(e.payload.base_agent_id),
+      model: typeof e.payload.model === 'string' ? e.payload.model : null,
+      mcp_servers: Array.isArray(e.payload.mcp_servers) ? e.payload.mcp_servers.map(String) : [],
+      role: String(e.payload.role ?? ''),
+    }))
+}
+

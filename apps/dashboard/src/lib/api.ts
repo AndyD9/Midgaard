@@ -18,6 +18,8 @@ import type {
   FileContentResponse,
   FileTreeResponse,
   Health,
+  McpServerResponse,
+  McpServersResponse,
   ProviderConfig,
   Task,
   TaskEvent,
@@ -195,6 +197,34 @@ export function createTask(
 /** Règle le fournisseur et le modèle d'un profil — jamais ses limites, que l'API refuse de toucher. */
 export function updateAgent(agentId: string, request: UpdateAgentRequest): Promise<{ agent: Agent }> {
   return api(`/api/agents/${encodeURIComponent(agentId)}`, { method: 'PATCH', body: JSON.stringify(request) })
+}
+
+/** Les serveurs MCP déclarés, avec leur catalogue annoté (Slice 8). Aucun secret : seulement des noms. */
+export function fetchMcpServers(): Promise<McpServersResponse> {
+  return api('/api/mcp')
+}
+
+/**
+ * « Tester la connexion » : le daemon lance le serveur, lit son catalogue et
+ * l'arrête. Peut durer jusqu'au délai de la poignée de main (30 s).
+ */
+export function testMcpServer(id: string): Promise<McpServerResponse> {
+  return api(`/api/mcp/${encodeURIComponent(id)}/test`, { method: 'POST' })
+}
+
+/** Coche des outils du catalogue constaté : ils seront appelés sans approbation. */
+export function allowMcpTools(id: string, tools: string[]): Promise<McpServerResponse> {
+  return api(`/api/mcp/${encodeURIComponent(id)}/allow`, { method: 'POST', body: JSON.stringify({ tools, by: 'dashboard' }) })
+}
+
+/** Décoche des outils : chaque appel attendra de nouveau un humain. */
+export function revokeMcpTools(id: string, tools: string[]): Promise<McpServerResponse> {
+  return api(`/api/mcp/${encodeURIComponent(id)}/revoke`, { method: 'POST', body: JSON.stringify({ tools, by: 'dashboard' }) })
+}
+
+/** Les serveurs MCP d'un profil, liste complète (`PUT /api/agents/:id/mcp`). */
+export function setAgentMcp(agentId: string, servers: string[]): Promise<{ agent: Agent }> {
+  return api(`/api/agents/${encodeURIComponent(agentId)}/mcp`, { method: 'PUT', body: JSON.stringify({ servers }) })
 }
 
 /**
