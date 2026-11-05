@@ -67,6 +67,7 @@ import {
   toolSpecs,
   ToolError,
   type PreparedOperation,
+  type Tool,
   type ToolContext,
 } from '@midgaard/tools'
 import { budgetIsEnforceable, checkLimits, formatUsd, type StopReason } from './budget.ts'
@@ -200,6 +201,13 @@ export interface LoopInput {
   mode?: TaskMode | undefined
   /** Vrai si la tâche a un parent à qui poser une question (`ask_parent`). */
   delegated?: boolean | undefined
+  /**
+   * Outils construits pour **cette** tâche, en plus de ceux du profil : ceux de
+   * ses serveurs MCP (Slice 8). Ils sont autorisés parce que le daemon les a
+   * construits à partir des serveurs du profil, pas parce que le modèle les
+   * nomme.
+   */
+  extraTools?: readonly Tool<never>[] | undefined
 }
 
 /** Ce que rend une boucle terminée. */
@@ -272,7 +280,7 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
   const tree = await workspaceTree(tools.root)
   // Les outils du profil, moins l'interrupteur de recherche web qui n'est pas
   // une fonction appelable (voir `WEB_SEARCH_IS_NOT_A_TOOL`).
-  const specs = toolSpecs(input.agent.tools)
+  const specs = toolSpecs(input.agent.tools, input.extraTools ?? [])
   const webSearch = input.agent.tools.includes('web_search') && input.adapter.supportsWebSearch
 
   const messages: Message[] = buildMessages({
@@ -700,8 +708,9 @@ async function runOneTool(
 
   // 1. L'outil est-il dans le profil ? Un outil hors profil n'est pas
   //    négociable : pas d'approbation, un refus.
-  const tool = findTool(call.name)
-  if (!tool || !input.agent.tools.includes(call.name)) {
+  const extra = input.extraTools?.find((t) => t.name === call.name)
+  const tool = extra ?? (input.agent.tools.includes(call.name) ? findTool(call.name) : undefined)
+  if (!tool) {
     const id = input.hooks.onToolRequested({
       step, callId: call.id, name: call.name, decision: 'deny', status: 'denied',
       argumentsJson: input.redact(call.argumentsJson).slice(0, 4000),

@@ -46,7 +46,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
 | `npm run harness -- workspaces` | Worktrees : `remove`, `clean` — la branche reste toujours |
 | `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme), `revoke` |
-| `npm run harness -- mcp` | Serveurs MCP : `add` (programme résolu, testé dans la foulée), `test`, `tools`, `allow` (avertit, confirme), `revoke`, `remove` |
+| `npm run harness -- mcp` | Serveurs MCP : `add` (programme résolu, testé dans la foulée), `test`, `tools`, `allow` (avertit, confirme), `revoke`, `remove`, `attach`/`detach` (à un profil) |
 | `npm run test:unit` | ~15 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git), navigateur (vrai Chromium), client MCP (vrai serveur stdio, processus comptés) |
 | `npm run test:vault` | ~1 s — les coffres seuls, sur le coffre réel de la machine |
 | `npm run test:worktrees` | ~8 s — worktrees, écriture et `exec` seuls, sortie en direct et lecture des fichiers d'une tâche comprises (rejoués en CI sur trois plateformes) |
@@ -310,6 +310,15 @@ redéclarer efface le catalogue, et un outil annoncé autrement devient
 (`mcp.<empreinte>.<serveur>.<nom>`). La CLI résout le programme **et rend
 absolus les arguments-fichiers** : la vraie CLI a montré que `node
 tests/fake-mcp-server.ts`, déclaré tel quel, ne trouvait pas son script.
+Étape 3 faite : un profil porte `mcp_servers` (migration 12,
+`PUT /api/agents/:id/mcp`, `PROTOCOL_VERSION` 15 ; jamais l'orchestrateur).
+Les outils `<serveur>__<outil>` sont **construits pour chaque tâche**
+(`tools/src/mcp.ts`, `LoopInput.extraTools`) ; ses serveurs démarrent **au
+départ** (`daemon/src/mcp-sessions.ts`), tout ou rien, et un échec arrête la
+tâche avant tout appel de modèle. **L'empreinte se compare au catalogue
+annoncé au lancement**, pas à celui enregistré : un test qui redéclare le
+serveur ne le prouve pas (le catalogue enregistré est effacé), il faut un
+serveur mis à jour sur place.
 
 ## Slice 7 terminée — les agents voient
 

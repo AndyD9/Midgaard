@@ -155,6 +155,13 @@ export const agentSchema = z.object({
    */
   vision: z.boolean().nullable(),
   /**
+   * Serveurs MCP dont les agents de ce profil reçoivent les outils (Slice 8),
+   * par identifiant. Posés par l'humain (`PUT /api/agents/:id/mcp`), jamais par
+   * un agent ; vides pour l'orchestrateur, qui délègue à un profil qui les a
+   * au lieu de les appeler (docs/SLICE8.md, décision 11).
+   */
+  mcp_servers: z.array(z.string()),
+  /**
    * Pourquoi le profil ne peut pas recevoir de tâche, calculé par le daemon à
    * la lecture (Slice 7) ; `null` s'il le peut. Absent d'un profil lu en base :
    * ce n'est pas une colonne. Un profil peut être activé et refusé quand même —
@@ -226,3 +233,14 @@ export const updateAgentRequestSchema = z
     message: 'provider_id, model ou vision est requis',
   })
 export type UpdateAgentRequest = z.infer<typeof updateAgentRequestSchema>
+
+/**
+ * Corps de `PUT /api/agents/:id/mcp` : la liste **complète** des serveurs MCP
+ * d'un profil (Slice 8). Une route à part du `PATCH` : celui-ci porte sur le
+ * modèle, et ses règles (un fournisseur est requis) n'ont rien à voir avec
+ * celles-ci.
+ */
+export const setAgentMcpRequestSchema = z.object({
+  servers: z.array(z.string().min(1).max(64)).max(8),
+})
+export type SetAgentMcpRequest = z.infer<typeof setAgentMcpRequestSchema>

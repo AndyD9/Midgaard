@@ -40,6 +40,7 @@
  * | GET  | `/api/agents` | Profils d'agents, en vue : `enabled` et `disabled_reason` disent s'ils peuvent recevoir une tâche maintenant | 200 |
  * | GET  | `/api/agents/:id` | Un profil, en vue | 200, 404 |
  * | PATCH | `/api/agents/:id` | Fournisseur et modèle d'un profil | 200, 400, 404, 409 |
+ * | PUT  | `/api/agents/:id/mcp` | Serveurs MCP d'un profil, liste complète (Slice 8) | 200, 400, 404, 409 |
  * | GET  | `/api/providers` | Fournisseurs **sans aucune clé** | 200 |
  * | POST | `/api/providers` | Déclare un fournisseur, dépose sa clé au coffre | 200, 400, 500 |
  * | DELETE | `/api/providers/:id` | Retire un fournisseur et sa clé | 200, 404 |
@@ -69,6 +70,7 @@ import {
   mcpAllowRequestSchema,
   postMessageRequestSchema,
   removeWorkspaceRequestSchema,
+  setAgentMcpRequestSchema,
   updateAgentRequestSchema,
   upsertMcpServerRequestSchema,
   upsertProviderRequestSchema,
@@ -100,7 +102,7 @@ import {
 import { checkEnvelope, checkToken, type SecurityContext } from './security.ts'
 import { execAllowFor, listWorkspaces, removeWorkspace, workspaceView } from './workspaces.ts'
 import { FileAccessError, taskFileContent, taskFileTree, taskImage } from './files.ts'
-import { updateAgentModel } from './agents.ts'
+import { setAgentMcpServers, updateAgentModel } from './agents.ts'
 import { checkProjectDir } from './project-dir.ts'
 
 /** Taille maximale d'un corps de requête, contre l'épuisement mémoire. */
@@ -225,7 +227,7 @@ export function createRequestHandler(deps: HttpDeps) {
 
       if (section === 'approvals') return handleApprovals(deps, res, method, id, action, req)
       if (section === 'tasks') return handleTasks(deps, res, method, url, id, action, req)
-      if (section === 'agents') return handleAgents(deps, res, method, id, req)
+      if (section === 'agents') return handleAgents(deps, res, method, id, action, req)
       if (section === 'providers') return handleProviders(deps, res, method, id, action, req)
       if (section === 'mcp') return handleMcp(deps, res, method, id, action, req)
       if (section === 'workspaces') return handleWorkspaces(deps, res, method, id, action, req)
@@ -554,8 +556,18 @@ async function handleAgents(
   res: ServerResponse,
   method: string,
   id: string | undefined,
+  action: string | undefined,
   req: IncomingMessage,
 ): Promise<void> {
+  if (id && action === 'mcp') {
+    if (method !== 'PUT') return send(res, 405, { error: 'method_not_allowed' })
+    const parsed = setAgentMcpRequestSchema.safeParse(await readJson(req))
+    if (!parsed.success) return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
+    const outcome = setAgentMcpServers(deps.store, id, parsed.data.servers, deps.log)
+    if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
+    return send(res, 200, { agent: deps.tasks.agentView(outcome) })
+  }
+  if (action) return send(res, 404, { error: 'not_found' })
   if (!id) {
     if (method !== 'GET') return send(res, 405, { error: 'method_not_allowed' })
     // La vue, pas la ligne : `enabled` et `disabled_reason` disent si le

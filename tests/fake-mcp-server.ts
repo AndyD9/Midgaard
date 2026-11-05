@@ -21,13 +21,17 @@
  * `FAKE_MCP_ECHO_DESCRIPTION`, si elle est déclarée, remplace la description
  * de l'outil `echo` : c'est un serveur mis à jour qui annonce un outil
  * autrement, pour éprouver l'empreinte d'un outil coché (Slice 8, étape 2).
+ * `FAKE_MCP_ECHO_DESCRIPTION_FILE` la lit dans un fichier, relu à chaque
+ * lancement : un serveur mis à jour **sur place**, sans que sa déclaration
+ * change (étape 3).
  *
  * Le dossier `FAKE_MCP_MARKS`, s'il est déclaré dans son environnement, reçoit
  * un fichier par événement que le test doit constater sans le lui demander
- * (`cancelled` : une annulation reçue).
+ * (`cancelled` : une annulation reçue ; `server-<pid>` : un processus serveur
+ * lancé, pour compter ceux qui survivraient).
  */
 import { spawn } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -59,7 +63,10 @@ if (mode === '--fail-with-env') {
   server.registerTool(
     'echo',
     {
-      description: process.env.FAKE_MCP_ECHO_DESCRIPTION ?? 'Return the text it was given.',
+      description:
+        (process.env.FAKE_MCP_ECHO_DESCRIPTION_FILE && existsSync(process.env.FAKE_MCP_ECHO_DESCRIPTION_FILE)
+          ? readFileSync(process.env.FAKE_MCP_ECHO_DESCRIPTION_FILE, 'utf8')
+          : process.env.FAKE_MCP_ECHO_DESCRIPTION) ?? 'Return the text it was given.',
       inputSchema: { text: z.string() },
       annotations: { readOnlyHint: true },
     },
@@ -125,5 +132,6 @@ if (mode === '--fail-with-env') {
   }))
 
   await server.connect(new StdioServerTransport())
-  mark('pid', String(process.pid))
+  // Un fichier par processus lancé : le test compte ensuite ceux qui vivent encore.
+  mark(`server-${process.pid}`, String(process.pid))
 }

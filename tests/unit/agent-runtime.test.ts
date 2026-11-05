@@ -126,6 +126,7 @@ function agentWith(over: Partial<Agent> = {}): Agent {
     limits: { ...DEFAULT_RESEARCHER_LIMITS },
     enabled: true,
     vision: null,
+    mcp_servers: [],
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     ...over,

@@ -211,6 +211,7 @@ export async function agents(config: HarnessConfig): Promise<number> {
       // Seule la déclaration se montre ici : le catalogue du fournisseur, qui
       // l'emporte, se lit au démarrage de chaque tâche (Slice 7).
       if (a.vision !== null) console.log(`  ${dim(`lit les images : ${a.vision ? 'oui' : 'non'} (déclaré)`)}`)
+      if (a.mcp_servers.length) console.log(`  ${dim(`serveurs MCP : ${a.mcp_servers.join(', ')}`)}`)
       console.log(
         `  ${dim(`limites : ${a.limits.max_steps} étapes, ${a.limits.max_cost_usd} $, ${a.limits.timeout_s} s`)}`,
       )

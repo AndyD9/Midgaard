@@ -31,6 +31,7 @@ import {
   createRedactor,
   mcpCatalogStatus,
   mcpToolFingerprint,
+  type McpServer,
   type McpServerView,
   type McpTest,
   type McpTool,
@@ -200,7 +201,10 @@ export async function upsertMcpServer(
 }
 
 /** Supprime un serveur, ses outils cochés et ses variables secrètes. */
-export async function deleteMcpServer(deps: McpServiceDeps, id: string): Promise<{ ok: true } | ProviderRefusal> {
+export async function deleteMcpServer(
+  deps: McpServiceDeps,
+  id: string,
+): Promise<{ ok: true; detached: string[] } | ProviderRefusal> {
   const server = deps.store.getMcpServer(id)
   if (!server) return { error: 'mcp_server_not_found', status: 404 }
   for (const name of server.secret_env) {
@@ -210,9 +214,16 @@ export async function deleteMcpServer(deps: McpServiceDeps, id: string): Promise
       deps.log(`serveur MCP « ${id} » : ${name} non effacée du coffre : ${e.message}`)
     })
   }
+  // Retiré des profils qui l'avaient, et dit : un profil qui garderait un
+  // serveur disparu ferait échouer sa tâche suivante loin de la cause.
+  const detached: string[] = []
+  for (const agent of deps.store.agentsUsingMcpServer(id)) {
+    deps.store.setAgentMcpServers(agent.id, agent.mcp_servers.filter((s) => s !== id))
+    detached.push(agent.id)
+  }
   deps.store.deleteMcpServer(id)
-  deps.log(`serveur MCP « ${id} » retiré, avec ses outils cochés`)
-  return { ok: true }
+  deps.log(`serveur MCP « ${id} » retiré, avec ses outils cochés${detached.length ? ` ; retiré des profils ${detached.join(', ')}` : ''}`)
+  return { ok: true, detached }
 }
 
 /**
@@ -234,6 +245,76 @@ export async function mcpSecrets(
   return { values }
 }
 
+/** Un serveur lancé, prêt à servir : sa connexion, son catalogue et ses valeurs secrètes. */
+export interface ConnectedMcpServer {
+  connection: McpConnection
+  /** Le catalogue annoncé **maintenant**, avec les empreintes. */
+  catalog: McpTool[]
+  /** Valeurs des variables secrètes : à ajouter à l'expurgation de qui s'en sert. */
+  secretValues: string[]
+  latencyMs: number
+}
+
+/**
+ * Lance un serveur déclaré et lit son catalogue : le chemin commun au « Tester
+ * la connexion » et au départ d'une tâche (étape 3), pour qu'un serveur qui
+ * passe le test démarre de la même façon pour un agent.
+ *
+ * Le programme est **revérifié** (il a pu disparaître ou changer de droits
+ * depuis la déclaration), les secrets lus au coffre, le serveur lancé sous la
+ * garde, `initialize` puis `tools/list`.
+ *
+ * @param cwd dossier où le serveur tourne : le dossier runtime pour un test,
+ *            le projet de la tâche pour un agent
+ * @returns le serveur prêt — **à fermer** par l'appelant —, ou ce qui a
+ *          échoué, en français, **expurgé** des valeurs secrètes
+ */
+export async function connectMcpServer(
+  deps: Pick<McpServiceDeps, 'config' | 'vault' | 'env' | 'log'>,
+  server: McpServer,
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<ConnectedMcpServer | { error: string; latencyMs: number | null }> {
+  const commandProblem = await checkMcpCommand(server.command)
+  if (commandProblem) return { error: commandProblem, latencyMs: null }
+  const secrets = await mcpSecrets(deps, server.id, server.secret_env)
+  if ('absent' in secrets) {
+    return { error: `la variable secrète ${secrets.absent} est absente du coffre : redéclare-la`, latencyMs: null }
+  }
+  const secretValues = Object.values(secrets.values)
+  const redact = createRedactor(secretValues)
+
+  const started = Date.now()
+  let connection: McpConnection | null = null
+  try {
+    connection = await McpConnection.open(
+      { command: server.command, args: server.args, env: serverEnv(deps.env, { ...server.env, ...secrets.values }), cwd },
+      { startupTimeoutMs: MCP_TEST_STARTUP_TIMEOUT_MS, signal, log: (m) => deps.log(redact(m)) },
+    )
+    const announced = await connection.listTools({ timeoutMs: MCP_TEST_LIST_TIMEOUT_MS, signal })
+    const catalog: McpTool[] = announced.map((t) => {
+      const tool = {
+        name: t.name,
+        title: t.title ?? t.annotations?.title ?? null,
+        description: t.description ?? '',
+        input_schema: t.inputSchema as Record<string, unknown>,
+        annotations: (t.annotations as Record<string, unknown> | undefined) ?? null,
+      }
+      return { ...tool, fingerprint: mcpToolFingerprint(tool) }
+    })
+    return { connection, catalog, secretValues, latencyMs: Date.now() - started }
+  } catch (e) {
+    // La sortie d'erreur dit souvent pourquoi un serveur n'a pas démarré
+    // (Java absent pour Ghidra, module introuvable) : on en cite le début et
+    // la fin, expurgés — elle peut répéter une variable secrète. Un démarrage
+    // raté n'a pas de connexion : l'erreur porte la sortie.
+    const tail = connection?.stderrTail() ?? (e instanceof McpClientError ? e.stderrTail : '')
+    const excerpt = tail.trim() ? ` — sortie d'erreur : ${stderrExcerpt(tail)}` : ''
+    await connection?.close()
+    return { error: redact(`${(e as Error).message}${excerpt}`), latencyMs: Date.now() - started }
+  }
+}
+
 /**
  * « Tester la connexion » : lance réellement le serveur, fait `initialize`,
  * lit tout le catalogue, l'arrête — son groupe compris — et dit ce qu'il a vu.
@@ -249,68 +330,30 @@ export async function testMcpServer(
 ): Promise<McpServerView | ProviderRefusal> {
   const server = deps.store.getMcpServer(id)
   if (!server) return { error: 'mcp_server_not_found', status: 404 }
-  const at = () => new Date().toISOString()
-  const fail = (detail: string, latency: number | null): McpServerView => {
-    const test: McpTest = { ok: false, detail, at: at(), latency_ms: latency, server: null, tools: 0 }
+  const at = new Date().toISOString()
+  const connected = await connectMcpServer(deps, server, deps.config.home, signal)
+  if ('error' in connected) {
+    const test: McpTest = { ok: false, detail: connected.error, at, latency_ms: connected.latencyMs, server: null, tools: 0 }
     deps.store.recordMcpTest(id, test, null)
-    deps.log(`test du serveur MCP « ${id} » : échoué — ${detail}`)
+    deps.log(`test du serveur MCP « ${id} » : échoué — ${connected.error}`)
     return mcpServerView(deps, id)!
   }
-
-  // Revérifié au lancement : le programme a pu disparaître ou changer de
-  // droits depuis la déclaration.
-  const commandProblem = await checkMcpCommand(server.command)
-  if (commandProblem) return fail(commandProblem, null)
-  const secrets = await mcpSecrets(deps, id, server.secret_env)
-  if ('absent' in secrets) return fail(`la variable secrète ${secrets.absent} est absente du coffre : redéclare-la`, null)
-  const redact = createRedactor(Object.values(secrets.values))
-
-  const started = Date.now()
-  let connection: McpConnection | null = null
   try {
-    connection = await McpConnection.open(
-      {
-        command: server.command,
-        args: server.args,
-        env: serverEnv(deps.env, { ...server.env, ...secrets.values }),
-        cwd: deps.config.home,
-      },
-      { startupTimeoutMs: MCP_TEST_STARTUP_TIMEOUT_MS, signal, log: (m) => deps.log(redact(m)) },
-    )
-    const announced = await connection.listTools({ timeoutMs: MCP_TEST_LIST_TIMEOUT_MS, signal })
-    const catalog: McpTool[] = announced.map((t) => {
-      const tool = {
-        name: t.name,
-        title: t.title ?? t.annotations?.title ?? null,
-        description: t.description ?? '',
-        input_schema: t.inputSchema as Record<string, unknown>,
-        annotations: (t.annotations as Record<string, unknown> | undefined) ?? null,
-      }
-      return { ...tool, fingerprint: mcpToolFingerprint(tool) }
-    })
-    const info = connection.serverInfo
-    const latency = Date.now() - started
+    const info = connected.connection.serverInfo
+    const redact = createRedactor(connected.secretValues)
     const test: McpTest = {
       ok: true,
-      detail: redact(`${info ? `${info.name} ${info.version}` : 'serveur sans nom'} : ${catalog.length} outil(s) annoncé(s)`),
-      at: at(),
-      latency_ms: latency,
+      detail: redact(`${info ? `${info.name} ${info.version}` : 'serveur sans nom'} : ${connected.catalog.length} outil(s) annoncé(s)`),
+      at,
+      latency_ms: connected.latencyMs,
       server: info ? { name: info.name, version: info.version } : null,
-      tools: catalog.length,
+      tools: connected.catalog.length,
     }
-    deps.store.recordMcpTest(id, test, catalog)
+    deps.store.recordMcpTest(id, test, connected.catalog)
     deps.log(`test du serveur MCP « ${id} » : réussi — ${test.detail}`)
     return mcpServerView(deps, id)!
-  } catch (e) {
-    // La sortie d'erreur dit souvent pourquoi un serveur n'a pas démarré
-    // (Java absent pour Ghidra, module introuvable) : on en cite la fin,
-    // expurgée — elle peut répéter une variable secrète.
-    // Un démarrage raté n'a pas de connexion : l'erreur porte la sortie.
-    const tail = connection?.stderrTail() ?? (e instanceof McpClientError ? e.stderrTail : '')
-    const excerpt = tail.trim() ? ` — sortie d'erreur : ${stderrExcerpt(tail)}` : ''
-    return fail(redact(`${(e as Error).message}${excerpt}`), Date.now() - started)
   } finally {
-    await connection?.close()
+    await connected.connection.close()
   }
 }
 

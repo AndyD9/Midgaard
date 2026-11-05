@@ -48,6 +48,8 @@ export type { ExecOutcome } from './exec.ts'
 // La garde des processus sert aussi au navigateur (Slice 7) : Chromium meurt
 // avec le daemon comme une commande `exec`.
 export { armGuard, guardGroup } from './guard.ts'
+export { MAX_MCP_DESCRIPTION_CHARS, MCP_NAME_SEPARATOR, mcpResultText, mcpToolName, mcpTools } from './mcp.ts'
+export type { McpCallOutcome, McpPort, McpToolDescriptor } from './mcp.ts'
 export { submitResultSchema } from './result.ts'
 export type { SubmitResultArgs } from './result.ts'
 export { ASK_PARENT, askParentSchema } from './ask.ts'
@@ -155,16 +157,18 @@ export interface ToolSpecLike {
  * @param names noms d'outils du profil ; ceux qui n'existent pas sont ignorés
  *              en silence — un profil qui mentionne un outil retiré ne doit pas
  *              empêcher la tâche de démarrer
+ * @param extra outils construits pour la tâche (serveurs MCP), décrits par
+ *              leur `parameters`
  */
-export function toolSpecs(names: readonly string[]): ToolSpecLike[] {
+export function toolSpecs(names: readonly string[], extra: readonly Tool<never>[] = []): ToolSpecLike[] {
   const out: ToolSpecLike[] = []
-  for (const name of names) {
-    const tool = TOOLBOX[name]
-    if (!tool) continue
+  // Les outils construits pour la tâche — ceux d'un serveur MCP (Slice 8) —
+  // suivent ceux du profil, avec le schéma que leur serveur annonce.
+  for (const tool of [...names.map((n) => TOOLBOX[n]).filter((t) => t !== undefined), ...extra]) {
     out.push({
       name: tool.name,
       description: tool.description,
-      parameters: z.toJSONSchema(tool.schema, { target: 'draft-7', io: 'input' }) as Record<string, unknown>,
+      parameters: tool.parameters ?? (z.toJSONSchema(tool.schema, { target: 'draft-7', io: 'input' }) as Record<string, unknown>),
     })
   }
   return out

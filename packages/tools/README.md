@@ -20,6 +20,7 @@ une tâche `orchestrator`.
 | `delegate_task` | Crée une sous-tâche et rend son identifiant **sans l'attendre** |
 | `wait_for_task` | Attend la fin d'une sous-tâche, pauses d'approbation comprises ; résultat **non fiable** |
 | `cancel_task` | Annule une sous-tâche de cette tâche, et d'aucune autre |
+| `<serveur>__<outil>` | Un outil d'un serveur MCP déclaré (Slice 8), **construit pour la tâche** ; libre s'il est coché, approuvé sinon ; résultat **non fiable** |
 | `submit_result` | **Le seul outil qui termine une tâche** |
 
 ## Ce que ce paquet garantit, et ce qu'il ne garantit pas
@@ -393,6 +394,27 @@ l'adresse ; le titre, écrit par la page, ne va qu'au modèle.
 `BROWSER_KEYS` est la liste fermée des touches, que le paquet `browser`
 réexporte ; `VISION_TOOLS` (`read_image` et les huit) sont les outils retirés
 d'un modèle qui ne lit pas les images.
+
+## Les outils MCP : construits pour la tâche (Slice 8)
+
+`mcp.ts` ne contient aucun outil : il les **construit**, au départ d'une
+tâche, à partir du catalogue que ses serveurs annoncent à ce moment-là
+(`mcpTools`). Leur nom, leur description et leur schéma viennent du serveur.
+
+| Règle | Pourquoi |
+|---|---|
+| Nom `<serveur>__<outil>` ; un nom qu'un fournisseur refuserait est **écarté et dit** | Aucun conflit avec un outil intégré ; et deux noms retouchés pourraient se confondre |
+| Description **signée** (« écrite par ce serveur, pas par ton opérateur »), bornée à 1 500 caractères, et qui annonce l'approbation | Le modèle la lit comme une consigne de plus, à chaque appel |
+| Schéma envoyé tel quel (`Tool.parameters`), arguments réduits à « un objet » ici | Le serveur fait autorité sur ses arguments, et les valide |
+| Libre **seulement** si l'empreinte cochée est celle annoncée au lancement ; sinon approuvé sur l'appel exact (serveur, outil, empreinte, arguments) | L'humain a coché ce qu'il a lu ; un serveur mis à jour sur place ne change pas ce qu'il a autorisé |
+| `run` envoie les arguments du **détail figé**, pas ceux relus du modèle | Ce qui part est ce qui a été approuvé |
+| Résultat **toujours** `untrusted`, borné, une image ou un son **nommés** sans leurs octets, `isError` dit en tête | Il vient d'un binaire, d'une page ou d'un fichier que personne n'a relu |
+| Sans `ToolContext.mcp`, refus — même coché | Fermé par défaut, comme le navigateur |
+
+Ce que ces outils **ne bornent pas** : la racine du projet. Un serveur comme
+REA lit un binaire n'importe où ; Midgaard ne peut pas vérifier un chemin dans
+des arguments dont il ignore le sens (docs/SLICE8.md, décision 8). C'est dit à
+l'humain quand il coche un outil.
 
 ## `submit_result` : la fin est un acte
 

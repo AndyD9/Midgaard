@@ -24,6 +24,8 @@ harness mcp tools <id>        # outils libres, changés, ou approuvés à chaque
 harness mcp allow <id> [--yes] (--read-only | <outil>…)
 harness mcp revoke <id> <outil>…
 harness mcp remove <id>
+harness mcp attach <id> <profil>   # les agents du profil reçoivent ses outils
+harness mcp detach <id> <profil>
 ```
 
 Midgaard ne s'installe que depuis un clone (la distribution npm a été

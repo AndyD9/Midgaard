@@ -352,6 +352,17 @@ export const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 12,
+    label: 'Slice 8 — les serveurs MCP d\'un profil',
+    sql: `
+      -- Serveurs MCP dont les agents du profil reçoivent les outils, en JSON :
+      -- des identifiants de mcp_servers. Sans clé étrangère, comme provider_id :
+      -- le retrait d'un serveur le retire des profils (le daemon le fait et le
+      -- dit), et un JSON ne se contraint pas. '[]' pour les profils d'avant.
+      ALTER TABLE agents ADD COLUMN mcp_servers_json TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
 ]
 
 // Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',

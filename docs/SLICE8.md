@@ -9,7 +9,7 @@ agents à la volée** au lieu de piocher dans cinq profils figés.
 **État : en cours.** Décisions acceptées par l'auteur le 2026-11-05 ; étape 1
 faite le même jour, verte en CI sur macOS, Linux et Windows (passage
 `42002800496`) ; étape 2 faite le même jour, verte en CI sur les trois plateformes (passage
-`42007433791`).
+`42007433791`) ; étape 3 faite le même jour, verte sous macOS.
 
 ---
 
@@ -157,7 +157,7 @@ ouvert.
 |---|---|---|
 | 1 | Le paquet `mcp-client` : lancer un serveur stdio sous la garde, `initialize`, `tools/list`, `tools/call`, annulation, délai ; aucun processus survivant, `SIGKILL` du daemon compris ; éprouvé contre un faux serveur MCP de test | **fait** — 15 tests, vus échouer sans la garde et sans le groupe ; verts en CI sur trois plateformes |
 | 2 | La déclaration : migration (serveurs, outils cochés et leurs empreintes), `harness mcp add/list/test/allow/remove`, routes `/api/mcp`, « Tester la connexion » qui lit vraiment le catalogue | **fait** — migration 11, `PROTOCOL_VERSION` 14 ; deux défauts trouvés par la vraie CLI, réglés ; verte en CI sur trois plateformes |
-| 3 | Les outils MCP derrière `ToolContext.mcp` : noms préfixés, liste blanche à empreinte, approbation sur arguments exacts, encadrement, plafond, expurgation ; `mcp_servers` sur un profil ; `PROTOCOL_VERSION` | à faire |
+| 3 | Les outils MCP derrière `ToolContext.mcp` : noms préfixés, liste blanche à empreinte, approbation sur arguments exacts, encadrement, plafond, expurgation ; `mcp_servers` sur un profil ; `PROTOCOL_VERSION` | **fait** — migration 12, `PROTOCOL_VERSION` 15 ; un agent réel du daemon appelle un serveur MCP, vu échouer sur deux défauts introduits ; CI à constater |
 | 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | à faire |
 | 5 | Le dashboard : page « Serveurs MCP » (déclarer, tester, cocher), serveurs d'un profil, appels MCP dans le fil, agents créés et leur consigne dans l'arbre | à faire |
 | 6 | Preuves : `test:orchestrator` (création, délégation parallèle, outil MCP), `test:security` (outil non coché refusé sans atteindre le serveur, empreinte changée → plus libre, agent créé qui tente de dépasser son type, rien de non expurgé en base, aucun serveur vivant après `SIGKILL`), CI sur trois plateformes | à faire |
@@ -291,4 +291,61 @@ les 22 tests passent sous macOS, Linux et Windows — le refus d'un `.cmd` et
 l'expurgation compris. Et la CLI, rejouée de bout en
 bout dans un dossier runtime jetable : déclaration, test, `--read-only`, refus
 sans terminal, outil devenu `changed` après redéclaration, retrait.
+
+### Étape 3 — un agent se sert d'un serveur MCP (2026-11-05)
+
+Les outils MCP sont **construits pour chaque tâche** (`tools/src/mcp.ts`), à
+partir du catalogue que ses serveurs annoncent à son départ ; la boucle les
+reçoit par `LoopInput.extraTools`, et le daemon les lance et les ferme
+(`daemon/src/mcp-sessions.ts`). Un profil porte `mcp_servers` (migration 12,
+`PUT /api/agents/:id/mcp`, `harness mcp attach/detach`), et `list_agents` les
+montre à l'orchestrateur. `PROTOCOL_VERSION` 15.
+
+Ce qui a été tranché en écrivant :
+
+- **Les serveurs démarrent au départ de la tâche, pas au premier appel.** Il
+  faut le catalogue pour décrire les outils au modèle ; et un serveur qui ne
+  démarre pas fait échouer la tâche avant tout appel de modèle — un agent de
+  reverse sans REA ne ferait que tourner en rond, à nos frais. **Tout ou
+  rien** : les serveurs déjà lancés sont fermés.
+- **L'empreinte se compare au catalogue annoncé au lancement**, et la liste
+  des outils cochés se lit au lancement, comme celle d'`exec`. Le catalogue
+  est ensuite figé : un `tools/list_changed` n'ajoute rien à la tâche en cours.
+- **La description d'un outil est signée de sa provenance**, bornée à 1 500
+  caractères, et dit quand un appel attend un humain. Elle est écrite par le
+  serveur et relue par le modèle à chaque appel : c'est la porte d'un
+  empoisonnement d'outil, et le seul garde-fou complet reste l'approbation.
+- **Un nom qu'un fournisseur refuserait est écarté et dit**, jamais retouché.
+  Un identifiant de serveur commence désormais par une lettre : Gemini refuse
+  un nom de fonction qui commence par un chiffre.
+- **Ce qui part est ce qui a été approuvé** : `run` envoie les arguments du
+  détail figé, qui porte aussi l'empreinte de l'outil.
+- **Les valeurs secrètes d'un serveur rejoignent l'expurgation de la tâche** :
+  un serveur peut répéter son jeton dans un résultat.
+- **Un refus humain annule la tâche**, comme pour toute approbation (X7) ; ce
+  n'est pas une règle propre aux outils MCP.
+- **Retirer un serveur le retire des profils**, et le dit.
+
+**Les preuves.** `tests/unit/mcp-tools.test.ts` (outils seuls, faux port) et
+`tests/unit/mcp-agents.test.ts` (un Researcher dans un vrai daemon, face au
+faux fournisseur et au faux serveur), tous deux dans `test:unit`. Le second
+compte les processus serveur au système grâce au pid que chacun laisse. Deux
+défauts introduits exprès l'ont fait échouer :
+
+1. **les serveurs jamais fermés en fin de tâche** : deux scénarios voient des
+   serveurs survivre ;
+2. **le catalogue enregistré pris pour celui du lancement** : un outil coché,
+   décrit autrement par un serveur mis à jour **sur place**, passait sans
+   approbation. Le premier jet du test ne le voyait pas — il redéclarait le
+   serveur, ce qui efface le catalogue enregistré, et le code fautif
+   retombait sur le bon. Le faux serveur lit désormais la description d'`echo`
+   dans un fichier, changé après le test de connexion.
+
+`test:security`, `test:orchestrator`, `test:developer` et `test:restart`
+restent verts au protocole 15.
+
+**Ce qui reste à voir à l'essai réel** : le coût d'un catalogue de plusieurs
+dizaines d'outils relu à chaque appel de modèle (REA propose un profil de
+schémas compact, `REA_MCP_INPUT_SCHEMA_PROFILE=compact`, à déclarer en `--env`),
+et le délai d'un premier appel Ghidra face au `timeout_s` du profil.
 

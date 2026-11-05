@@ -11,6 +11,7 @@
  * et `http_fetch("https://docs.python.org/")` qu'il faut laisser passer.
  */
 import type { z } from 'zod'
+import type { McpPort } from './mcp.ts'
 import type {
   AgentKind,
   AgentLimits,
@@ -112,6 +113,12 @@ export interface ToolContext {
    * {@link ToolContext.delegation}.
    */
   browser?: BrowserPort | undefined
+  /**
+   * Les serveurs MCP de la tâche (Slice 8). Posé par le daemon pour un profil
+   * qui a des serveurs MCP, et pour lui seul. Absent, les outils MCP
+   * **refusent** — fermé par défaut, comme {@link ToolContext.browser}.
+   */
+  mcp?: McpPort | undefined
   log: (...a: unknown[]) => void
 }
 
@@ -206,6 +213,11 @@ export interface DelegableAgent {
   disabled_reason: string | null
   /** Plafonds du profil : une délégation peut les abaisser, jamais les relever. */
   limits: AgentLimits
+  /**
+   * Serveurs MCP dont ce profil reçoit les outils (Slice 8) : c'est ce qui
+   * permet à l'orchestrateur de choisir à qui confier un travail qui en a besoin.
+   */
+  mcp_servers: { id: string; name: string }[]
 }
 
 /** Une sous-tâche, telle que la délégation la rend à l'orchestrateur. */
@@ -341,6 +353,12 @@ export interface Tool<T = unknown> {
   /** Description lue par le modèle : en anglais, et précise sur ce qui est refusé. */
   description: string
   schema: z.ZodType<T>
+  /**
+   * Schéma JSON envoyé au modèle, quand il n'est pas engendré depuis
+   * {@link Tool.schema}. Seuls les outils MCP s'en servent (Slice 8) : leur
+   * schéma est celui que le serveur annonce, et c'est lui qui le valide.
+   */
+  parameters?: Record<string, unknown> | undefined
   /**
    * Décide du sort d'un appel **avant** de l'exécuter.
    *

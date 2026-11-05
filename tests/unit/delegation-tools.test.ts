@@ -48,11 +48,12 @@ function fakePort(over: Partial<DelegationPort> = {}) {
     listAgents: () => [
       {
         id: 'researcher', name: 'Researcher', kind: 'researcher', description: 'lit', enabled: true,
-        disabled_reason: null, limits: DEFAULT_RESEARCHER_LIMITS,
+        disabled_reason: null, limits: DEFAULT_RESEARCHER_LIMITS, mcp_servers: [{ id: 'rea', name: 'REA' }],
       },
       {
         id: 'developer', name: 'Developer', kind: 'developer', description: 'écrit', enabled: false,
         disabled_reason: 'no model provider is configured for this profile', limits: DEFAULT_RESEARCHER_LIMITS,
+        mcp_servers: [],
       },
     ],
     delegate: (request) => {
@@ -113,6 +114,15 @@ describe('avec un port', () => {
     assert.deepEqual(listed.map((a) => a.id), ['researcher', 'developer'])
     assert.equal(listed[1]!.disabled_reason, 'no model provider is configured for this profile')
     assert.equal(listed[0]!.disabled_reason, undefined, 'aucun motif pour un profil actif')
+  })
+
+  it('list_agents dit les serveurs MCP d\'un profil, et se tait pour un profil qui n\'en a pas', async () => {
+    // C'est ce qui permet à l'orchestrateur de confier un travail de reverse
+    // au profil qui a REA (Slice 8, décision 11).
+    const { result } = await call('list_agents', {}, ctx(fakePort().port))
+    const listed = JSON.parse(result!.content) as { id: string; mcp_servers?: { id: string; name: string }[] }[]
+    assert.deepEqual(listed[0]!.mcp_servers, [{ id: 'rea', name: 'REA' }])
+    assert.equal(listed[1]!.mcp_servers, undefined)
   })
 
   it('delegate_task transmet la demande et rend l\'identifiant sans attendre', async () => {
@@ -248,7 +258,7 @@ describe('dans la boucle réelle', () => {
     const agent: Agent = {
       id: 'orchestrator', name: 'Orchestrator', kind: 'orchestrator', description: '', provider_id: 'faux',
       model: null, system_prompt: 'You orchestrate.', tools: ['wait_for_task', 'submit_result'],
-      limits: DEFAULT_RESEARCHER_LIMITS, enabled: true, vision: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      limits: DEFAULT_RESEARCHER_LIMITS, enabled: true, vision: null, mcp_servers: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }
     const root = mkdtempSync(join(tmpdir(), 'midgaard-deleg-'))
     try {

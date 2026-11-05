@@ -42,6 +42,7 @@ import { EventBus } from './bus.ts'
 import { installation } from './installation.ts'
 import { AgentEngine } from './engines/agent.ts'
 import { BrowserSessions } from './browsers.ts'
+import { McpSessions } from './mcp-sessions.ts'
 import type { HostGuard } from '@midgaard/browser'
 import type { ProviderServiceDeps } from './providers.ts'
 import { createRequestHandler } from './http.ts'
@@ -177,6 +178,9 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
   // Les navigateurs isolés des tâches (Slice 7) : un par tâche au plus, fermés
   // avec elle, et tous à l'arrêt du daemon.
   const browsers = new BrowserSessions({ bus, config, log, guard: options.browserGuard })
+  // Les serveurs MCP des tâches (Slice 8) : lancés au départ d'une tâche dont
+  // le profil en a, fermés à sa fin, et tous à l'arrêt du daemon.
+  const mcp = new McpSessions({ store, config, vault, env: options.env ?? {}, log })
 
   // Researcher, Developer, Orchestrator et Navigator partagent la boucle : une
   // instance du même moteur par type de profil. Seul le Developer crée un
@@ -191,6 +195,7 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
         pricing: () => pricing,
         env: options.env ?? {},
         browsers,
+        mcp,
       }),
     )
   }
@@ -281,6 +286,7 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
     // de Chromium d'abord ; un processus qui sortirait avant serait rattrapé
     // par la garde des processus, comme après un `SIGKILL`.
     void browsers.closeAll('the harness stopped')
+    void mcp.closeAll()
     stream.close()
     server.closeAllConnections()
     server.close()

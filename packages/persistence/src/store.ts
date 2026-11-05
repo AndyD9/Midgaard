@@ -887,6 +887,25 @@ export class HarnessStore {
     return info.changes === 1 ? this.getAgent(id) : null
   }
 
+  /**
+   * Règle les serveurs MCP d'un profil (Slice 8), sans toucher au reste. Les
+   * règles — le serveur existe, le profil peut en avoir — sont celles de
+   * l'appelant (`daemon/src/agents.ts`).
+   *
+   * @returns le profil après coup, ou `null` s'il n'existe pas
+   */
+  setAgentMcpServers(id: string, servers: readonly string[]): Agent | null {
+    const info = this.db
+      .prepare('UPDATE agents SET mcp_servers_json = :s, updated_at = :now WHERE id = :id')
+      .run({ id, s: JSON.stringify(servers), now: new Date().toISOString() })
+    return info.changes === 1 ? this.getAgent(id) : null
+  }
+
+  /** Profils qui ont un serveur MCP donné, pour le leur retirer quand il disparaît. */
+  agentsUsingMcpServer(serverId: string): Agent[] {
+    return this.listAgents().filter((a) => a.mcp_servers.includes(serverId))
+  }
+
   /** Profils rattachés à un fournisseur donné, pour les désactiver quand il disparaît. */
   agentsUsingProvider(providerId: string): Agent[] {
     return rows<AgentRow>(
@@ -1462,6 +1481,7 @@ interface AgentRow {
   limits_json: string
   enabled: number
   vision: number | null
+  mcp_servers_json: string
   created_at: string
   updated_at: string
 }
@@ -1479,6 +1499,7 @@ function toAgent(row: AgentRow): Agent {
     limits: JSON.parse(row.limits_json) as AgentLimits,
     enabled: row.enabled === 1,
     vision: row.vision === null ? null : row.vision === 1,
+    mcp_servers: JSON.parse(row.mcp_servers_json) as string[],
     created_at: row.created_at,
     updated_at: row.updated_at,
   }

@@ -135,6 +135,15 @@ Deux règles pour les captures du navigateur :
   pas entre balises, la phrase qui l'accompagne le dit à sa place. Le résultat
   de l'outil, lui, est encadré, et la tâche marquée.
 
+## Outils construits pour la tâche (Slice 8)
+
+`LoopInput.extraTools` porte les outils des serveurs MCP de la tâche, que le
+daemon a construits au départ. Ils sont proposés au modèle **après** ceux du
+profil, décrits par le schéma de leur serveur (`Tool.parameters`), et
+autorisés parce que le daemon les a construits — pas parce que le modèle les
+nomme. Le reste du chemin est celui de tout outil : politique, préparation,
+approbation, exécution, encadrement du résultat non fiable.
+
 ## Statuts d'arrêt
 
 | Raison | Statut | Pourquoi pas `failed` |

@@ -24,7 +24,7 @@
  */
 import { accessSync, constants, existsSync, statSync } from 'node:fs'
 import { delimiter, isAbsolute, join, resolve } from 'node:path'
-import { daemonJson, type HarnessConfig, type McpCatalogEntry, type McpServerView } from '@midgaard/contracts'
+import { daemonJson, type Agent, type HarnessConfig, type McpCatalogEntry, type McpServerView } from '@midgaard/contracts'
 import { ensureDaemon } from '@midgaard/mcp-server'
 import { readSecret } from './secret-input.ts'
 import { bold, cmd, dim, green, red, yellow } from './ui.ts'
@@ -173,9 +173,13 @@ export async function mcp(config: HarnessConfig, args: string[]): Promise<number
     case 'remove':
     case 'rm':
       return remove(config, rest[0])
+    case 'attach':
+      return attach(config, rest[0], rest[1], true)
+    case 'detach':
+      return attach(config, rest[0], rest[1], false)
     default:
       console.error(`Sous-commande inconnue : mcp ${sub}`)
-      console.error('Attendu : list, add, test, tools, allow, revoke, remove')
+      console.error('Attendu : list, add, test, tools, allow, revoke, remove, attach, detach')
       return 1
   }
 }
@@ -402,8 +406,43 @@ async function remove(config: HarnessConfig, id: string | undefined): Promise<nu
     return 1
   }
   const rt = await ensureDaemon(config, quiet)
-  const { status, body } = await daemonJson<Refused>(rt, `/api/mcp/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const { status, body } = await daemonJson<{ detached?: string[] } & Refused>(rt, `/api/mcp/${encodeURIComponent(id)}`, { method: 'DELETE' })
   if (status !== 200) return refused(status, body)
   console.log(`${green('✔')} serveur MCP ${bold(id)} retiré, avec ses outils cochés et ses variables secrètes`)
+  if (body.detached?.length) console.log(`  ${dim(`retiré aussi des profils : ${body.detached.join(', ')}`)}`)
   return 0
 }
+
+/**
+ * Donne un serveur à un profil, ou le lui retire : ses agents en reçoivent
+ * les outils à partir de la tâche suivante. La route prend la liste complète ;
+ * la CLI la relit et n'y change que ce serveur-là.
+ */
+async function attach(config: HarnessConfig, server: string | undefined, agentId: string | undefined, on: boolean): Promise<number> {
+  if (!server || !agentId) {
+    console.error(`Usage : mcp ${on ? 'attach' : 'detach'} <serveur> <profil>`)
+    return 1
+  }
+  const rt = await ensureDaemon(config, quiet)
+  const current = await daemonJson<{ agent?: Agent } & Refused>(rt, `/api/agents/${encodeURIComponent(agentId)}`)
+  if (current.status !== 200 || !current.body.agent) return refused(current.status, current.body)
+  const before = current.body.agent.mcp_servers
+  if (on === before.includes(server)) {
+    console.log(`${bold(agentId)} ${on ? 'a déjà' : 'n\'a pas'} le serveur ${bold(server)} : rien n'a changé.`)
+    return 0
+  }
+  const servers = on ? [...before, server] : before.filter((s) => s !== server)
+  const { status, body } = await daemonJson<{ agent?: Agent } & Refused>(rt, `/api/agents/${encodeURIComponent(agentId)}/mcp`, {
+    method: 'PUT',
+    body: JSON.stringify({ servers }),
+  })
+  if (status !== 200 || !body.agent) return refused(status, body)
+  console.log(
+    on
+      ? `${green('✔')} les agents ${bold(agentId)} reçoivent les outils de ${bold(server)} ${dim('— à partir de la tâche suivante')}`
+      : `${green('✔')} ${bold(server)} retiré du profil ${bold(agentId)}`,
+  )
+  if (on) console.log(dim(`Outils libres ou approuvés : ${cmd(`mcp tools ${server}`)}`))
+  return 0
+}
+

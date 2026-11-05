@@ -36,8 +36,10 @@ import { createRedactor, harnessCommand, isTerminal, type Usage } from '@midgaar
 import { agentIdentity, commitAll, createWorktree, diffWorktree, inspectRepository, WorkspaceError } from '@midgaard/workspace'
 import { createAdapter, envVarFor, type ModelCapabilities } from '@midgaard/providers'
 import { resolveApiKey, type SecretVault } from '@midgaard/secrets'
-import { ASK_PARENT, BROWSER_TOOLS, VISION_TOOLS, type ToolContext } from '@midgaard/tools'
+import { ASK_PARENT, BROWSER_TOOLS, VISION_TOOLS, type Tool, type ToolContext } from '@midgaard/tools'
 import type { BrowserSessions } from '../browsers.ts'
+import { MCP_CAPABLE_KINDS } from '../agents.ts'
+import type { McpSessions } from '../mcp-sessions.ts'
 
 /** Un profil qui a l'un de ces outils reçoit le navigateur de sa tâche (Slice 7). */
 const hasBrowser = (tools: readonly string[]): boolean => tools.some((t) => (BROWSER_TOOLS as readonly string[]).includes(t))
@@ -147,6 +149,11 @@ export interface AgentEngineDeps {
    * reçoit de navigateur, et ses outils refusent.
    */
   browsers?: BrowserSessions | undefined
+  /**
+   * Les serveurs MCP des tâches (Slice 8). Absent, un profil qui a des
+   * serveurs MCP échoue au départ, en le disant.
+   */
+  mcp?: McpSessions | undefined
 }
 
 /** État d'une tâche en vol dans ce processus. */
@@ -343,6 +350,40 @@ export class AgentEngine implements TaskEngine {
         }
       }
 
+      // Les serveurs MCP du profil (Slice 8) se lancent **en `preparing`**,
+      // comme le worktree, et dans sa racine : un serveur qui ne démarre pas
+      // fait échouer la tâche avant tout appel de modèle, sans rien coûter.
+      let extraTools: Tool<never>[] = []
+      if (agent.mcp_servers.length > 0 && MCP_CAPABLE_KINDS.includes(agent.kind)) {
+        if (!this.deps.mcp) {
+          this.conclude(task.id, { status: 'failed', error: 'ce daemon ne lance pas de serveur MCP', usage: emptyish() })
+          return
+        }
+        const opened = await this.deps.mcp.openTask(task.id, agent.mcp_servers, ready.tools.root, state.abort.signal)
+        if (cancelledNow()) return
+        if ('error' in opened) {
+          this.conclude(task.id, { status: 'failed', error: opened.error, usage: emptyish() })
+          return
+        }
+        // Un serveur peut répéter sa variable secrète dans un résultat :
+        // elle rejoint l'expurgation de la tâche, avant tout journal.
+        const base = ready.redact
+        const mcpRedact = createRedactor(opened.secretValues)
+        ready.redact = (text) => mcpRedact(base(text))
+        state.redact = ready.redact
+        ready.tools = { ...ready.tools, mcp: opened.port }
+        extraTools = opened.tools
+        for (const line of opened.summary) {
+          ctx.bus.record(task.id, null, { type: 'agent.message', payload: { message: line, note: true } })
+        }
+        for (const x of opened.excluded) {
+          ctx.bus.record(task.id, null, {
+            type: 'agent.message',
+            payload: { message: `outil MCP ${x.server}.${x.name} écarté : ${x.reason}`, note: true },
+          })
+        }
+      }
+
       // `preparing → running` tout de suite : la préparation est faite, et un
       // statut qui ne bouge plus pendant une minute d'appel modèle laisse
       // croire que rien ne se passe.
@@ -378,6 +419,7 @@ export class AgentEngine implements TaskEngine {
           tools,
         },
         delegated: task.parent_task_id !== null,
+        extraTools,
         objective: task.objective,
         context: task.context,
         adapter: ready.adapter,
@@ -400,6 +442,9 @@ export class AgentEngine implements TaskEngine {
       // session close, puis la fin de la tâche, et aucun Chromium ne survit à
       // une tâche finie, même le temps d'un commit.
       await this.deps.browsers?.endTask(task.id, 'the task ended')
+      // Les serveurs MCP aussi : aucun processus d'une tâche finie ne doit
+      // pouvoir écrire pendant le commit de son travail.
+      await this.deps.mcp?.endTask(task.id)
       if (workspace && outcome.status === 'completed') outcome = await this.commitWork(task, agent, workspace, outcome)
       this.conclude(task.id, outcome)
     } catch (e) {
@@ -412,6 +457,7 @@ export class AgentEngine implements TaskEngine {
     } finally {
       // Filet pour le chemin d'erreur : sans effet si la session est déjà close.
       await this.deps.browsers?.endTask(task.id, 'the task ended').catch(() => {})
+      await this.deps.mcp?.endTask(task.id).catch(() => {})
       this.running.delete(task.id)
       // Conservé dans tous les cas, jamais retiré : ce qu'il contient est
       // peut-être la seule trace de ce que l'agent avait fait (PLAN §9.4).

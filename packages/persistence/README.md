@@ -33,7 +33,7 @@ le code en cours fait échouer l'ouverture, au lieu d'être interprétée de tra
 | `task_events` | Journal append-only. `seq` global (`AUTOINCREMENT`, jamais réutilisé) pour la reprise WebSocket ; `task_seq` local pour la timeline d'une tâche |
 | `approvals` | Demandes d'approbation : opération précise, usage unique, expiration |
 | `provider_configs` | Fournisseurs de modèles ; la clé n'y est jamais, seulement sa référence au coffre |
-| `agents` | Profils d'exécution ; seuls le fournisseur et le modèle s'y règlent hors démarrage (`setAgentModel`) |
+| `agents` | Profils d'exécution ; seuls le fournisseur et le modèle (`setAgentModel`) et les serveurs MCP (`mcp_servers_json`, migration 12, `setAgentMcpServers`) s'y règlent hors démarrage |
 | `tool_calls` | Appels d'outils, arguments et résultats expurgés |
 | `mcp_servers` | Serveurs MCP déclarés (migration 11) : programme, arguments, variables ordinaires ; les secrètes n'y ont que leur **nom**. `catalog_json` est le catalogue constaté au dernier test réussi, effacé à chaque redéclaration |
 | `mcp_tool_allow` | Outils MCP cochés libres, avec l'**empreinte** de ce que l'humain a lu ; en cascade du serveur |

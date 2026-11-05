@@ -39,6 +39,7 @@ import {
   DEFAULT_RESEARCHER_LIMITS,
   SIMULATED_AGENT_ID,
   type Agent,
+  type AgentKind,
   type AgentLimits,
   type UpdateAgentRequest,
 } from '@midgaard/contracts'
@@ -517,3 +518,52 @@ export function updateAgentModel(
   )
   return updated
 }
+
+/** Types de profils qui peuvent recevoir des outils MCP (Slice 8, décision 11). */
+export const MCP_CAPABLE_KINDS: readonly AgentKind[] = ['researcher', 'developer', 'navigator']
+
+/**
+ * Règle les serveurs MCP d'un profil (`PUT /api/agents/:id/mcp`).
+ *
+ * L'orchestrateur n'en reçoit pas : il **délègue** à un profil qui les a,
+ * décision prise avec l'auteur (docs/SLICE8.md, décision 11). Le simulé n'appelle
+ * aucun outil. Chaque serveur doit être déclaré — un nom inconnu ferait échouer
+ * la tâche suivante loin de sa cause.
+ *
+ * @param servers la liste **complète** ; vide, le profil n'en a plus
+ */
+export function setAgentMcpServers(
+  store: HarnessStore,
+  id: string,
+  servers: readonly string[],
+  log: (...a: unknown[]) => void = () => {},
+): Agent | Refusal {
+  const agent = store.getAgent(id)
+  if (!agent) return { error: 'agent_not_found', status: 404, detail: { agent_id: id } }
+  const wanted = [...new Set(servers)]
+  if (wanted.length > 0 && !MCP_CAPABLE_KINDS.includes(agent.kind)) {
+    return {
+      error: 'agent_cannot_use_mcp',
+      status: 409,
+      detail: {
+        agent_id: id,
+        reason:
+          agent.kind === 'orchestrator'
+            ? 'l\'orchestrateur n\'appelle aucun outil MCP : il délègue à un profil qui en a'
+            : `un profil ${agent.kind} n'appelle aucun outil`,
+      },
+    }
+  }
+  const unknown = wanted.filter((s) => !store.getMcpServer(s))
+  if (unknown.length > 0) {
+    return {
+      error: 'mcp_server_not_found',
+      status: 404,
+      detail: { servers: unknown, available: store.listMcpServers().map((s) => s.id) },
+    }
+  }
+  const updated = store.setAgentMcpServers(id, wanted)!
+  log(`profil « ${id} » : serveurs MCP ${wanted.length ? wanted.join(', ') : '(aucun)'}`)
+  return updated
+}
+

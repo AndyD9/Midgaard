@@ -38,9 +38,11 @@ import { canonicalJson } from './approvals.ts'
 /**
  * Identifiant d'un serveur : minuscules, chiffres, tiret. **Pas de souligné** :
  * un outil MCP devient `<serveur>__<outil>` (décision 9), et un identifiant
- * qui contiendrait `__` rendrait le découpage ambigu.
+ * qui contiendrait `__` rendrait le découpage ambigu. **Une lettre en tête**
+ * (Slice 8, étape 3) : Gemini refuse un nom de fonction qui commence par un
+ * chiffre, et c'est l'identifiant qui ouvre le nom de chaque outil.
  */
-export const MCP_SERVER_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/
+export const MCP_SERVER_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/
 
 /** Nom d'une variable d'environnement : ce que tous les shells acceptent. */
 export const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/
@@ -90,7 +92,7 @@ export type McpTest = z.infer<typeof mcpTestSchema>
 
 /** Un serveur MCP déclaré, tel que le daemon le stocke. Ne contient **aucun secret**. */
 export const mcpServerSchema = z.object({
-  id: z.string().regex(MCP_SERVER_ID_PATTERN, 'minuscules, chiffres ou tiret, 32 caractères au plus'),
+  id: z.string().regex(MCP_SERVER_ID_PATTERN, 'une lettre minuscule, puis minuscules, chiffres ou tiret, 32 caractères au plus'),
   name: z.string().min(1).max(200),
   transport: z.enum(MCP_TRANSPORTS),
   /** Programme **absolu**, jamais résolu par le `PATH`. */
@@ -153,7 +155,7 @@ export type McpServerResponse = z.infer<typeof mcpServerResponseSchema>
  * déjà être au coffre ; un nom retiré de la liste en est effacé.
  */
 export const upsertMcpServerRequestSchema = z.object({
-  id: z.string().regex(MCP_SERVER_ID_PATTERN, 'minuscules, chiffres ou tiret, 32 caractères au plus'),
+  id: z.string().regex(MCP_SERVER_ID_PATTERN, 'une lettre minuscule, puis minuscules, chiffres ou tiret, 32 caractères au plus'),
   name: z.string().min(1).max(200).optional(),
   command: z.string().min(1).max(4096),
   args: z.array(z.string().max(4096)).max(64).default([]),

@@ -153,6 +153,8 @@ export const listAgentsTool: Tool<z.infer<typeof listAgentsSchema>> = {
         enabled: a.enabled,
         ...(a.disabled_reason ? { disabled_reason: a.disabled_reason } : {}),
         limits: a.limits,
+        // Seulement s'il y en a : un profil sans serveur MCP n'a rien à en dire.
+        ...(a.mcp_servers.length ? { mcp_servers: a.mcp_servers } : {}),
       })),
       null,
       2,

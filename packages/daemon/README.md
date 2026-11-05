@@ -18,6 +18,7 @@ soit le nombre de sessions Claude Code ouvertes.
 | `task-manager.ts` | Machine à états en marche ; port de délégation d'un orchestrateur et annulation en cascade (Slice 5) |
 | `agents.ts` | Profils livrés, rattachement à un fournisseur, choix du fournisseur et du modèle (`PATCH /api/agents/:id`) |
 | `mcp-servers.ts` | Serveurs MCP déclarés (Slice 8) : coffre d'abord, test qui lit le vrai catalogue, outils cochés avec leur empreinte |
+| `mcp-sessions.ts` | Les serveurs MCP des tâches : lancés au départ, fermés à la fin, tous fermés à l'arrêt |
 | `http.ts` | Routeur de l'API locale |
 | `ws.ts` | Diffusion temps réel et **reprise sans trou** après coupure |
 | `security.ts` | `Host` exact, `Origin` en liste blanche, `Sec-Fetch-Site`, jeton porteur |
@@ -249,6 +250,27 @@ figure pas. Chaque outil coché garde l'empreinte de ce que l'humain a lu ;
 redéclarer un serveur efface son catalogue, et le test suivant dit quels
 outils cochés le serveur annonce désormais autrement (`changed`). Chaque
 autorisation est journalisée avec son auteur.
+
+### Les serveurs d'une tâche (étape 3)
+
+Un profil porte `mcp_servers` (`PUT /api/agents/:id/mcp`, liste complète) ;
+seuls `researcher`, `developer` et `navigator` en reçoivent — l'orchestrateur
+**délègue** à un profil qui les a (décision 11). Au départ d'une tâche, en
+`preparing`, `McpSessions` lance **chaque** serveur du profil dans la racine de
+la tâche (le worktree d'un Developer), lit son catalogue **maintenant**, et le
+compare aux outils cochés lus **maintenant** : c'est là que l'empreinte fait
+son travail. Tout ou rien : un serveur qui ne démarre pas ferme les autres et
+fait échouer la tâche **avant** tout appel de modèle, avec sa raison. Les
+valeurs secrètes des serveurs rejoignent l'expurgation de la tâche. La
+timeline dit, par serveur, combien d'outils sont libres, combien ont changé,
+et lesquels ont été écartés.
+
+Les serveurs se ferment **avant** la conclusion (et avant le commit d'un
+Developer), dans le `finally` du moteur, et tous à l'arrêt du daemon ; un
+daemon tué net les laisse à la garde. Le catalogue est **figé** au départ : un
+`tools/list_changed` en cours de route n'ajoute rien à la tâche.
+
+Retirer un serveur le retire des profils qui l'avaient, et le dit.
 
 ## Installation
 

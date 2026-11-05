@@ -401,6 +401,27 @@ schéma ou annotations — le plus souvent une mise à jour du serveur. Il est
 Aucun catalogue n'a encore été lu, ou la déclaration a changé depuis : on ne
 coche que ce que le serveur a annoncé. `npm run harness -- mcp test rea` le lit.
 
+### `failed` : « le serveur MCP « … » n'a pas démarré »
+
+Les serveurs MCP d'un profil se lancent au départ de chaque tâche, dans le
+dossier du projet. Un seul qui ne démarre pas, et la tâche s'arrête **avant**
+tout appel de modèle — rien n'a été dépensé. La suite du message est celle du
+test de connexion : `npm run harness -- mcp test rea` la reproduit, hors tâche.
+
+### « agent_cannot_use_mcp » en donnant un serveur à un profil
+
+L'orchestrateur n'appelle aucun outil MCP : il délègue à un profil qui en a.
+Donne le serveur au `researcher` ou au `developer`
+(`npm run harness -- mcp attach rea researcher`) ; l'orchestrateur le voit dans
+`list_agents`.
+
+### Un outil MCP coché demande quand même une approbation
+
+Le serveur l'annonce, **au départ de la tâche**, autrement qu'au moment où tu
+l'as coché — une mise à jour sur place suffit, sans que rien d'autre change. La
+timeline le dit (« coché(s) mais annoncé(s) autrement »). Relire le catalogue,
+puis recocher : `npm run harness -- mcp test rea`, `npm run harness -- mcp tools rea`.
+
 ### `npm run harness -- mcp allow` : « pas de terminal pour confirmer »
 
 Comme `exec allow` : un outil coché ne sera plus montré à un humain. La CLI

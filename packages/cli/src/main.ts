@@ -51,6 +51,10 @@ ${bold('Serveurs MCP des agents')}
   mcp revoke <id> <outil>…
                         Les décoche : chaque appel attendra de nouveau un humain
   mcp remove <id>       Retire un serveur, ses outils cochés et ses secrets
+  mcp attach <id> <profil>
+                        Donne les outils du serveur aux agents d'un profil (researcher, developer, navigator)
+  mcp detach <id> <profil>
+                        Les leur retire
 
 ${bold('Worktrees et commandes des agents écrivants')}
   workspaces            Worktrees des tâches Developer, leur état sur le disque, les orphelins

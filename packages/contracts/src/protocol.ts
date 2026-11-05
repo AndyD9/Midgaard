@@ -68,9 +68,12 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *        daemon (fournisseur absent, ou modèle qui ne lit pas les images) ;
  *  - 14 : Slice 8, étape 2 — les routes `/api/mcp` (serveurs MCP déclarés,
  *        leur catalogue, les outils cochés). Un daemon de protocole 13
- *        répondrait 404 à `harness mcp` : la CLI doit le faire remplacer.
+ *        répondrait 404 à `harness mcp` : la CLI doit le faire remplacer ;
+ *  - 15 : Slice 8, étape 3 — un profil porte `mcp_servers`, que le serveur MCP
+ *        et le dashboard valident, et `PUT /api/agents/:id/mcp` les règle. Un
+ *        daemon de protocole 14 rendrait des profils sans le champ.
  */
-export const PROTOCOL_VERSION = 14
+export const PROTOCOL_VERSION = 15
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({
