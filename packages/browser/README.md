@@ -31,7 +31,7 @@ Chromium doit être installé une fois : `npx playwright install chromium`.
 | Sans privilège | Aucun téléchargement, aucune permission, aucun service worker, aucune extension |
 | Une seule page | Une fenêtre surgissante est fermée aussitôt |
 | Touches | Une liste fermée (`ALLOWED_KEYS`, qui est `BROWSER_KEYS` du paquet `tools`) : pas de raccourci du navigateur |
-| Aucun processus survivant | Chromium est chef de son groupe (constaté) ; confié à la garde d'`exec` dès son lancement, tué par groupe à la fermeture, et par la garde si le daemon meurt net — compté au système dans les tests |
+| Aucun processus survivant | Chromium est chef de son groupe (constaté) ; confié à la garde d'`exec` dès son lancement, tué par groupe à la fermeture, et par la garde si le daemon meurt net — compté au système dans les tests, **Chromium figé avant** (`SIGSTOP`) : sinon il quitte seul à la mort de son parent, et le test passait sans la garde (Slice 7, étape 7) |
 
 La garde est **injectable** (`guard`) pour que les tests servent leur page
 locale ; le daemon passe toujours la vraie.

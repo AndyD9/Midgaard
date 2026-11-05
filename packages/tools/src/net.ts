@@ -82,10 +82,16 @@ function isPrivateV6(address: string): boolean {
  * @throws {ToolError} si le nom ne résout pas, ou mène à une adresse non publique
  */
 export async function assertPublicHost(hostname: string): Promise<string[]> {
+  // `URL.hostname` garde les crochets d'un littéral IPv6 (`[::1]`), que
+  // `isIP` ne reconnaît pas : sans les ôter, `[::1]` partait en résolution
+  // DNS et n'était refusé que comme « introuvable » — sûr, mais pour une
+  // fausse raison, et une adresse IPv6 publique l'était tout autant (Slice 7,
+  // étape 7, X8).
+  const bare = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
   // Un littéral IP ne se résout pas : il se juge directement.
-  if (isIP(hostname)) {
-    if (isPrivateAddress(hostname)) throw new ToolError(refusal(hostname, hostname))
-    return [hostname]
+  if (isIP(bare)) {
+    if (isPrivateAddress(bare)) throw new ToolError(refusal(hostname, bare))
+    return [bare]
   }
 
   let addresses: { address: string }[]

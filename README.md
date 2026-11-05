@@ -165,14 +165,15 @@ Depuis la racine du dépôt :
 | `npm run test:restart` | ~45 s | Redémarrage, reprise WebSocket, sécurité, expiration, inactivité |
 | `npm run test:developer` | ~35 s | 13 scénarios : le Developer dans un vrai daemon, face à un faux fournisseur compatible OpenAI |
 | `npm run test:orchestrator` | ~6 s | 4 scénarios : l'orchestrateur dans un vrai daemon — délégation parallèle, approbation d'un enfant, annulation en cascade, `SIGKILL` |
-| `npm run test:security` | ~3 s | 5 scénarios : le PLAN §8.4 de bout en bout — aucun secret dans la base ni le journal du daemon (lus octet pour octet), y compris recopié par un orchestrateur dans une délégation ; chaque refus tracé, `; rm -rf` reste un argument, API sur la seule boucle locale |
+| `npm run test:security` | ~10 s | 9 scénarios : le PLAN §8.4 de bout en bout — aucun secret dans la base ni le journal du daemon (lus octet pour octet), y compris recopié par un orchestrateur dans une délégation ou écrit dans une conversation ; chaque refus tracé, `; rm -rf` reste un argument, API sur la seule boucle locale ; le navigateur des agents : aucune saisie sans approbation, aucune adresse privée, aucun Chromium après la mort du daemon, aucune capture en base |
 | `npm run test:ui` | ~1 min | 14 scénarios dans un vrai navigateur : direct, approbation au clic, reconnexion, diff d'une tâche Developer, formulaire « Nouvelle tâche », modèle d'un profil, arbre d'un orchestrateur, atelier (conversation, fichiers, terminal), onglet « Navigateur » |
 | `npm run test:wait` | ~3 min | 13 scénarios de bout en bout avec le client MCP officiel |
 | `npm run test:live` | ~3 min | 5 scénarios **contre la vraie API** — opt-in, dépense ~0,003 $, s'abstient sans clé |
 
 `npm test` enchaîne `unit`, `lock`, `restart`, `developer`, `orchestrator`, `security` et `wait`. `test:ui` se lance à
-part : il lui faut le dashboard compilé et le navigateur de Playwright, que
-`npm ci` ne télécharge pas.
+part : il lui faut le dashboard compilé. Le navigateur de Playwright, que
+`npm ci` ne télécharge pas, sert à `test:ui` et à `test:security` (sans lui,
+les scénarios du navigateur échouent en donnant la commande) :
 
 ```
 npx playwright install chromium

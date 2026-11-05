@@ -53,7 +53,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer, arbre d'un orchestrateur, atelier (conversation, éditeur, terminal) et onglet « Navigateur » compris (`npx playwright install chromium` au préalable) |
 | `npm run test:developer` | ~35 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris |
 | `npm run test:orchestrator` | ~10 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL`, conversation qui pilote une revue, `SIGKILL` pendant une attente |
-| `npm run test:security` | ~4 s — PLAN §8.4 de bout en bout : base et journal lus octet pour octet (conversation, questions, propositions et sortie en direct comprises), refus tracés, API sur la seule boucle locale |
+| `npm run test:security` | ~10 s — PLAN §8.4 de bout en bout : base et journal lus octet pour octet (conversation, questions, propositions et sortie en direct comprises), refus tracés, API sur la seule boucle locale ; le navigateur : saisie sans approbation, adresses privées, aucun Chromium après `SIGKILL`, aucune capture en base (`npx playwright install chromium` au préalable) |
 | `npm run test:live-vision` | Payant, opt-in — une image envoyée à un modèle Venice qui la lit, coût relevé |
 | `npm run test:wait` | ~3 min — 13 scénarios de bout en bout MCP |
 
@@ -314,7 +314,14 @@ coupure humaine et Chromium compté compris. Étape 6 faite : l'onglet
 `GET /api/tasks/:id/browser/frame`, approbation au-dessus, « Couper la
 session »), l'image lue dans le fil (relue sur le disque, montrée seulement si
 son SHA-256 est celui journalisé), la case « lit les images » aux Profils
-(D14 dans `test:ui`).
+(D14 dans `test:ui`). Étape 7 faite en local : X7 à X9 dans `test:security`
+(saisie et Entrée refusées n'atteignent pas la page, sept écritures d'adresses
+privées refusées, aucun Chromium après `SIGKILL` du daemon, aucune capture en
+base). Trouvé en chemin : un littéral IPv6 entre crochets était jugé comme un
+nom (`assertPublicHost` ôte les crochets), et **Chromium quitte seul à la mort
+de son parent** : un test de la garde ne la prouve qu'en figeant Chromium
+(`SIGSTOP`) avant. Reste ouvert : un clic sur un bouton d'envoi envoie un
+formulaire sans approbation (`docs/SLICE7.md`, étape 7).
 
 ## Slice 6 terminée — un atelier façon VS Code
 

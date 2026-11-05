@@ -24,7 +24,18 @@
  *  - X6 les canaux de la Slice 6 n'en font pas persister non plus : le message
  *       de l'utilisateur, la question d'un enfant et la réponse du parent, la
  *       proposition, et la sortie d'une commande qui écrit une clé **en deux
- *       fois** — dont même la première moitié ne doit pas être écrite.
+ *       fois** — dont même la première moitié ne doit pas être écrite ;
+ *  - X7 le navigateur des agents (Slice 7) ne tape rien et ne presse pas
+ *       Entrée sans approbation — vu par le serveur de la page, qui reçoit
+ *       chaque frappe —, et aucune capture n'est en base ;
+ *  - X8 il n'atteint aucune adresse privée, sous sept écritures, avec la
+ *       vraie garde ;
+ *  - X9 aucun Chromium ne survit à un `SIGKILL` du daemon, Chromium figé
+ *       avant : sans cela, il quitte seul, et la garde n'est pas éprouvée.
+ *
+ * X7 et X9 tournent sur un second daemon (`loopback-daemon.ts`) dont la garde
+ * admet la page locale du test ; X8, sur le daemon principal, garde la vraie.
+ * Sans Chromium, X7 à X9 échouent en donnant la commande d'installation.
  *
  * Ce qui est déjà prouvé ailleurs n'est pas rejoué : `Host` et `Origin`
  * étrangers, WebSocket comprise (`restart.ts`, R4) ; approbation à usage
@@ -33,12 +44,18 @@
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createServer, type IncomingMessage, type Server } from 'node:http'
 import { connect } from 'node:net'
 import { networkInterfaces, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { daemonJson, readRuntime, REDACTED, type HarnessConfig, type RuntimeInfo, type TaskEvent, type TaskView } from '@midgaard/contracts'
+import { fileURLToPath } from 'node:url'
+import { chromium } from 'playwright'
+import {
+  daemonFetch, daemonJson, readRuntime, REDACTED,
+  type Approval, type HarnessConfig, type RuntimeInfo, type TaskEvent, type TaskView,
+} from '@midgaard/contracts'
 import { startFakeProvider, type Turn } from './fake-provider.ts'
 import { childEnv, nodeArgsFor, scenario, summarize, tempHome, type Outcome } from './helpers.ts'
 
@@ -71,14 +88,24 @@ function makeRepo(name: string): string {
   return repo
 }
 
-async function startDaemon(config: HarnessConfig, home: string): Promise<{ child: ChildProcess; rt: RuntimeInfo }> {
+/**
+ * Lance un daemon dans son propre processus, et attend qu'il réponde.
+ *
+ * @param entry point d'entrée : le vrai `main` par défaut, ou le daemon des
+ *              tests dont le navigateur joint la boucle locale (X8, X9)
+ */
+async function startDaemon(
+  config: HarnessConfig,
+  home: string,
+  entry: string[] = nodeArgsFor('@midgaard/daemon/main'),
+): Promise<{ child: ChildProcess; rt: RuntimeInfo }> {
   // Politique réseau ouverte : ce qui doit arrêter l'agent, c'est la garde des
   // adresses privées, qui ne dépend d'aucune politique — pas une approbation.
   // Sortie redirigée vers `daemon.log`, comme le fait le serveur MCP en
   // production (`ensureDaemon`) : X1 doit lire ce que le daemon journalise
   // vraiment, pas un flux jeté.
   const log = openSync(config.logFile, 'a', 0o600)
-  const child = spawn(process.execPath, nodeArgsFor('@midgaard/daemon/main'), {
+  const child = spawn(process.execPath, entry, {
     env: childEnv(home, { MIDGAARD_HTTP_POLICY: 'open' }),
     stdio: ['ignore', log, log],
   })
@@ -511,8 +538,370 @@ await scenario(outcomes, 'X4 l\'API n\'écoute que la boucle locale ; jeton et b
   return { verdict: problems.length ? 'FAIL' : 'PASS', detail: problems.length ? problems.join(' ; ') : notes.join(' ; ') }
 })
 
+// --- Le navigateur des agents (Slice 7) --------------------------------------
+
+/** Chromium de Playwright : sans lui, X7 à X9 échouent en le disant, jamais en passant. */
+const chromiumMissing = existsSync(chromium.executablePath()) ? null : 'Chromium absent : npx playwright install chromium'
+
+/** Une page locale qui note chaque requête reçue : c'est par elle qu'on voit ce qui l'a atteinte. */
+interface Recorder {
+  server: Server
+  origin: string
+  hits: string[]
+}
+
+async function recorder(html: string): Promise<Recorder> {
+  const hits: string[] = []
+  const server = createServer((req: IncomingMessage, res) => {
+    hits.push(req.url ?? '')
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+    res.end(html)
+  })
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+  const address = server.address()
+  const port = typeof address === 'object' && address ? address.port : 0
+  return { server, origin: `http://127.0.0.1:${port}`, hits }
+}
+
+/** Le faux fournisseur, déclaré sur un autre daemon, et le Navigator rendu utilisable. */
+async function prepareNavigator(target: RuntimeInfo): Promise<void> {
+  if (target !== rt) {
+    const res = await daemonJson(target, '/api/providers', {
+      method: 'POST',
+      body: JSON.stringify({ id: 'faux', preset: 'custom', base_url: provider.url, default_model: 'faux-1', api_key: PROVIDER_KEY }),
+    })
+    if (res.status !== 200 && res.status !== 201) throw new Error(`fournisseur refusé : ${JSON.stringify(res.body)}`)
+  }
+  // Un fournisseur `custom` ne publie pas la capacité de ses modèles : la
+  // vision se déclare, comme le ferait l'utilisateur aux Profils.
+  const res = await daemonJson<{ agent?: { enabled: boolean } }>(target, '/api/agents/navigator', {
+    method: 'PATCH',
+    body: JSON.stringify({ vision: true }),
+  })
+  if (!res.body.agent?.enabled) throw new Error(`Navigator inutilisable : ${JSON.stringify(res.body)}`)
+}
+
+/** Lance une tâche Navigator sur un daemon, au script du faux fournisseur. */
+async function navigate(target: RuntimeInfo, tag: string, repo: string, script: Turn[]): Promise<string> {
+  provider.scripts.set(tag, script)
+  const res = await daemonJson<{ task?: { id: string } }>(target, '/api/tasks', {
+    method: 'POST',
+    body: JSON.stringify({ objective: `${tag} parcourir la page`, agent_id: 'navigator', project_dir: repo }),
+  })
+  if (!res.body.task) throw new Error(`Navigator refusé : ${JSON.stringify(res.body)}`)
+  return res.body.task.id
+}
+
+/**
+ * Joue une tâche, l'humain décidant chaque pause par `decide` (`true`
+ * approuve, `false` refuse), jusqu'à un statut final ou jusqu'à ce que
+ * `until` dise d'arrêter — la pause qui l'a dit reste alors en attente.
+ *
+ * @returns la dernière vue, et les décisions prises, dans l'ordre
+ */
+async function drive(
+  target: RuntimeInfo,
+  id: string,
+  decide: (a: Approval) => boolean,
+  until: (v: TaskView) => boolean = () => false,
+): Promise<{ last: TaskView; decisions: string[] }> {
+  const decisions: string[] = []
+  const decided = new Set<string>()
+  const deadline = Date.now() + 60_000
+  let last = (await daemonJson<TaskView>(target, `/api/tasks/${id}`)).body
+  while (Date.now() < deadline && !TERMINAL.has(last.task.status) && !until(last)) {
+    const a = last.approval
+    if (last.task.status === 'waiting_approval' && a && a.status === 'pending' && !decided.has(a.id)) {
+      decided.add(a.id)
+      const yes = decide(a)
+      decisions.push(`${String(a.operation_detail?.tool)} ${yes ? 'approuvé' : 'refusé'}`)
+      await daemonJson(target, `/api/approvals/${a.id}/${yes ? 'approve' : 'reject'}`, {
+        method: 'POST',
+        body: JSON.stringify({ by: 'test', reason: 'refusé par le test' }),
+      })
+    }
+    await sleep(100)
+    last = (await daemonJson<TaskView>(target, `/api/tasks/${id}`)).body
+  }
+  return { last, decisions }
+}
+
+/** Vrai quand la tâche attend l'approbation d'un appel de cet outil. */
+const pausedOn = (tool: string) => (v: TaskView) =>
+  v.task.status === 'waiting_approval' && v.approval?.status === 'pending' && v.approval.operation_detail?.tool === tool
+
+/** Chaque appel d'outil d'une tâche, son nom et son erreur, tels que le journal les garde. */
+async function toolCalls(target: RuntimeInfo, id: string): Promise<{ name: string; error: string | null }[]> {
+  const all = (await daemonJson<{ events: TaskEvent[] }>(target, `/api/tasks/${id}/events`)).body.events
+  const names = new Map(all.filter((e) => e.type === 'tool.requested').map((e) => [e.payload.tool_call_id, String(e.payload.name)]))
+  return all
+    .filter((e) => e.type === 'tool.completed')
+    .map((e) => ({ name: names.get(e.payload.tool_call_id) ?? '?', error: e.payload.error ? String(e.payload.error) : null }))
+}
+
+/**
+ * Où une capture se trouverait si elle avait été écrite : ses premiers octets,
+ * cherchés bruts et en base64 dans la base, le WAL et le journal du daemon.
+ * L'en-tête vient d'une **vraie** capture du même Chromium, relevée par la
+ * route de l'atelier : c'est la preuve que l'aiguille cherchée existe.
+ */
+function imageTraces(home: string, dbPath: string, header: Buffer): string[] {
+  // 12 octets donnent 16 caractères base64 sans remplissage : la même suite,
+  // où qu'elle commence dans un base64 aligné sur le début de l'image.
+  const b64 = header.subarray(0, 12).toString('base64')
+  const found: string[] = []
+  for (const name of ['harness.db', 'harness.db-wal', 'daemon.log']) {
+    const path = join(home, name)
+    if (!existsSync(path)) continue
+    const bytes = readFileSync(path)
+    if (bytes.includes(header)) found.push(`${name} (octets)`)
+    if (bytes.includes(b64)) found.push(`${name} (base64)`)
+  }
+  for (const column of whereInDatabase(dbPath, b64)) found.push(column)
+  return found
+}
+
+/** Les processus de la machine, lus au système : pid, parent, nom ou commande. */
+function processTable(): { pid: number; ppid: number; command: string }[] {
+  const out =
+    process.platform === 'win32'
+      ? execFileSync(
+          'powershell',
+          ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.Name)" }'],
+          { encoding: 'utf8', windowsHide: true },
+        )
+      : execFileSync('ps', ['-A', '-o', 'pid=,ppid=,command='], { encoding: 'utf8' })
+  return out
+    .split(/\r?\n/)
+    .map((l) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), command: m[3]! }))
+}
+
+/** Les Chromium descendants d'un processus : Playwright les lance sous le daemon. */
+function chromiumUnder(root: number): number[] {
+  const rows = processTable()
+  const tree = new Set([root])
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const r of rows) {
+      if (!tree.has(r.pid) && tree.has(r.ppid)) {
+        tree.add(r.pid)
+        grew = true
+      }
+    }
+  }
+  return rows.filter((r) => r.pid !== root && tree.has(r.pid) && /chrom/i.test(r.command)).map((r) => r.pid)
+}
+
+/** Attend qu'une condition devienne vraie, au plus `ms` millisecondes ; rend son dernier état. */
+async function waitUntil(check: () => boolean, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms
+  while (!check() && Date.now() < deadline) await sleep(100)
+  return check()
+}
+
+/** Vrai si un processus de ce pid existe encore (signal 0 : rien n'est envoyé). */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Le daemon des tests dont le navigateur joint la boucle locale : X7 puis X9, qui le tue. */
+const loop = tempHome('security-loopback')
+let loopDaemon: { child: ChildProcess; rt: RuntimeInfo } | null = null
+/** Un formulaire qui signale chaque frappe à la page : ce qui l'atteint se voit dans `hits`. */
+let form: Recorder | null = null
+/** L'en-tête d'une vraie capture, relevé en X7, cherché en base par X7 et X8. */
+let jpegHeader: Buffer | null = null
+
+await scenario(outcomes, 'X7 aucune saisie ni Entrée n\'atteint la page sans approbation, et aucune capture n\'est en base', async () => {
+  if (chromiumMissing) return { verdict: 'FAIL', detail: chromiumMissing }
+  form = await recorder(
+    '<!doctype html><title>Formulaire</title><form action="/envoye">' +
+      '<input id="q" name="q" autofocus oninput="fetch(\'/frappe?v=\' + encodeURIComponent(this.value))"></form>',
+  )
+  loopDaemon = await startDaemon(loop.config, loop.home, ['--conditions=midgaard-dev', fileURLToPath(new URL('./loopback-daemon.ts', import.meta.url))])
+  const target = loopDaemon.rt
+  await prepareNavigator(target)
+  const repo = makeRepo('x7')
+  const open = [{ tool: 'browser_open', args: { url: `${form.origin}/`, objective: '[X7] remplir le formulaire' } }]
+  const problems: string[] = []
+
+  // Un refus annule la tâche : chaque tentative a donc la sienne. Un agent
+  // détourné tente de taper une clé, puis d'envoyer le formulaire.
+  const attempts = [
+    { tag: '[X7-saisie]', turn: { tool: 'browser_type', args: { text: `refus ${THIRD_PARTY}` } } },
+    { tag: '[X7-entree]', turn: { tool: 'browser_key', args: { key: 'Enter' } } },
+  ]
+  for (const { tag, turn } of attempts) {
+    const id = await navigate(target, tag, repo, [open, [turn], submit('jamais atteint')])
+    const { last, decisions } = await drive(target, id, (a) => a.operation_detail?.tool === 'browser_open')
+    const expected = `browser_open approuvé,${turn.tool} refusé`
+    if (decisions.join() !== expected) problems.push(`${tag} décisions : ${decisions.join(' ; ')}`)
+    if (last.task.status !== 'cancelled') problems.push(`${tag} statut ${last.task.status}`)
+    const journal = (await daemonJson<{ events: TaskEvent[] }>(target, `/api/tasks/${id}/events`)).body.events
+    if (!journal.some((e) => e.type === 'browser.closed')) problems.push(`${tag} session jamais fermée au journal`)
+  }
+
+  // Le témoin : l'adresse `javascript:` ne contourne pas l'approbation, et une
+  // saisie approuvée, elle, arrive — sans quoi l'absence de frappe pourrait
+  // venir d'une page qui ne signale rien.
+  const id = await navigate(target, '[X7-temoin]', repo, [
+    open,
+    [{ tool: 'browser_goto', args: { url: 'javascript:document.forms[0].submit()' } }],
+    [{ tool: 'browser_type', args: { text: 'approuve' } }],
+    submit('formulaire rempli'),
+  ])
+  const decide = (a: Approval) =>
+    a.operation_detail?.tool === 'browser_open' || (a.operation_detail?.tool === 'browser_type' && a.operation_detail.text === 'approuve')
+  // À la saisie en attente, la page est chargée et capturée : on relève la
+  // capture par la route de l'atelier, avant d'approuver.
+  const paused = await drive(target, id, decide, pausedOn('browser_type'))
+  const frame = await daemonFetch(target, `/api/tasks/${id}/browser/frame`)
+  if (frame.status === 200) jpegHeader = Buffer.from(await frame.arrayBuffer()).subarray(0, 12)
+  else problems.push(`aucune capture à relever (${frame.status})`)
+  const rest = await drive(target, id, decide)
+  await waitUntil(() => form!.hits.some((h) => h.includes('approuve')), 3_000)
+  if (rest.last.task.status !== 'completed') problems.push(`[X7-temoin] statut ${rest.last.task.status} — ${rest.last.task.error}`)
+  const decisions = [...paused.decisions, ...rest.decisions].join()
+  if (decisions !== 'browser_open approuvé,browser_type approuvé') problems.push(`[X7-temoin] décisions : ${decisions}`)
+  const goto = (await toolCalls(target, id)).find((c) => c.name === 'browser_goto')
+  if (!goto?.error?.includes('only http')) problems.push(`javascript: non refusé : ${goto?.error ?? 'aucune erreur'}`)
+
+  if (form.hits.filter((h) => h === '/').length < attempts.length + 1) problems.push(`la page n'a pas été chargée à chaque session : ${form.hits.join(', ')}`)
+  const leaked = form.hits.filter((h) => /refus|ghp_|envoye/.test(h))
+  if (leaked.length) problems.push(`atteint la page sans approbation (${leaked.length} requêtes) : ${leaked.slice(0, 3).join(', ')}…`)
+  if (!form.hits.some((h) => h.includes('approuve'))) problems.push('la saisie approuvée n\'est jamais arrivée : la page ne signale rien')
+  if (jpegHeader && jpegHeader.subarray(0, 3).toString('hex') !== 'ffd8ff') problems.push('la capture relevée n\'est pas un JPEG')
+  if (jpegHeader) {
+    const traces = imageTraces(loop.home, loop.config.dbPath, jpegHeader)
+    if (traces.length) problems.push(`capture écrite dans ${traces.join(', ')}`)
+  }
+  for (const name of ['harness.db', 'harness.db-wal', 'daemon.log']) {
+    const path = join(loop.home, name)
+    if (existsSync(path) && readFileSync(path).includes(THIRD_PARTY)) problems.push(`clé tierce en clair dans ${name}`)
+  }
+  return {
+    verdict: problems.length ? 'FAIL' : 'PASS',
+    detail: problems.length
+      ? problems.join(' ; ')
+      : `saisie et Entrée refusées n'atteignent pas la page et annulent la tâche, session fermée ; javascript: refusé ; la saisie approuvée arrive (${form.hits.length} requêtes vues) ; ni capture ni clé en base, WAL ou journal`,
+  }
+})
+
+await scenario(outcomes, 'X8 le navigateur n\'atteint aucune adresse privée, quelle que soit son écriture', async () => {
+  if (chromiumMissing) return { verdict: 'FAIL', detail: chromiumMissing }
+  // Le daemon principal, avec la **vraie** garde : la page qui compte les
+  // visites est sur la boucle locale, que rien ne doit atteindre.
+  const canary = await recorder('<!doctype html><title>canari</title>')
+  const port = new URL(canary.origin).port
+  try {
+    await prepareNavigator(rt)
+    const tries = [
+      `http://localhost:${port}/`,
+      `http://[::1]:${port}/`,
+      `http://0.0.0.0:${port}/`,
+      `http://2130706433:${port}/`, // 127.0.0.1 écrit en décimal
+      'http://169.254.169.254/latest/meta-data/',
+      'http://10.0.0.1/',
+    ]
+    const id = await navigate(rt, '[X8]', makeRepo('x8'), [
+      [{ tool: 'browser_open', args: { url: `${canary.origin}/`, objective: '[X8] lire la page' } }],
+      ...tries.map((url) => [{ tool: 'browser_goto', args: { url } }]),
+      // Une capture de la page d'erreur : une image existe donc bien en mémoire.
+      [{ tool: 'browser_screenshot', args: {} }],
+      submit('rien de lisible'),
+    ])
+    const { last, decisions } = await drive(rt, id, (a) => a.operation_detail?.tool === 'browser_open')
+
+    const problems: string[] = []
+    if (last.task.status !== 'completed') problems.push(`statut ${last.task.status} — ${last.task.error}`)
+    if (decisions.join() !== 'browser_open approuvé') problems.push(`décisions : ${decisions.join(' ; ')}`)
+    if (canary.hits.length) problems.push(`la boucle locale a été atteinte : ${canary.hits.join(', ')}`)
+    const calls = await toolCalls(rt, id)
+    const navigations = calls.filter((c) => c.name === 'browser_open' || c.name === 'browser_goto')
+    if (navigations.length !== tries.length + 1) problems.push(`${navigations.length} navigations au journal, ${tries.length + 1} attendues`)
+    const passed = navigations.filter((c) => !c.error?.startsWith('refused'))
+    if (passed.length) problems.push(`non refusées : ${passed.map((c) => c.error ?? 'sans erreur').join(' | ')}`)
+    const shot = calls.find((c) => c.name === 'browser_screenshot')
+    if (!shot || shot.error) problems.push(`aucune capture prise : ${shot?.error ?? 'appel absent'}`)
+    if (!jpegHeader) problems.push('aucun en-tête de capture relevé en X7 : la base n\'a pas pu être fouillée')
+    else {
+      const traces = imageTraces(main.home, main.config.dbPath, jpegHeader)
+      if (traces.length) problems.push(`capture écrite dans ${traces.join(', ')}`)
+    }
+    return {
+      verdict: problems.length ? 'FAIL' : 'PASS',
+      detail: problems.length
+        ? problems.join(' ; ')
+        : `${tries.length + 1} adresses privées refusées et tracées (boucle locale sous cinq écritures, IMDS, 10/8), page témoin jamais atteinte ; capture prise, absente de la base`,
+    }
+  } finally {
+    canary.server.close()
+  }
+})
+
+await scenario(outcomes, 'X9 aucun Chromium ne survit à un daemon tué net pendant une session', async () => {
+  if (chromiumMissing) return { verdict: 'FAIL', detail: chromiumMissing }
+  if (!loopDaemon || !form) return { verdict: 'FAIL', detail: 'X7 n\'a pas lancé le daemon des tests' }
+  const target = loopDaemon.rt
+  const id = await navigate(target, '[X9]', makeRepo('x9'), [
+    [{ tool: 'browser_open', args: { url: `${form.origin}/`, objective: '[X9] attendre' } }],
+    [{ tool: 'browser_type', args: { text: 'jamais' } }],
+    submit('jamais atteint'),
+  ])
+  // La session est ouverte et une saisie attend l'humain : Chromium tourne.
+  const { last } = await drive(target, id, (a) => a.operation_detail?.tool === 'browser_open', pausedOn('browser_type'))
+  if (!pausedOn('browser_type')(last)) return { verdict: 'FAIL', detail: `pas de saisie en attente : ${last.task.status}` }
+  const pids = chromiumUnder(loopDaemon.child.pid!)
+  // Le compte doit voir quelque chose, sans quoi « aucun survivant » ne prouverait rien.
+  if (pids.length === 0) return { verdict: 'FAIL', detail: 'aucun Chromium vu sous le daemon : le compte ne prouverait rien' }
+  // Chromium quitte de lui-même quand le canal qui le relie au daemon se
+  // ferme : sans plus, ce scénario passait **sans la garde** (constaté en
+  // la retirant). Figé (`SIGSTOP`), un Chromium ne voit plus rien se fermer —
+  // c'est le Chromium bloqué que la garde existe pour tuer. Seul un `SIGKILL`
+  // de son groupe en vient à bout. Windows n'a pas de `SIGSTOP` : on n'y
+  // prouve que l'absence de survivant, et on le dit.
+  const posix = process.platform !== 'win32'
+  const daemonPid = loopDaemon.child.pid!
+  const frozen = posix ? processTable().filter((r) => r.ppid === daemonPid && pids.includes(r.pid)).map((r) => r.pid) : []
+  if (posix && frozen.length === 0) return { verdict: 'FAIL', detail: 'aucun Chromium principal sous le daemon : rien à figer' }
+  for (const pid of frozen) process.kill(pid, 'SIGSTOP')
+
+  loopDaemon.child.kill('SIGKILL')
+  await new Promise((r) => (loopDaemon!.child.exitCode === null && loopDaemon!.child.signalCode === null ? loopDaemon!.child.once('exit', r) : r(null)))
+  await waitUntil(() => pids.every((p) => !alive(p)), 10_000)
+  const survivors = pids.filter(alive)
+  for (const pid of survivors) {
+    try {
+      process.kill(pid, 'SIGKILL') // ne pas les laisser derrière le test
+    } catch {}
+  }
+  return {
+    verdict: survivors.length ? 'FAIL' : 'PASS',
+    detail: survivors.length
+      ? `${survivors.length} Chromium sur ${pids.length} vivants 10 s après la mort du daemon`
+      : `${pids.length} processus Chromium vus pendant la session, tous morts après le SIGKILL du daemon (comptés au système)` +
+        (posix ? `, dont ${frozen.length} figé : c'est la garde qui l'a tué` : ' ; Chromium NON figé sous Windows : la garde n\'y est pas isolée'),
+  }
+})
+
 // --- Démontage ---------------------------------------------------------------
 
+// Assignés dans les scénarios : TypeScript ne le voit pas, d'où la conversion.
+const leftover = loopDaemon as { child: ChildProcess; rt: RuntimeInfo } | null
+if (leftover && leftover.child.exitCode === null && leftover.child.signalCode === null) {
+  await daemonJson(leftover.rt, '/api/shutdown', { method: 'POST' }).catch(() => {})
+  await new Promise((r) => leftover.child.once('exit', r))
+}
+;(form as Recorder | null)?.server.close()
+loop.cleanup()
 await daemonJson(rt, '/api/shutdown', { method: 'POST' }).catch(() => {})
 await new Promise((r) => (child.exitCode === null ? child.once('exit', r) : r(null)))
 provider.server.close()

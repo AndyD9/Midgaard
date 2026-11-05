@@ -234,6 +234,14 @@ describe('http_fetch — destinations refusées', () => {
     )
   })
 
+  it('juge un littéral IPv6 entre crochets, tel que le rend URL.hostname', async () => {
+    // Avant, `[::1]` partait en résolution DNS et n'était refusé que comme
+    // « introuvable » ; une adresse publique entre crochets l'était aussi.
+    await assert.rejects(() => assertPublicHost('[::1]'), /\[::1\] resolves to a private or loopback address \(::1\)/)
+    await assert.rejects(() => assertPublicHost('[::ffff:127.0.0.1]'), /private or loopback/)
+    assert.deepEqual(await assertPublicHost('[2606:4700::1111]'), ['2606:4700::1111'])
+  })
+
   it('refuse le service de métadonnées du nuage, en le nommant', async () => {
     const error = await fetchTool()
       .run({ url: 'http://169.254.169.254/latest/meta-data/' } as never, ctx())

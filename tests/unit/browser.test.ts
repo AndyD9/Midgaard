@@ -190,6 +190,10 @@ describe('aucun processus ne survit', { skip }, () => {
       child.on('exit', () => reject(new Error('le processus a fini avant d\'ouvrir la session')))
     })
     assert.ok(groupAlive(pid) > 0, 'Chromium tourne')
+    // Figé, Chromium ne voit pas se fermer le canal qui le relie au processus
+    // mort ; sans cela, il quitte de lui-même, et ce test passait aussi
+    // **sans la garde** (constaté en la retirant, Slice 7, étape 7).
+    process.kill(pid, 'SIGSTOP')
     child.kill('SIGKILL')
     let left = groupAlive(pid)
     for (let i = 0; i < 50 && left > 0; i++) {

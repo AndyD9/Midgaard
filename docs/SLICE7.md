@@ -6,8 +6,9 @@ navigateur** : ouvrir une page ou une application web, la regarder, cliquer,
 saisir. Le tout dans un navigateur que le daemon lance à part, sous des
 sessions que l'humain approuve et surveille en direct dans l'atelier.
 
-**État : en cours.** Étapes 1 à 6 faites (2026-11-03) ; l'étape 1 constatée
-contre l'API réelle de Venice, les étapes 1 à 3 en CI sur trois plateformes.
+**État : en cours.** Étapes 1 à 6 faites (2026-11-03), étape 7 faite en local
+(2026-11-05) ; l'étape 1 constatée contre l'API réelle de Venice, les étapes 1
+à 6 en CI sur trois plateformes.
 
 ---
 
@@ -106,7 +107,7 @@ font rien ; le navigateur ensuite, qui agit.
 | 4 | Les outils et la session : `browser_open` (session approuvée), `browser_screenshot`, `browser_goto`, `browser_click`, `browser_scroll`, `browser_type` et Entrée (approuvés chacun), `browser_close` ; captures non fiables | **fait** |
 | 5 | Le profil `navigator` : consigne, outils, limites ; désactivé sans modèle à vision, avec son motif | **fait** — et le moteur, la coupure humaine et la fermeture avant conclusion, exercés dans un vrai daemon |
 | 6 | L'atelier : onglet « Navigateur » (dernière capture en direct, adresse, bouton « Couper la session »), l'image lue montrée dans le fil | **fait** — et la case « lit les images » aux Profils |
-| 7 | Preuves : unitaires, de bout en bout sur une page locale servie par le test, `test:security` (adresse privée depuis le navigateur, saisie sans approbation, aucun Chromium vivant après `SIGKILL`, aucune image en base), CI sur trois plateformes | à faire |
+| 7 | Preuves : unitaires, de bout en bout sur une page locale servie par le test, `test:security` (adresse privée depuis le navigateur, saisie sans approbation, aucun Chromium vivant après `SIGKILL`, aucune image en base), CI sur trois plateformes | **fait** en local — X7 à X9 ; un défaut IPv6 et un test de garde qui ne prouvait rien, réglés ; CI à constater |
 | 8 | L'essai réel : un agent lit une maquette, puis navigue dans une application web, sous session approuvée, coût comparé à la facture | à faire |
 
 ### Ce que chaque étape doit surveiller
@@ -305,7 +306,9 @@ se charge.
   - l'IMDS refusé depuis une page ;
   - la boucle locale refusée par la vraie garde, variable de Playwright posée
     comprise ;
-  - le groupe mort à la fermeture et après `SIGKILL`.
+  - le groupe mort à la fermeture et après `SIGKILL` — *ce dernier cas ne
+    prouvait pas la garde : il passait sans elle, Chromium quittant de
+    lui-même. Corrigé à l'étape 7, où Chromium est figé avant.*
 - Sans Chromium installé, la suite saute en le disant ; la CI de bout en bout
   l'installe avant `test:unit`. Les tests de groupe de processus sautent sous
   Windows, en le disant.
@@ -577,3 +580,93 @@ Linux ni sous Windows, ni dans les passages locaux sous macOS. D14 dit désormai
 ce que le fil montrait à la place (l'élément, une note, la largeur décodée de
 l'image), pour qu'un prochain échec dise lequel.*
 
+
+### Étape 7 — les preuves (2026-11-05)
+
+Trois scénarios rejoignent `test:security`. Chacun lit le résultat au système
+ou au serveur visé, jamais à travers le daemon qu'il éprouve.
+
+**X7 — aucune saisie ni Entrée sans approbation.** Un second daemon tourne
+dans son propre processus (`tests/loopback-daemon.ts`). Sa garde de test admet
+la boucle locale, que la vraie refuse ; `main.ts` ne la pose jamais. La page
+servie par le test signale chaque frappe au serveur. Ce qui l'atteint se voit
+donc là, pas dans le journal du daemon. Trois tâches, parce qu'**un refus
+d'approbation annule la tâche** (le premier jet supposait qu'elle continuait) :
+- une saisie qui contient une clé, refusée : rien n'atteint la page, la tâche
+  est annulée, la session fermée au journal ;
+- Entrée, refusée : le formulaire ne part pas ;
+- le témoin : `javascript:` est refusé sans même demander, puis une saisie
+  approuvée arrive à la page. Sans ce témoin, l'absence de frappe pourrait
+  venir d'une page qui ne signale rien.
+
+À la pause du témoin, X7 relève une vraie capture par la route de l'atelier.
+Ses 12 premiers octets, bruts et en base64, sont ensuite cherchés dans la
+base, le WAL et le journal du daemon, et dans chaque colonne. **L'aiguille vient
+d'une vraie image du même Chromium** : une recherche sur un motif deviné
+pourrait ne jamais rien trouver.
+
+**X8 — aucune adresse privée, quelle que soit son écriture.** Sur le daemon
+principal, avec la **vraie** garde, une page témoin sur la boucle locale compte
+ses visites. Le Navigator la vise sous sept formes : `127.0.0.1`, `localhost`,
+`[::1]`, `0.0.0.0`, `2130706433` (127.0.0.1 en décimal), l'IMDS et `10.0.0.1`.
+Chacune est refusée et tracée, et le témoin n'est jamais visité. Une capture de
+la page d'erreur est prise, et elle n'est pas en base.
+
+**Ce que X8 a trouvé : un littéral IPv6 jugé comme un nom.** `URL.hostname`
+garde les crochets (`[::1]`), que `isIP` ne reconnaît pas. `assertPublicHost`
+partait donc en résolution DNS, et `[::1]` n'était refusé que comme
+« introuvable ». C'était sûr, mais pour une fausse raison, et une adresse IPv6
+**publique** était refusée tout autant. La garde ôte désormais les crochets
+avant de juger (`packages/tools/src/net.ts`) ; c'est vrai aussi pour
+`http_fetch`. Un test unitaire le dit (`tools.test.ts`).
+
+**X9 — aucun Chromium après un `SIGKILL` du daemon.** Une session est ouverte
+et une saisie attend l'humain. X9 compte alors les Chromium descendants du
+daemon au système, par `ps`, ou par `Get-CimInstance` sous Windows. Il exige
+d'en voir au moins un, puis tue le daemon net et vérifie que chacun est mort.
+
+**Ce que X9 a trouvé : le test de la garde ne la prouvait pas.** La garde
+retirée, X9 passait quand même, et le test unitaire de l'étape 3 (« la garde
+emporte Chromium ») aussi. **Chromium quitte de lui-même** quand se ferme le
+canal qui le relie au processus mort. Les deux tests **figent** maintenant le
+Chromium principal (`SIGSTOP`) avant de tuer son parent. Figé, il ne voit plus
+rien se fermer : c'est le Chromium bloqué que la garde existe pour tuer.
+- Sans la garde, les deux échouent : 4 Chromium sur 4 survivent à X9.
+- Avec, les deux passent.
+
+Windows n'a pas de `SIGSTOP`. X9 n'y prouve que l'absence de survivant, et le
+dit dans son verdict.
+
+**Contre-épreuves**, chaque défaut introduit puis retiré :
+
+| Défaut introduit | Vu par |
+|---|---|
+| saisie sans approbation | X7 : la clé tapée arrive à la page, frappe par frappe |
+| 64 caractères de la capture dans le résumé d'un appel | X7 et X8 : WAL, `task_events.payload_json`, `tool_calls.result_summary` |
+| garde des processus retirée | X9 et `browser.test.ts`, une fois Chromium figé |
+| crochets IPv6 non ôtés | X8 |
+
+**`test:security` demande désormais Chromium** (`npx playwright install
+chromium`). Sans lui, X7 à X9 **échouent** en donnant la commande : ce sont des
+preuves de sécurité, et un saut ne doit pas avoir l'air d'une réussite. La CI
+de bout en bout l'installe déjà avant la suite.
+
+**Ce qui reste ouvert : Entrée n'est pas le seul chemin d'un formulaire.** La
+décision 6 dit que saisir et presser Entrée sont approuvés, « c'est par là
+qu'un formulaire part ». C'est incomplet. Les clics sont libres dans la
+session, et un clic sur un bouton d'envoi envoie un formulaire sans
+approbation. `Tab` puis `Space` sur ce bouton aussi. Ce qui est prouvé, c'est
+qu'**aucun texte choisi par l'agent n'entre dans un champ** sans que l'humain
+l'ait lu. Un formulaire déjà rempli par la page, ou dont les champs sont des
+cases et des listes, peut partir d'un clic. À trancher avec l'auteur avant
+l'essai réel :
+- garder ce partage, et le dire dans la consigne de session ;
+- ou approuver aussi un clic qui envoie un formulaire, ce qui demande de le
+  reconnaître dans la page, que l'agent ne contrôle pas, mais qui peut mentir.
+
+**Vérifié :**
+- `npm run typecheck` ; `npm run test:unit` (538 tests, aucun sauté) ;
+- `npm run test:security` : 9 scénarios, X7 à X9 compris ;
+- chaque contre-épreuve du tableau, défaut en place puis retiré.
+
+*La CI sur trois plateformes reste à constater après la publication.*
