@@ -14,7 +14,9 @@
  *  - seul un orchestrateur de premier niveau converse, et un message n'est
  *    accepté que par une conversation qui l'attend ;
  *  - une annulation pendant l'attente laisse **zéro tâche active en base**, et
- *    une attente oubliée expire en `timed_out`.
+ *    une attente oubliée expire en `timed_out` ;
+ *  - une **approbation** oubliée aussi, et l'appel est inscrit « aucune
+ *    décision humaine », jamais « refusé par un humain » (Slice 7, étape 8).
  *
  * Le faux fournisseur compte les répliques déjà dans la conversation pour
  * choisir la suivante : c'est ce qui prouve que la reprise se fait dans la
@@ -286,6 +288,37 @@ describe('conversation oubliée', () => {
     await new Promise((r) => setTimeout(r, 200))
     const ends = quick.store.taskEvents(created.task.id).filter((e) => e.type.startsWith('task.') && e.status === 'timed_out')
     assert.equal(ends.length, 1)
+    assert.equal(quick.store.countTasks().active, 0)
+  })
+})
+
+describe('approbation oubliée', () => {
+  it('expire en timed_out, sans inscrire un refus que personne n\'a donné', async () => {
+    // Vu à l'essai réel de la Slice 7 : la session d'un Navigator a expiré, et
+    // son appel était inscrit « refusé par un humain ». Sous la politique HTTP
+    // `approval`, un `http_fetch` attend l'humain ; personne ne répond.
+    const quick = await boot({ MIDGAARD_APPROVAL_TTL_S: '1', MIDGAARD_HTTP_POLICY: 'approval' })
+    provider.scripts.set('[approbation-oubliee]', [
+      [{ tool: 'http_fetch', args: { url: 'https://example.org/' } }],
+      [{ tool: 'submit_result', args: { summary: 'jamais atteint', details: 'x' } }],
+    ])
+    const created = quick.tasks.create({
+      objective: '[approbation-oubliee] lis la page', agentId: 'researcher', context: null, projectDir: project,
+      durationS: 20, needsApproval: false,
+    })
+    assert.ok(!('error' in created), JSON.stringify(created))
+    await until(quick, created.task.id, 'waiting_approval')
+    const done = await until(quick, created.task.id, 'timed_out', 5_000)
+    assert.match(done.error ?? '', /aucune décision humaine/)
+    // La boucle réveillée inscrit la fin de l'appel : qu'elle l'ait fait, puis ce qu'elle dit.
+    let completed: Record<string, unknown> | undefined
+    for (let i = 0; i < 50 && !completed; i++) {
+      completed = quick.store.taskEvents(created.task.id).find((e) => e.type === 'tool.completed')?.payload
+      if (!completed) await new Promise((r) => setTimeout(r, 20))
+    }
+    assert.ok(completed, 'la fin de l\'appel est au journal')
+    assert.equal(completed.status, 'denied')
+    assert.equal(completed.error, 'aucune décision humaine dans le délai')
     assert.equal(quick.store.countTasks().active, 0)
   })
 })

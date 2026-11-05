@@ -244,11 +244,11 @@ export class AgentEngine implements TaskEngine {
    *          la tâche serait marquée annulée pendant qu'un appel modèle tourne
    *          encore, et sa consommation ne serait jamais comptée
    */
-  cancel(task: Task): boolean {
+  cancel(task: Task, approval: 'rejected' | 'expired' = 'rejected'): boolean {
     const state = this.running.get(task.id)
     if (!state) return true
     state.cancelled = true
-    state.decide?.('rejected')
+    state.decide?.(approval)
     state.reply?.({ kind: 'cancelled' })
     state.abort.abort()
     return false

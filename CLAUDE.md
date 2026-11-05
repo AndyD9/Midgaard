@@ -280,9 +280,9 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
 
-## Slice 7 en cours — les agents voient
+## Slice 7 terminée — les agents voient
 
-Décidée le 2026-11-03, pas commencée : lire des images d'abord, puis piloter
+Décidée le 2026-11-03, terminée le 2026-11-05 : lire des images d'abord, puis piloter
 un **navigateur isolé** (Chromium jetable lancé par le daemon, jamais le
 bureau de l'utilisateur) sous des **sessions approuvées et surveillées**, la
 saisie de texte approuvée à chaque fois. Décisions, découpage en huit étapes et
@@ -323,7 +323,14 @@ de son parent** : un test de la garde ne la prouve qu'en figeant Chromium
 (`SIGSTOP`) avant. **Un clic n'est jamais approuvé, même s'il envoie un
 formulaire** (décision du 2026-11-05) : c'est dit dans la demande de session
 que l'humain approuve, et au modèle. Seul le texte tapé par l'agent est
-garanti lu par l'humain.
+garanti lu par l'humain. Étape 8, l'essai réel : `deepseek-v4-1-flash`
+(vision au catalogue Venice) a lu une maquette, puis l'a reproduite dans
+TodoMVC sous session approuvée, six saisies et Entrées approuvées une à une,
+résultat juste, 0,0086 $ « facturé par le fournisseur », aucune image en base,
+aucun Chromium après. Trouvé en chemin : une approbation **expirée** était
+inscrite « refusé par un humain » (`cancel(task, 'expired')` désormais). Reste
+ouvert : la fenêtre desktop ne répondait plus après deux redémarrages du
+daemon, cause non établie (`docs/SLICE7.md`, étape 8).
 
 ## Slice 6 terminée — un atelier façon VS Code
 

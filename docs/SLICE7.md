@@ -6,9 +6,11 @@ navigateur** : ouvrir une page ou une application web, la regarder, cliquer,
 saisir. Le tout dans un navigateur que le daemon lance à part, sous des
 sessions que l'humain approuve et surveille en direct dans l'atelier.
 
-**État : en cours.** Étapes 1 à 6 faites (2026-11-03), étape 7 faite
-(2026-11-05) ; l'étape 1 constatée contre l'API réelle de Venice, les étapes 1
-à 7 en CI sur trois plateformes.
+**État : terminée** (2026-11-05). Étapes 1 à 6 faites le 2026-11-03, 7 et 8
+le 2026-11-05 ; l'étape 1 constatée contre l'API réelle de Venice, les étapes
+1 à 7 en CI sur trois plateformes, l'essai réel réussi à la deuxième tentative
+(`deepseek-v4-1-flash` sur TodoMVC). Reste ouvert : la fenêtre desktop qui ne
+répondait plus après deux redémarrages du daemon (étape 8).
 
 ---
 
@@ -110,7 +112,7 @@ font rien ; le navigateur ensuite, qui agit.
 | 5 | Le profil `navigator` : consigne, outils, limites ; désactivé sans modèle à vision, avec son motif | **fait** — et le moteur, la coupure humaine et la fermeture avant conclusion, exercés dans un vrai daemon |
 | 6 | L'atelier : onglet « Navigateur » (dernière capture en direct, adresse, bouton « Couper la session »), l'image lue montrée dans le fil | **fait** — et la case « lit les images » aux Profils |
 | 7 | Preuves : unitaires, de bout en bout sur une page locale servie par le test, `test:security` (adresse privée depuis le navigateur, saisie sans approbation, aucun Chromium vivant après `SIGKILL`, aucune image en base), CI sur trois plateformes | **fait** — X7 à X9, verts en CI sur trois plateformes ; un défaut IPv6 et un test de garde qui ne prouvait rien, réglés |
-| 8 | L'essai réel : un agent lit une maquette, puis navigue dans une application web, sous session approuvée, coût comparé à la facture | à faire |
+| 8 | L'essai réel : un agent lit une maquette, puis navigue dans une application web, sous session approuvée, coût comparé à la facture | **fait** — N1 à N9 constatés, coût « facturé par le fournisseur » mais non comparé au solde ; une expiration inscrite comme un refus, réglée |
 
 ### Ce que chaque étape doit surveiller
 
@@ -691,3 +693,117 @@ X7 à X9 passent sur les trois postes. Chromium est vu sous le daemon avant le
 `SIGKILL` (4 processus sous macOS et Windows, 6 sous Linux), et aucun ne
 survit. Sous Windows, il n'est pas figé avant : X9 n'y prouve que l'absence de
 survivant, et le dit.*
+
+### Étape 8 — l'essai réel (2026-11-05)
+
+#### Le protocole
+
+- **Daemon** : celui de l'utilisateur (`~/.midgaard`), au code de `2de69bf`,
+  dashboard compilé, fenêtre desktop ouverte.
+- **Profil** : `navigator` sur `venice`, modèle `deepseek-v4-1-flash`. Il est
+  **vision au catalogue** de Venice (`supportsVision`), sans déclaration ; les
+  `deepseek-v4-flash` des essais précédents ne lisent pas les images. Limites
+  du profil : 30 étapes, 0,5 $, 1 800 s.
+- **Projet** : un dépôt jetable d'un commit, avec la maquette
+  `maquettes/todo.png`. Elle montre trois tâches, « Acheter du pain », « Relire
+  la slice 7 » (cochée) et « Lancer la CI », et « 2 items left ».
+- **Application** : TodoMVC, `https://todomvc.com/examples/react/dist/`,
+  publique.
+- **Objectif** : lire la maquette, puis la reproduire dans l'application, une
+  tâche à la fois (texte puis Entrée), cocher ce qui est coché, et dire ce qui
+  diffère encore.
+- **Solde** : non comparé. Le compte Venice est partagé avec un autre usage
+  (Slice 6), et l'auteur avait décidé d'essayer sans. Chaque coût doit porter sa
+  provenance.
+
+| # | Attendu | Ce qui le constate |
+|---|---|---|
+| N1 | Le Navigator est utilisable, la vision lue au catalogue | `GET /api/agents` |
+| N2 | `read_image` lit la maquette ; le fil la montre | journal, fenêtre |
+| N3 | La session n'ouvre qu'après l'humain, et sa demande dit « clics libres, envoi de formulaire compris » | approbations |
+| N4 | Chaque saisie et chaque Entrée attendent l'humain, texte exact et champ lus | approbations, fenêtre |
+| N5 | Cocher une case ne demande rien | journal |
+| N6 | L'onglet « Navigateur » suit la session en direct | fenêtre |
+| N7 | La session se ferme avant la conclusion ; `submit_result` ; résultat non fiable | journal, résultat |
+| N8 | Aucune image en base : ni la maquette (PNG) ni les captures (JPEG) | `harness.db` et WAL lus octet pour octet |
+| N9 | Aucun Chromium après la fin | processus comptés au système |
+| N10 | Chaque appel a un coût avec sa provenance | base |
+
+Échec du produit : une saisie ou une session sans l'humain, une capture en
+base, un Chromium survivant, un coût sans provenance. Échec de l'essai, à
+rejouer : un modèle qui ne lit pas la maquette, ne vise pas les bons champs,
+ou épuise ses étapes.
+
+#### Première tentative — 2026-11-05, 04:00 UTC
+
+Tâche `92216ed3`, lancée par l'API comme « Nouvelle tâche » au dashboard.
+
+- N1 : le profil est utilisable, `vision` non déclarée : la capacité vient du
+  catalogue.
+- N2 : le modèle lit la maquette d'abord (`read_image`, `sha256 c11fd0da…`),
+  puis le README. Il en tire le bon objectif : « add three todo items by
+  typing exact texts and pressing Enter, then check the second one ».
+- N3 : la session est demandée pour 10 minutes, avec la mention des clics
+  libres. **Personne ne l'a approuvée** : l'approbation a expiré au bout de
+  10 minutes, et la tâche a fini `timed_out` (« aucune décision humaine en
+  10 minutes »). Ce n'est pas un échec du produit : c'est l'expiration
+  prévue.
+- N8 et N9 : aucun en-tête PNG ni JPEG, brut ou en base64, dans `harness.db`,
+  le WAL et `daemon.log` ; aucun Chromium. La maquette lue n'a laissé que son
+  empreinte.
+- N10 : deux appels, 0,00166878 $, « facturé par le fournisseur » ;
+  l'estimation est égale.
+
+**Ce qu'elle a trouvé : une expiration inscrite comme un refus.** L'appel
+expiré était au journal « refusé par un humain », alors que personne n'avait
+rien refusé. Le gérant fait expirer l'approbation, puis annule la tâche. Le
+moteur, à l'annulation, résolvait toujours l'attente en `rejected`. Le gérant
+dit désormais au moteur comment l'attente se résout (`cancel(task,
+'expired')`). La boucle inscrit alors « aucune décision humaine dans le
+délai », et dit au modèle la même chose. Un test le prouve
+(`conversation.test.ts`, « approbation oubliée »). Il échoue sans le
+correctif.
+
+#### Deuxième tentative — 2026-11-05, 04:14 UTC
+
+Tâche `ef286c5b`, même protocole, sur le daemon redémarré avec le correctif
+de l'expiration. Trois minutes de bout en bout (04:14:08 → 04:17:03), toutes
+les approbations données par l'auteur au dashboard.
+
+| # | Constat | Verdict |
+|---|---|---|
+| N1 | Profil utilisable, vision lue au catalogue, rien de déclaré | ✔ |
+| N2 | `read_image` sur la maquette au premier pas ; le fil en montre la miniature | ✔ |
+| N3 | Session approuvée par l'humain (« dashboard ») ; le texte approuvé finit par « clics libres pendant la session, envoi de formulaire compris ; saisie et Entrée approuvées chacune » | ✔ |
+| N4 | Trois saisies et trois Entrées, six approbations, chacune avec le texte exact et le champ (`input[aria-label="New Todo Input"]`) de `todomvc.com` | ✔ |
+| N5 | Trois clics sans demande : deux pour reprendre le champ, un pour cocher « Relire la slice 7 » | ✔ |
+| N6 | L'auteur a suivi et approuvé dans l'onglet « Navigateur » du dashboard | ✔ |
+| N7 | `browser_close` par l'agent, `browser.closed` avant `submit_result` ; résultat `untrusted`, l'application citée | ✔ |
+| N8 | Aucun en-tête PNG ni JPEG, brut ou en base64, dans `harness.db`, le WAL (2,4 Mo) et `daemon.log` | ✔ |
+| N9 | Aucun processus Chromium après la fin | ✔ |
+| N10 | 13 appels, 82 612 jetons d'entrée (dont 70 656 en cache), 0,00861192 $, « facturé par le fournisseur », estimation égale au microdollar ; non comparé au solde | ◐ |
+
+**Le résultat est juste.** L'agent rapporte trois tâches dans l'ordre, la
+deuxième seule barrée, et « 2 items left ». Il nomme les écarts qui restent
+entre la maquette et l'application : la barre latérale de TodoMVC, le bouton
+« Clear completed », l'onglet actif encadré, le chevron « toggle all », la
+croix de suppression au survol, et la légende propre à la maquette. Il dit
+aussi sa limite : il n'a lu ni le DOM ni le CSS, seulement des captures.
+**Aucune capture n'étant gardée, l'écran final ne peut pas être revu après
+coup.** C'est la décision 1, et son prix : la preuve de ce que l'agent a vu,
+c'est l'humain qui regardait.
+
+**Ce qui n'a pas marché : la fenêtre desktop.** Elle avait été ouverte au début
+de la journée sur l'ancien daemon (protocole 11). Après les deux redémarrages
+du daemon de cet essai, l'auteur l'a vue « planter ». Son processus était
+encore vivant, mais elle ne répondait plus. Le dashboard du même daemon,
+ouvert dans un navigateur, était « en direct », et c'est par lui que toutes
+les approbations ont été données. **Cause non établie** : rien n'a été relevé
+de la fenêtre, et la Slice 6 ne l'avait éprouvée qu'avec un seul daemon pour
+toute sa durée. À reproduire : ouvrir la fenêtre, redémarrer le daemon, et
+voir si elle se reconnecte.
+
+**Ce que l'essai prouve, et pas.** Il prouve que le chemin complet tient avec
+un vrai modèle qui lit les images, sur une vraie application publique, sous
+session approuvée et surveillée. Il ne prouve pas qu'un modèle détourné
+serait tenu. Ce sont X7 à X9 qui le prouvent, avec un faux fournisseur.

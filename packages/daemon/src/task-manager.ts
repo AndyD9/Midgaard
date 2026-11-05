@@ -642,7 +642,7 @@ export class TaskManager {
       const task = this.store.getTask(due.task_id)
       if (!task || task.status !== 'waiting_approval') continue
       const agent = this.store.getAgent(task.agent_id)
-      if (agent) this.engines.get(agent.kind)?.cancel(task)
+      if (agent) this.engines.get(agent.kind)?.cancel(task, 'expired')
       this.bus.record(
         task.id,
         'timed_out',
