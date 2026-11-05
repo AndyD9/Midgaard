@@ -15,6 +15,7 @@ import {
   PROVIDER_PRESETS,
   daemonJson,
   type Agent,
+  type AgentLimits,
   type ConnectionTest,
   type HarnessConfig,
   type PricingTable,
@@ -24,6 +25,7 @@ import {
 import { ensureDaemon } from '@midgaard/mcp-server'
 import { readSecret } from './secret-input.ts'
 import { bold, cmd, dim, green, mark, red, yellow } from './ui.ts'
+import { confirm } from './workspaces.ts'
 
 /** Journalisation discrète du démarrage de daemon : la CLI a sa propre sortie. */
 const quiet = () => {}
@@ -217,6 +219,98 @@ export async function agents(config: HarnessConfig): Promise<number> {
       )
     }
   }
+  return 0
+}
+
+/** Options de `agents limits`, et la limite que chacune règle. */
+const LIMIT_OPTIONS: Record<string, keyof AgentLimits> = {
+  '--steps': 'max_steps',
+  '--max-cost': 'max_cost_usd',
+  '--timeout': 'timeout_s',
+  '--max-output-tokens': 'max_output_tokens',
+  '--tool-calls': 'max_tool_calls_per_step',
+}
+
+/**
+ * Lit les arguments de `agents limits`.
+ *
+ * @param args `<profil> [--steps N] [--max-cost USD] [--timeout S] [--max-output-tokens N] [--tool-calls N] [--yes]`
+ * @returns le profil, les limites demandées et `--yes`, ou la raison du refus
+ */
+export function parseLimitsArgs(args: string[]): { id: string; limits: Partial<AgentLimits>; yes: boolean } | { error: string } {
+  const [id, ...rest] = args
+  if (!id || id.startsWith('-')) return { error: 'il manque le profil' }
+  const limits: Partial<AgentLimits> = {}
+  let yes = false
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i]!
+    if (a === '--yes' || a === '-y') {
+      yes = true
+      continue
+    }
+    const key = LIMIT_OPTIONS[a]
+    if (!key) return { error: `option inconnue « ${a} »` }
+    const raw = rest[++i]
+    const value = Number(raw)
+    if (raw === undefined || !Number.isFinite(value)) return { error: `${a} attend un nombre` }
+    limits[key] = value
+  }
+  if (Object.keys(limits).length === 0) return { error: 'aucune limite donnée' }
+  return { id, limits, yes }
+}
+
+/**
+ * Règle les limites d'un profil (Slice 8). Un **relèvement** s'annonce et se
+ * confirme, comme `exec allow` : le budget est la protection contre une dépense
+ * qui s'emballe, et le relever doit être un geste. Un abaissement passe tel quel.
+ */
+export async function agentLimits(config: HarnessConfig, args: string[]): Promise<number> {
+  const parsed = parseLimitsArgs(args)
+  if ('error' in parsed) {
+    console.error(`${red('✘')} ${parsed.error}`)
+    console.error('Usage : agents limits <profil> [--steps N] [--max-cost USD] [--timeout S] [--max-output-tokens N] [--tool-calls N] [--yes]')
+    return 1
+  }
+  const rt = await ensureDaemon(config, quiet)
+  const current = await daemonJson<{ agent?: Agent; error?: string }>(rt, `/api/agents/${encodeURIComponent(parsed.id)}`)
+  if (current.status !== 200 || !current.body.agent) {
+    console.error(`${red('✘')} ${current.body.error ?? current.status}`)
+    return 1
+  }
+  const before = current.body.agent.limits
+  const raised = (Object.keys(parsed.limits) as (keyof AgentLimits)[]).filter((k) => parsed.limits[k]! > before[k])
+  if (raised.length) {
+    console.log(`${yellow('!')} Tu relèves des limites de ${bold(parsed.id)} :`)
+    for (const k of raised) console.log(`    ${k} : ${before[k]} → ${parsed.limits[k]}`)
+    if (parsed.id === 'orchestrator' && raised.includes('max_cost_usd')) {
+      console.log('  Le budget de l\'orchestrateur couvre tout son arbre : ses sous-tâches dépenseront jusque-là.')
+    }
+    if (!parsed.yes) {
+      if (!process.stdin.isTTY) {
+        console.error(`${red('✘')} pas de terminal pour confirmer : relance avec --yes, en connaissance de cause.`)
+        return 1
+      }
+      if (!(await confirm('Relever ? (o/N) '))) {
+        console.log('Rien n\'a changé.')
+        return 1
+      }
+    }
+  }
+  const { status, body } = await daemonJson<{ agent?: Agent; error?: string; reason?: string; detail?: unknown }>(
+    rt,
+    `/api/agents/${encodeURIComponent(parsed.id)}/limits`,
+    { method: 'PUT', body: JSON.stringify({ ...parsed.limits, by: 'cli' }) },
+  )
+  if (status !== 200 || !body.agent) {
+    console.error(`${red('✘')} ${body.error ?? status}${body.reason ? ` — ${body.reason}` : ''}`)
+    if (body.detail) console.error(dim(JSON.stringify(body.detail)))
+    return 1
+  }
+  const l = body.agent.limits
+  console.log(
+    `${green('✔')} ${bold(parsed.id)} : ${l.max_steps} étapes, ${l.max_cost_usd} $, ${l.timeout_s} s, ` +
+      `${l.max_output_tokens} jetons de sortie, ${l.max_tool_calls_per_step} appels par étape ${dim('— pour les tâches à venir')}`,
+  )
   return 0
 }
 

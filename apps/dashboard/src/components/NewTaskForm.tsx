@@ -12,7 +12,8 @@
  *    c'est un dossier, et ce n'est ni `/` ni le dossier personnel. Le formulaire
  *    affiche le motif du refus tel que le daemon l'écrit ;
  *  - **les limites sont celles du profil**, affichées sans manette pour les
- *    relever : un formulaire qui le permettrait rendrait le budget décoratif.
+ *    relever ici : une tâche ne relève pas son budget. Elles se règlent aux
+ *    Profils, pour les tâches à venir, avec confirmation (Slice 8).
  *
  * Le dernier dossier saisi est retenu dans le navigateur (`localStorage`),
  * commodité de ce seul poste : rien de ce qui doit durer n'y est rangé, et la

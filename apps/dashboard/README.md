@@ -108,7 +108,10 @@ Trois routes, par le fragment d'URL : `#/tasks/<id>`, `#/new` (formulaire
   dans le `localStorage` de ce navigateur — commodité de ce seul poste, qui ne
   porte rien de ce qui doit durer, et dont la page se passe.
 - **La vue « Profils » règle le fournisseur et le modèle** de chaque profil,
-  par `PATCH /api/agents/:id`. Jamais les limites : l'API ne le permet pas.
+  par `PATCH /api/agents/:id`, qui ignore des limites glissées dans son corps.
+  *Depuis la Slice 8, les limites s'y règlent aussi*, par leur route à elles
+  (`PUT /api/agents/:id/limits`), décision de l'auteur : un relèvement demande
+  confirmation, un abaissement non (D18).
 - **Les tâches sont un arbre** (`lib/tree.ts`) : chaque sous-tâche suit son
   orchestrateur, en retrait, dans l'ordre où il l'a déléguée. La carte
   « Sous-tâches » montre ce qu'il a délégué, celle qu'il attend (d'après le

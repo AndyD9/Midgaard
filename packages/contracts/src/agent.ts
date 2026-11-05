@@ -208,10 +208,11 @@ export type RequestedLimits = z.infer<typeof requestedLimitsSchema>
 /**
  * Corps de `PATCH /api/agents/:id` : le fournisseur et le modèle d'un profil.
  *
- * **Rien d'autre ne se règle ici.** Les limites restent hors de portée de
- * l'API : un client qui pourrait les relever — le dashboard est servi à tout
- * onglet qui passe l'enveloppe — rendrait le budget décoratif. Les consignes
- * et les outils appartiennent au harness, qui les réécrit à chaque démarrage.
+ * **Rien d'autre ne se règle ici.** Les limites ont leur route à elles
+ * (`PUT /api/agents/:id/limits`, Slice 8) : glissées dans ce corps, elles sont
+ * ignorées, pour qu'un réglage de modèle ne relève jamais un budget en passant.
+ * Les consignes et les outils appartiennent au harness, qui les réécrit à
+ * chaque démarrage.
  *
  * Changer de fournisseur sans dire de modèle remet le modèle à `null` (celui
  * par défaut du nouveau fournisseur) : un nom de modèle n'a de sens que chez
@@ -233,6 +234,35 @@ export const updateAgentRequestSchema = z
     message: 'provider_id, model ou vision est requis',
   })
 export type UpdateAgentRequest = z.infer<typeof updateAgentRequestSchema>
+
+/**
+ * Corps de `PUT /api/agents/:id/limits` : les limites d'un profil, réglées par
+ * l'humain (Slice 8, décision de l'auteur du 2026-11-05).
+ *
+ * **Ce qui revient sur la Slice 5.** Les limites étaient hors de l'API : le
+ * dashboard est servi à tout onglet qui passe l'enveloppe, et un budget qu'un
+ * client pourrait relever ne protégerait personne. Mais personne ne pouvait
+ * plus les régler du tout, et un premier appel Ghidra (jusqu'à 330 s) dépasse
+ * le délai du Researcher. L'auteur a choisi une route, utilisable par la CLI et
+ * le dashboard, avec ces garde-fous :
+ *
+ *  - une route **à part** du `PATCH` du modèle, qui continue d'ignorer des
+ *    limites glissées dans son corps ;
+ *  - les **bornes** de {@link agentLimitsSchema}, sur chaque valeur ;
+ *  - une **confirmation** avant tout relèvement, côté CLI et dashboard ;
+ *  - chaque changement **journalisé**, valeurs d'avant et d'après, et son
+ *    auteur ; seules les tâches **suivantes** sont concernées — une tâche
+ *    garde les limites de sa création.
+ *
+ * Partiel : seules les limites données changent. Un corps vide est refusé.
+ */
+export const setAgentLimitsRequestSchema = agentLimitsSchema
+  .partial()
+  .extend({ by: z.string().min(1).max(64).default('api') })
+  .refine((b) => Object.keys(b).some((k) => k !== 'by' && b[k as keyof typeof b] !== undefined), {
+    message: 'au moins une limite est requise',
+  })
+export type SetAgentLimitsRequest = z.infer<typeof setAgentLimitsRequestSchema>
 
 /**
  * Types de base qu'un orchestrateur peut donner à un agent qu'il crée (Slice 8,

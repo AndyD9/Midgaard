@@ -43,7 +43,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:desktop` | ~2 min la première fois — les tests Rust de la coque (adresse du dashboard) |
 | `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `approve`, `reject` ; `--home <dossier>` avant la commande vise un autre runtime |
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho |
-| `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
+| `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés ; `agents limits <profil> --timeout 900` les règle (relèvement confirmé) |
 | `npm run harness -- workspaces` | Worktrees : `remove`, `clean` — la branche reste toujours |
 | `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme), `revoke` |
 | `npm run harness -- mcp` | Serveurs MCP : `add` (programme résolu, testé dans la foulée), `test`, `tools`, `allow` (avertit, confirme), `revoke`, `remove`, `attach`/`detach` (à un profil) |
@@ -126,7 +126,11 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   l'estimation à côté — l'écart est la seule façon de voir dériver `pricing.json`.
 - **Les limites appartiennent au profil, pas à l'appel.** `tightenLimits` ne sait
   qu'abaisser. Si une délégation pouvait relever le budget, le budget ne
-  protégerait plus personne.
+  protégerait plus personne. **L'humain règle celles d'un profil** par une route
+  à part (`PUT /api/agents/:id/limits`, Slice 8, décision de l'auteur qui
+  revient sur la Slice 5) : bornées, journalisées avant → après, **un
+  relèvement se confirme** (CLI et dashboard), les tâches existantes gardent
+  les leurs ; le `PATCH` du modèle ignore toujours des limites glissées.
 - **Vérifier les limites AVANT l'appel modèle**, jamais après : une limite
   constatée après coup a déjà été payée. Et `budget_exceeded` n'est pas `failed` —
   rien n'a échoué, un plafond a été atteint.
@@ -346,7 +350,11 @@ plateformes (passage `42056152169`). Étape 6 faite, verte en CI sur trois plate
 coché ou changé depuis ne lui arrive jamais ; secret d'un serveur jamais
 persisté ; exécutant créé borné et hors de tout autre arbre ; aucun serveur
 après `SIGKILL` du daemon, serveur figé avant. Chacun vu échouer sur la
-protection qu'il garde.
+protection qu'il garde. Les limites d'un profil se règlent désormais
+(`harness agents limits`, `PUT /api/agents/:id/limits`, `PROTOCOL_VERSION` 16,
+D18 dans `test:ui`) : tranché avant l'essai Ghidra, dont le premier appel
+dépasse le délai du Researcher. Étape 7 : protocole écrit (cible JavaScript
+d'abord), à lancer par l'auteur — REA à installer, Node ≥ 24.22.1.
 
 ## Slice 7 terminée — les agents voient
 

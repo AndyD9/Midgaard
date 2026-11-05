@@ -71,9 +71,12 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *        répondrait 404 à `harness mcp` : la CLI doit le faire remplacer ;
  *  - 15 : Slice 8, étape 3 — un profil porte `mcp_servers`, que le serveur MCP
  *        et le dashboard valident, et `PUT /api/agents/:id/mcp` les règle. Un
- *        daemon de protocole 14 rendrait des profils sans le champ.
+ *        daemon de protocole 14 rendrait des profils sans le champ ;
+ *  - 16 : Slice 8 — `PUT /api/agents/:id/limits` règle les limites d'un
+ *        profil. Un daemon de protocole 15 répondrait 404 à
+ *        `harness agents limits` et au dashboard.
  */
-export const PROTOCOL_VERSION = 15
+export const PROTOCOL_VERSION = 16
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({

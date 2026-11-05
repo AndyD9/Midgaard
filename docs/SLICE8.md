@@ -157,15 +157,23 @@ ouvert.
 - **La création d'un agent n'est pas approuvée** (décision de l'auteur, à
   l'étape 4) : elle est bornée par le daemon, et visible de l'humain.
 
+- **Les limites d'un profil se règlent, par une route** (décision de
+  l'auteur, 2026-11-05, qui revient sur la Slice 5). REA laisse jusqu'à 330 s
+  à Ghidra ; le Researcher avait `timeout_s` 300, et personne ne pouvait plus
+  le relever. Entre la CLI seule, une route pour la CLI et le dashboard, ou un
+  fichier de configuration, l'auteur a choisi **la route**
+  (`PUT /api/agents/:id/limits`), avec ses garde-fous : route à part du
+  réglage du modèle (qui ignore toujours des limites glissées dans son corps),
+  bornes du schéma, **confirmation de tout relèvement** dans la CLI
+  (`harness agents limits`) comme au dashboard, changement journalisé avant →
+  après avec son auteur, tâches existantes inchangées.
+
 ## Reste à trancher
 
 - **Le processus REA partagé par arbre** (décision 3) si le démarrage de
   Ghidra par tâche se révèle trop lent à l'essai.
-- **Le délai d'un premier appel Ghidra face aux limites des profils.** REA
-  laisse jusqu'à 330 s à Ghidra pour importer et analyser un binaire ; le
-  Researcher a `timeout_s` 300, et une limite ne se relève pas par l'API (règle
-  de la Slice 5). Un essai sur un binaire natif demande donc d'abord de
-  trancher comment l'humain relève les limites d'un profil.
+- ~~Le délai d'un premier appel Ghidra face aux limites des profils~~ —
+  tranché le 2026-11-05 : voir « Les limites d'un profil se règlent ».
 
 ## Découpage
 
@@ -503,11 +511,11 @@ développement, et l'essai fait travailler un vrai modèle, donc dépense.
 
 #### Le choix de la cible
 
-**Une application JavaScript d'abord, pas un binaire natif.** Deux raisons :
-l'analyse JavaScript de REA ne demande ni Ghidra, ni Hopper, ni IDA ; et un
-premier appel Ghidra peut durer jusqu'à 330 s, au-delà du `timeout_s` du
-Researcher (300 s), qu'aucune route ne relève (voir « Reste à trancher »). Le
-binaire natif sera le second essai.
+**Une application JavaScript d'abord, pas un binaire natif.** L'analyse
+JavaScript de REA ne demande ni Ghidra, ni Hopper, ni IDA. Le binaire natif
+sera le second essai : un premier appel Ghidra peut durer jusqu'à 330 s, et il
+faudra d'abord relever le `timeout_s` du Researcher (300 s par défaut), ce que
+`harness agents limits researcher --timeout 900` permet désormais.
 
 **La cible est le dashboard de Midgaard, compilé et minifié, sans ses
 sources**, copié seul dans un dépôt jetable. C'est notre code — aucune
@@ -596,4 +604,33 @@ qui n'emploie pas REA, épuise ses étapes, ou se trompe sur la cible.
 
 Ce que l'essai ne couvre pas : Ghidra et un binaire natif (second essai, après
 avoir tranché les limites), un processus REA partagé par arbre.
+
+### Les limites d'un profil se règlent (2026-11-05)
+
+Tranché avec l'auteur avant le second essai (voir « Tranché en cours de
+route ») : `PUT /api/agents/:id/limits`, `harness agents limits <profil>`
+(`--steps`, `--max-cost`, `--timeout`, `--max-output-tokens`,
+`--tool-calls`, `--yes`), et un éditeur aux Profils du dashboard.
+`PROTOCOL_VERSION` 16.
+
+- **Partiel** : seules les limites données changent ; un corps vide, ou qui ne
+  porte que son auteur, est refusé.
+- **Borné** par le schéma des limites (1 à 100 étapes, 0 à 1 000 $, 5 à
+  3 600 s, 64 à 200 000 jetons, 1 à 20 appels par étape) ; le profil simulé
+  refusé.
+- **Un relèvement se confirme**, un abaissement non — dans la CLI (refus sans
+  terminal sauf `--yes`) comme au dashboard. Relever le budget de
+  l'orchestrateur rappelle qu'il couvre tout son arbre.
+- **Journalisé** : `profil « researcher » : limites timeout_s 300 → 900, par
+  cli — vaut pour les tâches à venir`. Une tâche garde les limites de sa
+  création.
+- **Le `PATCH` du modèle ignore toujours les limites** glissées dans son corps
+  (test de la Slice 5, inchangé) : un réglage de modèle ne relève jamais un
+  budget en passant.
+
+Les preuves : quatre tests de la route et de la CLI dans
+`tests/unit/http-agents.test.ts` (changement partiel, tâche existante
+inchangée, bornes, corps vide, profil simulé, lecture des options) ; D18 dans
+`test:ui` — relèvement refusé à la confirmation : rien ne change ; confirmé :
+changé en base ; abaissement sans confirmation.
 

@@ -616,3 +616,40 @@ export function resolveCreatedAgent(store: HarnessStore, created: CreatedAgent):
   }
 }
 
+/**
+ * Règle les limites d'un profil (`PUT /api/agents/:id/limits`, Slice 8).
+ *
+ * Les bornes sont celles du schéma, déjà vérifiées par la route. Le profil
+ * simulé n'a pas de limites qui comptent : il est refusé, comme pour le modèle.
+ * Chaque changement est journalisé avec ses valeurs d'avant et d'après : un
+ * budget relevé doit se retrouver, et se dater.
+ *
+ * @param asked les limites à changer ; les autres restent
+ * @param by    qui règle : `cli`, `dashboard`, ou ce que dit le client
+ */
+export function setAgentLimits(
+  store: HarnessStore,
+  id: string,
+  asked: Partial<AgentLimits>,
+  by: string,
+  log: (...a: unknown[]) => void = () => {},
+): Agent | Refusal {
+  const agent = store.getAgent(id)
+  if (!agent) return { error: 'agent_not_found', status: 404, detail: { agent_id: id } }
+  if (agent.kind === 'simulated') {
+    return { error: 'agent_has_no_model', status: 409, detail: { agent_id: id, reason: 'le profil simulé n\'appelle aucun modèle' } }
+  }
+  const next: AgentLimits = { ...agent.limits }
+  const changes: string[] = []
+  for (const key of Object.keys(next) as (keyof AgentLimits)[]) {
+    const value = asked[key]
+    if (value === undefined || value === next[key]) continue
+    changes.push(`${key} ${next[key]} → ${value}`)
+    next[key] = value
+  }
+  if (changes.length === 0) return agent
+  const updated = store.setAgentLimits(id, next)!
+  log(`profil « ${id} » : limites ${changes.join(', ')}, par ${by} — vaut pour les tâches à venir`)
+  return updated
+}
+

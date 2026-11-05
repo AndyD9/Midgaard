@@ -26,6 +26,7 @@ import { after, before, describe, it } from 'node:test'
 import { daemonJson, loadConfig, readRuntime, type Agent, type RuntimeInfo, type TaskView } from '@midgaard/contracts'
 import { reconcileAgents, startDaemon, type Daemon } from '@midgaard/daemon'
 import { DELEGATION_TOOLS } from '@midgaard/tools'
+import { parseLimitsArgs } from '@midgaard/cli'
 
 let home: string
 let daemon: Daemon
@@ -66,6 +67,59 @@ function patch(id: string, body: unknown) {
     body: JSON.stringify(body),
   })
 }
+
+/** `PUT /api/agents/:id/limits`, corps JSON. */
+function putLimits(id: string, body: unknown) {
+  return daemonJson<{ agent?: Agent; error?: string }>(rt, `/api/agents/${id}/limits`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+describe('PUT /api/agents/:id/limits (Slice 8)', () => {
+  it('règle les seules limites données, et laisse les autres', async () => {
+    const before = daemon.store.getAgent('researcher')!.limits
+    const r = await putLimits('researcher', { timeout_s: 900, by: 'test' })
+    assert.equal(r.status, 200)
+    assert.deepEqual(daemon.store.getAgent('researcher')!.limits, { ...before, timeout_s: 900 })
+  })
+
+  it('n\'applique pas le changement à une tâche déjà créée', async () => {
+    const created = await daemonJson<TaskView>(rt, '/api/tasks', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agent_id: 'simulated', objective: 'avant' }),
+    })
+    const taskLimits = daemon.store.getTask(created.body.task.id)!.limits
+    await putLimits('researcher', { max_steps: 20 })
+    assert.deepEqual(daemon.store.getTask(created.body.task.id)!.limits, taskLimits, 'une tâche garde les limites de sa création')
+  })
+
+  it('refuse une valeur hors bornes, un corps vide, et le profil simulé', async () => {
+    const before = daemon.store.getAgent('researcher')!.limits
+    assert.equal((await putLimits('researcher', { timeout_s: 99_999 })).status, 400)
+    assert.equal((await putLimits('researcher', { max_cost_usd: -1 })).status, 400)
+    assert.equal((await putLimits('researcher', {})).status, 400)
+    assert.equal((await putLimits('researcher', { by: 'test' })).status, 400, 'by seul ne règle rien')
+    assert.deepEqual(daemon.store.getAgent('researcher')!.limits, before, 'rien n\'a bougé')
+    const simulated = await putLimits('simulated', { max_steps: 5 })
+    assert.equal(simulated.status, 409)
+    assert.equal((await putLimits('absent', { max_steps: 5 })).status, 404)
+  })
+})
+
+describe('agents limits (CLI)', () => {
+  it('lit les options en limites, et refuse ce qu\'elle ne comprend pas', () => {
+    const r = parseLimitsArgs(['researcher', '--timeout', '900', '--max-cost', '1.5', '--yes'])
+    assert.ok(!('error' in r))
+    assert.deepEqual(r.limits, { timeout_s: 900, max_cost_usd: 1.5 })
+    assert.equal(r.yes, true)
+    assert.ok('error' in parseLimitsArgs(['researcher']))
+    assert.ok('error' in parseLimitsArgs(['researcher', '--timeout']))
+    assert.ok('error' in parseLimitsArgs(['researcher', '--budget', '3']))
+  })
+})
 
 describe('PATCH /api/agents/:id', () => {
   it('choisit le fournisseur et le modèle, et le profil le garde', async () => {

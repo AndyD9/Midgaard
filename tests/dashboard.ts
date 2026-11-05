@@ -58,7 +58,10 @@
  *    Researcher — jamais proposé à l'orchestrateur ;
  *  - D17 un orchestrateur crée un exécutant (Slice 8) : la carte
  *    « Sous-tâches » montre l'agent créé **avec son rôle**, et le budget de
- *    l'arbre.
+ *    l'arbre ;
+ *  - D18 les limites d'un profil se règlent aux Profils (Slice 8) : un
+ *    relèvement demande confirmation — refusée, rien ne change ; acceptée,
+ *    la limite change **en base** —, un abaissement non.
  *
  * Playwright est employé en **bibliothèque**, pas en lanceur : les suites de ce
  * dépôt ont leur forme (`scenario`, `summarize`, verdicts), et ajouter un second
@@ -971,6 +974,50 @@ await scenario(outcomes, 'D17 un orchestrateur crée un exécutant : son rôle e
     provider.server.close()
     rmSync(repo, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   }
+})
+
+// --- D18 ---------------------------------------------------------------------
+
+await scenario(outcomes, 'D18 les limites d’un profil : un relèvement se confirme, un abaissement non', async () => {
+  const limits = async () => (await daemonJson<{ agent: Agent }>(rt, '/api/agents/researcher')).body.agent.limits
+  const before = await limits()
+  await page.goto(`${rt.dashboard_url}#/agents`, { waitUntil: 'domcontentloaded' })
+  const field = page.getByTestId('agent-limit-researcher-timeout_s')
+  await field.waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+
+  // Relever, puis refuser la confirmation : rien ne doit changer.
+  const raised = before.timeout_s + 300
+  await field.fill(String(raised))
+  let asked = ''
+  page.once('dialog', (d) => {
+    asked = d.message()
+    void d.dismiss()
+  })
+  await page.getByTestId('agent-limits-save-researcher').click()
+  if (!(await until(async () => asked !== ''))) return { verdict: 'FAIL', detail: 'relèvement enregistré sans confirmation' }
+  if (!asked.includes(`timeout_s : ${before.timeout_s} → ${raised}`)) return { verdict: 'FAIL', detail: `confirmation sans le détail : « ${asked} »` }
+  await sleep(500)
+  if ((await limits()).timeout_s !== before.timeout_s) return { verdict: 'FAIL', detail: 'relevé malgré le refus de confirmer' }
+
+  // Relever et confirmer : la limite change en base.
+  page.once('dialog', (d) => void d.accept())
+  await page.getByTestId('agent-limits-save-researcher').click()
+  if (!(await until(async () => (await limits()).timeout_s === raised))) return { verdict: 'FAIL', detail: 'relèvement confirmé, mais pas enregistré' }
+
+  // Abaisser : aucune confirmation.
+  let prompted = false
+  const onDialog = (d: { dismiss: () => Promise<void> }) => {
+    prompted = true
+    void d.dismiss()
+  }
+  page.on('dialog', onDialog)
+  await page.getByTestId('agent-limit-researcher-timeout_s').fill(String(before.timeout_s))
+  await page.getByTestId('agent-limits-save-researcher').click()
+  const lowered = await until(async () => (await limits()).timeout_s === before.timeout_s)
+  page.off('dialog', onDialog)
+  if (!lowered) return { verdict: 'FAIL', detail: 'abaissement non enregistré' }
+  if (prompted) return { verdict: 'FAIL', detail: 'un abaissement a demandé confirmation' }
+  return { verdict: 'PASS', detail: `timeout_s ${before.timeout_s} → ${raised} : refusé puis confirmé ; retour à ${before.timeout_s} sans confirmation` }
 })
 
 await scenario(outcomes, 'D7 la perte de la WebSocket se voit, et le retour aussi', async () => {

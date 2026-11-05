@@ -11,6 +11,7 @@ harness status [--limit N]    # état du daemon et tâches récentes
 harness doctor                # diagnostic de l'installation
 harness approve [id]          # approuve une demande
 harness reject [id] [motif]   # la refuse
+harness agents limits <profil> --timeout 900   # règle les limites d'un profil ; un relèvement se confirme
 harness workspaces            # worktrees des tâches Developer, état sur le disque, orphelins
 harness workspaces remove <branche|id> [--force]
 harness workspaces clean [--force]
@@ -147,3 +148,14 @@ Les six choses qui ont réellement cassé pendant la Slice 0 :
 | Exec | Avertit dès qu'une commande passe sans approbation : si elle exécute le code du projet, elle exécute ce que l'agent a écrit |
 
 Les avertissements ne font pas échouer la commande ; seuls les échecs rendent `1`.
+
+## `agents limits` : relever un budget est un geste (Slice 8)
+
+Les limites d'un profil se règlent par `PUT /api/agents/:id/limits`, décision
+de l'auteur qui revient sur la Slice 5 (un premier appel Ghidra dépasse le
+délai du Researcher, et personne ne pouvait plus le relever). La CLI lit le
+profil, montre ce qui **monte** (`timeout_s : 300 → 900`), et demande
+confirmation ; **sans terminal, elle refuse** sauf `--yes`. Un abaissement
+passe tel quel. Le daemon borne chaque valeur, journalise le changement avant
+→ après, et ne l'applique qu'aux tâches à venir.
+

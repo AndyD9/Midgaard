@@ -147,7 +147,7 @@ Depuis la racine du dépôt :
 | `npm run init` | Déclare le serveur MCP dans `.mcp.json` |
 | `npm run doctor` | Diagnostic : Node, dossier runtime, base, daemon, déclaration MCP |
 | `npm run harness -- <cmd>` | La CLI : `start`, `stop`, `status`, `approve`, `reject` ; `--home <dossier>` avant la commande vise un autre dossier runtime que `~/.midgaard` |
-| `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
+| `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés ; `agents limits` les règle |
 | `npm run harness -- providers` | Fournisseurs déclarés, modèle et dernier test |
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; la clé est saisie sans écho |
 | `npm run harness -- pricing refresh <id>` | Relève les tarifs chez le fournisseur |

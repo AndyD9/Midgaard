@@ -890,6 +890,20 @@ export class HarnessStore {
   }
 
   /**
+   * Règle les limites d'un profil (Slice 8), sans toucher au reste. Les règles
+   * — bornes, profil simulé — sont celles de l'appelant (`daemon/src/agents.ts`).
+   * Les tâches existantes gardent les leurs : elles sont copiées à la création.
+   *
+   * @returns le profil après coup, ou `null` s'il n'existe pas
+   */
+  setAgentLimits(id: string, limits: AgentLimits): Agent | null {
+    const info = this.db
+      .prepare('UPDATE agents SET limits_json = :l, updated_at = :now WHERE id = :id')
+      .run({ id, l: JSON.stringify(limits), now: new Date().toISOString() })
+    return info.changes === 1 ? this.getAgent(id) : null
+  }
+
+  /**
    * Règle les serveurs MCP d'un profil (Slice 8), sans toucher au reste. Les
    * règles — le serveur existe, le profil peut en avoir — sont celles de
    * l'appelant (`daemon/src/agents.ts`).

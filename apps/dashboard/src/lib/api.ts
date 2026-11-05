@@ -13,6 +13,7 @@
  */
 import type {
   Agent,
+  AgentLimits,
   Approval,
   CreateTaskRequest,
   FileContentResponse,
@@ -220,6 +221,15 @@ export function allowMcpTools(id: string, tools: string[]): Promise<McpServerRes
 /** Décoche des outils : chaque appel attendra de nouveau un humain. */
 export function revokeMcpTools(id: string, tools: string[]): Promise<McpServerResponse> {
   return api(`/api/mcp/${encodeURIComponent(id)}/revoke`, { method: 'POST', body: JSON.stringify({ tools, by: 'dashboard' }) })
+}
+
+/**
+ * Les limites d'un profil (Slice 8), partiellement : seules celles données
+ * changent. Le daemon les borne, les journalise, et ne les applique qu'aux
+ * tâches à venir.
+ */
+export function setAgentLimits(agentId: string, limits: Partial<AgentLimits>): Promise<{ agent: Agent }> {
+  return api(`/api/agents/${encodeURIComponent(agentId)}/limits`, { method: 'PUT', body: JSON.stringify({ ...limits, by: 'dashboard' }) })
 }
 
 /** Les serveurs MCP d'un profil, liste complète (`PUT /api/agents/:id/mcp`). */

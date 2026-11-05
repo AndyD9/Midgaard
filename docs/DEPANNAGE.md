@@ -267,7 +267,21 @@ du modèle avant qu'il ait pu conclure. Une tâche qui échoue a déjà dépens�
 Le budget de l'orchestrateur couvre **tout son arbre** : ses appels et ceux de
 chaque sous-tâche (Slice 8). Une sous-tâche s'arrête dès que sa dépense plus
 celle des autres l'atteint, et l'orchestrateur ne peut plus déléguer. Pour un
-arbre plus large, relève le `max_cost_usd` du profil `orchestrator`.
+arbre plus large, relève le budget du profil `orchestrator` (confirmation
+demandée) : `npm run harness -- agents limits orchestrator --max-cost 1`, ou aux
+Profils du dashboard.
+
+### `timed_out` : un premier appel Ghidra dépasse le délai du profil
+
+REA laisse jusqu'à 330 s à Ghidra pour importer et analyser un binaire ; le
+Researcher a 300 s par défaut pour **toute** sa tâche. Relève son délai avant
+de lui confier un binaire natif : `npm run harness -- agents limits researcher --timeout 900`.
+
+### `agents limits` : « pas de terminal pour confirmer »
+
+Relever une limite se confirme : le budget est ce qui arrête une dépense qui
+s'emballe. Sans terminal, la CLI refuse ; `--yes` passe outre, en connaissance
+de cause. Abaisser ne demande rien.
 
 ### « … subtask(s) are already running, the maximum at the same time »
 
