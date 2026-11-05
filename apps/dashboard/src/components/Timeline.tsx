@@ -14,8 +14,11 @@ import type { EventType, TaskEvent } from '@midgaard/contracts'
 import { formatCost, formatDateTime, formatTime } from '@/lib/utils'
 import { closedReasonText } from '@/lib/browser'
 
+/** Aspect d'une ligne de la timeline. */
+interface Look { icon: typeof Flag; label: string; className: string }
+
 /** Icône et libellé français de chaque type d'événement. */
-const EVENT_LOOK: Record<EventType, { icon: typeof Flag; label: string; className: string }> = {
+const EVENT_LOOK: Record<EventType, Look> = {
   'task.created': { icon: Flag, label: 'Tâche créée', className: 'text-muted' },
   'task.started': { icon: Play, label: 'Démarrage', className: 'text-running' },
   'task.progress': { icon: Hourglass, label: 'Étape', className: 'text-running' },
@@ -126,7 +129,11 @@ export function Timeline({ events }: { events: TaskEvent[] | undefined }) {
       {/* Filet vertical reliant les puces, purement décoratif. */}
       <span aria-hidden className="absolute top-5 bottom-5 left-[25px] w-px bg-border" />
       {events.map((event) => {
-        const look = EVENT_LOOK[event.type]
+        // Un type que la table ignore vient d'un daemon plus récent que la
+        // page : on le montre tel quel. Lire `.icon` sur `undefined` démontait
+        // toute l'interface (constaté le 2026-11-05, `lib/bundle.ts`).
+        const look: Look = (EVENT_LOOK as Partial<Record<string, Look>>)[event.type]
+          ?? { icon: Flag, label: event.type, className: 'text-muted' }
         const Icon = look.icon
         const detail = describe(event)
         return (

@@ -13,11 +13,31 @@
  *
  * Le jeton passe par le sous-protocole : l'API WebSocket des navigateurs ne
  * permet pas de poser un en-tête `Authorization`.
+ *
+ * **Une page plus vieille que son daemon se recharge** à la reconnexion
+ * (`bundle.ts`) : sans cela, l'ancien code recevait des données qu'il ne
+ * connaissait pas, et la fenêtre desktop finissait vide.
  */
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 import type { Approval, Health, ServerMessage, Task, TaskEvent } from '@midgaard/contracts'
 import { bootstrap, currentToken, fetchTaskEvents, forgetToken } from './api'
+import { bundleChanged } from './bundle'
 import { appendEvent, mergeTimeline, unwatchTimeline, watchTimeline } from './timeline'
+
+/**
+ * Dit si le daemon sert maintenant un autre bundle que celui de la page.
+ * Une erreur réseau vaut « non » : la tentative de connexion qui suit la
+ * verra, et la reprogrammera.
+ */
+async function servedBundleChanged(): Promise<boolean> {
+  const own = document.querySelector('script[type="module"][src]')?.getAttribute('src') ?? null
+  try {
+    const res = await fetch('/', { cache: 'no-store' })
+    return res.ok && bundleChanged(own, await res.text())
+  } catch {
+    return false
+  }
+}
 
 /**
  * Sous-protocoles WebSocket, repris de `@midgaard/contracts`
@@ -137,6 +157,9 @@ export function useHarness() {
   const socketRef = useRef<WebSocket | null>(null)
   const attemptRef = useRef(0)
   const closedRef = useRef(false)
+  // Vrai dès une première connexion réussie : seule une page qui a déjà parlé
+  // à un daemon peut lui avoir survécu.
+  const everOpenRef = useRef(false)
 
   useEffect(() => {
     seqRef.current = state.seq
@@ -151,7 +174,18 @@ export function useHarness() {
       if (closedRef.current) return
       dispatch({ kind: 'status', status: 'connecting' })
       try {
-        if (!currentToken()) await bootstrap()
+        if (!currentToken()) {
+          // Sans jeton après une première connexion : la WebSocket s'est
+          // fermée, peut-être parce que le daemon a été remplacé. Si celui
+          // qui répond sert un autre bundle, on recharge plutôt que de faire
+          // tourner l'ancien code contre lui. Le fragment de l'URL garde la
+          // tâche ouverte.
+          if (everOpenRef.current && (await servedBundleChanged())) {
+            location.reload()
+            return
+          }
+          await bootstrap()
+        }
       } catch (e) {
         // Retour à `closed` : sans lui, une tentative qui échouait ici laissait
         // le bandeau sur « connexion… » pour toujours, daemon mort compris —
@@ -169,6 +203,7 @@ export function useHarness() {
 
       ws.onopen = () => {
         attemptRef.current = 0
+        everOpenRef.current = true
         dispatch({ kind: 'status', status: 'open' })
         dispatch({ kind: 'error', error: null })
       }

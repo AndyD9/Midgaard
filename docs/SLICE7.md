@@ -9,8 +9,10 @@ sessions que l'humain approuve et surveille en direct dans l'atelier.
 **État : terminée** (2026-11-05). Étapes 1 à 6 faites le 2026-11-03, 7 et 8
 le 2026-11-05 ; l'étape 1 constatée contre l'API réelle de Venice, les étapes
 1 à 7 en CI sur trois plateformes, l'essai réel réussi à la deuxième tentative
-(`deepseek-v4-1-flash` sur TodoMVC). Reste ouvert : la fenêtre desktop qui ne
-répondait plus après deux redémarrages du daemon (étape 8).
+(`deepseek-v4-1-flash` sur TodoMVC). Les deux points restés ouverts après
+l'essai sont réglés le même jour : la fenêtre desktop vide (une page plus
+vieille que son daemon, qui se recharge désormais), et les textes prévus,
+éprouvés par un vrai modèle (une approbation au lieu de sept).
 
 ---
 
@@ -817,8 +819,8 @@ encore vivant, mais elle ne répondait plus. Le dashboard du même daemon,
 ouvert dans un navigateur, était « en direct », et c'est par lui que toutes
 les approbations ont été données. **Cause non établie** : rien n'a été relevé
 de la fenêtre, et la Slice 6 ne l'avait éprouvée qu'avec un seul daemon pour
-toute sa durée. À reproduire : ouvrir la fenêtre, redémarrer le daemon, et
-voir si elle se reconnecte.
+toute sa durée. **Cause trouvée le jour même**, au § « La fenêtre vide »
+plus bas : ce n'était pas un gel.
 
 **Ce que l'essai prouve, et pas.** Il prouve que le chemin complet tient avec
 un vrai modèle qui lit les images, sur une vraie application publique, sous
@@ -871,5 +873,73 @@ la session, y compris après un `browser_goto`. L'essai réel aurait demandé
   ne retire pas le texte servi le laisse partir deux fois, et X7 échoue ;
 - `npm run test:ui` : 14 scénarios.
 
-*Pas encore éprouvé avec un vrai modèle : qu'il annonce bien ses textes à
-l'ouverture, plutôt que de les taper un par un sous approbation.*
+**Éprouvé avec un vrai modèle le même jour** (tâche `7b38e31d`). Même
+modèle, même maquette, même objectif mot pour mot que l'essai de l'étape 8,
+qui n'évoque pas les textes prévus. Le daemon a été redémarré au préalable :
+il tournait sur le code d'avant.
+
+- Le modèle a lu la maquette, puis a ouvert la session en annonçant de
+  lui-même les trois textes, chacun avec son Entrée : « textes prévus, tapés
+  une fois chacun sans nouvelle demande : "Acheter du pain" puis Entrée ;
+  "Relire la slice 7" puis Entrée ; "Lancer la CI" puis Entrée ».
+- **Une seule approbation**, celle de la session, contre sept la première
+  fois. Les trois `browser_type` (`press_enter: true`) sont partis sans
+  demande, avec un clic dans le champ avant chacun des deux derniers, puis le
+  clic sur la case de la deuxième tâche. 23 s entre l'approbation et la fin.
+- Résultat juste : trois tâches dans l'ordre, la deuxième seule cochée,
+  « 2 items left », et les mêmes écarts nommés qu'au premier essai.
+- 10 appels, 0,00696102 $ « facturé par le fournisseur », estimation égale.
+  Aucun en-tête PNG ou JPEG, brut ou en base64, dans la base, le WAL ou le
+  journal ; aucun Chromium vivant après la fin.
+
+Ce que l'essai ne montre pas : un texte **non** annoncé tapé en route, qui
+redemande l'humain. C'est X7 qui le prouve.
+
+### La fenêtre vide — une page plus vieille que son daemon (2026-11-05)
+
+**Ce que l'auteur a vu** à l'étape 8 : une fenêtre desktop qui ne répondait
+plus. **Ce qu'elle était** : vivante, mais vide. Elle n'avait plus aucune
+connexion au daemon (`lsof`), et sa capture ne montrait que le fond sombre,
+sans un seul élément.
+
+**La cause, reproduite.** La fenêtre avait été ouverte le 2026-11-03, face au
+daemon de protocole 11, et sa page ne s'était jamais rechargée. Après les
+redémarrages de l'essai, elle s'est reconnectée au daemon de protocole 13
+avec son **ancien** code. Les événements `browser.*` lui étaient inconnus :
+`EVENT_LOOK[event.type].icon` a levé une erreur, et React a démonté toute
+l'interface. Reproduit à l'identique en servant le dashboard de `25b3a7c`
+au daemon actuel, avec la même erreur dans la console. C'est un défaut du
+dashboard, pas de la coque : un onglet de navigateur ouvert assez longtemps
+l'aurait eu aussi.
+
+**Les corrections** (`apps/dashboard`) :
+
+1. **À chaque reconnexion, la page relit `index.html`**, servi sans cache. Si
+   le script qu'il désigne n'est plus le sien, elle se recharge. Vite nomme le
+   bundle d'après son contenu, donc aucun numéro de version n'est à tenir, et
+   un `npm run build` pendant que le daemon tourne est couvert aussi. Dans le
+   doute (script illisible, page d'aide d'un clone sans build), elle ne se
+   recharge pas (`lib/bundle.ts`).
+2. **Une erreur d'affichage se dit** : son message et « Recharger », au lieu
+   d'une page vide (`components/ErrorBoundary.tsx`). *Aucun test ne
+   l'exerce.*
+3. **Un type d'événement inconnu s'affiche tel quel** dans la timeline, et une
+   nature de fichier inconnue dans le diff.
+
+**Vérifié :**
+- `tests/unit/dashboard-workbench.test.ts` : le script se lit quel que soit
+  l'ordre des attributs ; un autre bundle est vu, le même non ; dans le doute,
+  pas de rechargement ;
+- **D15** dans `test:ui` : un daemon remplacé par un autre qui sert un autre
+  bundle (le même, renommé) fait recharger la page, puis elle est « en
+  direct ». Lancé avant que le dashboard soit recompilé, il a échoué ; il
+  attrape donc le défaut. **D7** vérifie en plus qu'avec le même bundle, la
+  page ne se recharge pas ;
+- **dans une vraie fenêtre Tauri** (WKWebView, pas le Chromium de
+  Playwright), sur un runtime d'essai à part (`--home`, port 7790) : deux
+  redémarrages avec le même bundle, et la fenêtre se reconnecte seule ; puis
+  un daemon qui sert un autre bundle, marqué d'un bandeau, et la fenêtre se
+  recharge d'elle-même et affiche le bandeau.
+
+**Ce qui reste** : une fenêtre ouverte **avant** ce correctif garde l'ancien
+code et ne se rechargera pas seule. Il faut la fermer une fois.

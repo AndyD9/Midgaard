@@ -50,7 +50,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:worktrees` | ~8 s — worktrees, écriture et `exec` seuls, sortie en direct et lecture des fichiers d'une tâche comprises (rejoués en CI sur trois plateformes) |
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
-| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer, arbre d'un orchestrateur, atelier (conversation, éditeur, terminal) et onglet « Navigateur » compris (`npx playwright install chromium` au préalable) |
+| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer, arbre d'un orchestrateur, atelier (conversation, éditeur, terminal), onglet « Navigateur » et rechargement d'une page plus vieille que son daemon compris (`npx playwright install chromium` au préalable) |
 | `npm run test:developer` | ~35 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris |
 | `npm run test:orchestrator` | ~10 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL`, conversation qui pilote une revue, `SIGKILL` pendant une attente |
 | `npm run test:security` | ~10 s — PLAN §8.4 de bout en bout : base et journal lus octet pour octet (conversation, questions, propositions et sortie en direct comprises), refus tracés, API sur la seule boucle locale ; le navigateur : saisie sans approbation, adresses privées, aucun Chromium après `SIGKILL`, aucune capture en base (`npx playwright install chromium` au préalable) |
@@ -328,14 +328,19 @@ garanti lu par l'humain. Étape 8, l'essai réel : `deepseek-v4-1-flash`
 TodoMVC sous session approuvée, six saisies et Entrées approuvées une à une,
 résultat juste, 0,0086 $ « facturé par le fournisseur », aucune image en base,
 aucun Chromium après. Trouvé en chemin : une approbation **expirée** était
-inscrite « refusé par un humain » (`cancel(task, 'expired')` désormais). Reste
-ouvert : la fenêtre desktop ne répondait plus après deux redémarrages du
-daemon, cause non établie (`docs/SLICE7.md`, étape 8). Après l'essai,
+inscrite « refusé par un humain » (`cancel(task, 'expired')` désormais). La
+fenêtre desktop « figée » de l'essai était **vide** : une page plus vieille que
+son daemon, dont l'ancien code a levé une erreur sur des événements inconnus,
+et React a tout démonté. **Une page se recharge désormais quand le daemon sert
+un autre bundle** (`apps/dashboard/src/lib/bundle.ts`, D15), et une erreur
+d'affichage se dit au lieu de laisser une page vide. Après l'essai,
 **moins d'approbations, la même garantie** : `browser_type` porte son Entrée
 (`press_enter`), et les textes annoncés à l'ouverture (`planned_inputs`) sont
 approuvés avec la session, puis tapés **une fois** chacun sans demande s'ils
 sont identiques à la lettre. Aucun texte n'entre dans un champ sans que
-l'humain l'ait lu ; la saisie libre en session a été écartée.
+l'humain l'ait lu ; la saisie libre en session a été écartée. Éprouvé par un
+vrai modèle sur le même objectif : il a annoncé ses trois textes de lui-même,
+**une** approbation au lieu de sept.
 
 ## Slice 6 terminée — un atelier façon VS Code
 

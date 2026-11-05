@@ -23,7 +23,8 @@
  *    coût, pas une ignorance ;
  *  - D6 un lien profond rouvre la bonne tâche après rechargement ;
  *  - D7 la perte de la WebSocket **se voit** : un dashboard muet qui affiche
- *    des données d'apparence normale est pire qu'un dashboard en panne ;
+ *    des données d'apparence normale est pire qu'un dashboard en panne ; et,
+ *    le daemon revenu avec le même bundle, la page ne se recharge pas ;
  *  - D8 le diff d'une tâche Developer **se lit** : branche, fichiers, et le
  *    patch d'un fichier déplié — le livrable « diff consultable » de la
  *    Slice 3, avec un faux fournisseur qui joue les appels d'outils ;
@@ -47,7 +48,10 @@
  *    lit, et « Couper la session » coupe — la saisie approuvée ensuite ne part
  *    pas. Il tourne sur un second daemon, **dans ce processus**, pour lui
  *    passer une garde qui admet la page locale du test : `main.ts` n'en pose
- *    jamais, et la vraie refuse la boucle locale.
+ *    jamais, et la vraie refuse la boucle locale ;
+ *  - D15 une page plus vieille que son daemon **se recharge** : remplacé par
+ *    un daemon qui sert un autre bundle, l'ancien code ne tourne pas contre
+ *    lui. C'est ce qui laissait vide la fenêtre desktop (Slice 7).
  *
  * Playwright est employé en **bibliothèque**, pas en lanceur : les suites de ce
  * dépôt ont leur forme (`scenario`, `summarize`, verdicts), et ajouter un second
@@ -69,7 +73,7 @@ import { createServer } from 'node:http'
 import { readFileSync } from 'node:fs'
 import { loadConfig } from '@midgaard/contracts'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startFakeProvider } from './fake-provider.ts'
@@ -117,10 +121,11 @@ try {
  *                    une autre origine et ne pourrait pas se reconnecter.
  * @param previousPid pid du daemon précédent, pour ne pas confondre son fichier
  *                    de découverte encore présent avec celui du nouveau
+ * @param extra       variables de plus : D15 y désigne un autre dashboard
  */
-async function startDaemon(port = 0, previousPid?: number): Promise<RuntimeInfo> {
+async function startDaemon(port = 0, previousPid?: number, extra: Record<string, string> = {}): Promise<RuntimeInfo> {
   daemon = spawn(process.execPath, nodeArgsFor('@midgaard/daemon/main'), {
-    env: childEnv(home, { MIDGAARD_PORT: String(port) }),
+    env: childEnv(home, { MIDGAARD_PORT: String(port), ...extra }),
     stdio: 'ignore',
   })
   for (let i = 0; i < 100; i++) {
@@ -863,6 +868,10 @@ await scenario(outcomes, 'D14 l’atelier montre ce que voit un Navigator, et l�
 await scenario(outcomes, 'D7 la perte de la WebSocket se voit, et le retour aussi', async () => {
   if (!daemon?.pid) return { verdict: 'FAIL', detail: 'pas de daemon à arrêter' }
   const mort = daemon.pid
+  // Un témoin posé dans la page : il disparaît si elle se recharge. Le daemon
+  // revient avec le **même** bundle, donc la page doit survivre — un
+  // rechargement à chaque coupure, ou en boucle, se verrait ici (D15).
+  await page.evaluate(() => { (globalThis as unknown as { temoinD7?: boolean }).temoinD7 = true })
   // Un dashboard temps réel qui a perdu sa connexion continue d'afficher des
   // données d'apparence normale. Sans témoin, on croit qu'il ne se passe rien.
   daemon.kill('SIGKILL')
@@ -891,7 +900,54 @@ await scenario(outcomes, 'D7 la perte de la WebSocket se voit, et le retour auss
   if (!(await connection('en direct', 30_000))) {
     return { verdict: 'FAIL', detail: 'daemon revenu, dashboard resté déconnecté (jeton périmé conservé ?)' }
   }
-  return { verdict: 'PASS', detail: `déconnexion vue, puis reconnexion seule avec un jeton neuf (port ${neuf.port})` }
+  if (!(await page.evaluate(() => (globalThis as unknown as { temoinD7?: boolean }).temoinD7 === true))) {
+    return { verdict: 'FAIL', detail: 'la page s’est rechargée alors que le daemon sert le même bundle' }
+  }
+  return { verdict: 'PASS', detail: `déconnexion vue, puis reconnexion seule avec un jeton neuf (port ${neuf.port}), sans rechargement` }
+})
+
+// --- D15 (après D7 : il remplace encore le daemon) ---------------------------
+
+await scenario(outcomes, 'D15 une page plus vieille que son daemon se recharge', async () => {
+  // Le défaut : la fenêtre desktop, chargée face à un daemon plus ancien, a
+  // gardé son code après le remplacement du daemon. Elle a reçu des événements
+  // qu'elle ne connaissait pas et n'a plus rien affiché (Slice 7, après
+  // l'essai). On rejoue un remplacement par un daemon qui sert **un autre
+  // bundle** : le même code sous un autre nom, comme après une mise à jour.
+  if (!daemon?.pid) return { verdict: 'FAIL', detail: 'pas de daemon à remplacer' }
+  const ownScript = () =>
+    page.locator('script[type="module"][src]').first().getAttribute('src', { timeout: 2000 })
+  const own = await ownScript()
+  if (!own) return { verdict: 'FAIL', detail: 'la page n’a pas de script de module : rien à comparer' }
+
+  const dir = mkdtempSync(join(tmpdir(), 'midgaard-ui-bundle-'))
+  try {
+    cpSync(defaultDashboardDir(), dir, { recursive: true })
+    const renamed = own.replace(/\.js$/, '-neuf.js')
+    renameSync(join(dir, own), join(dir, renamed))
+    const index = join(dir, 'index.html')
+    writeFileSync(index, readFileSync(index, 'utf8').replace(own, renamed))
+
+    await page.evaluate(() => { (globalThis as unknown as { temoinD15?: boolean }).temoinD15 = true })
+    const mort = daemon.pid
+    daemon.kill('SIGKILL')
+    await until(async () => !pidAlive(mort), 5000)
+    await startDaemon(rt.port, mort, { MIDGAARD_DASHBOARD_DIR: dir })
+
+    const reloaded = await until(async () => (await ownScript().catch(() => null)) === renamed, 30_000)
+    if (!reloaded) {
+      return { verdict: 'FAIL', detail: `la page garde ${own} alors que le daemon sert ${renamed} : l’ancien code tourne toujours` }
+    }
+    if (await page.evaluate(() => (globalThis as unknown as { temoinD15?: boolean }).temoinD15 === true)) {
+      return { verdict: 'FAIL', detail: 'le script a changé sans rechargement : le témoin a survécu' }
+    }
+    if (!(await connection('en direct', 30_000))) {
+      return { verdict: 'FAIL', detail: 'rechargée, la page ne s’est pas reconnectée' }
+    }
+    return { verdict: 'PASS', detail: `rechargée d’elle-même sur le nouveau bundle (${renamed}), puis « en direct »` }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 // --- nettoyage ---------------------------------------------------------------

@@ -146,7 +146,10 @@ function Patch({ patch, files }: { patch: string; files: FileChange[] }) {
 
 function FileDiff({ file, chunk }: { file: FileChange; chunk: string | null }) {
   const [open, setOpen] = useState(false)
-  const look = KIND[file.kind]
+  // Une nature inconnue vient d'un daemon plus récent que la page : montrée
+  // telle quelle plutôt que de démonter l'interface.
+  const look = (KIND as Partial<Record<string, { label: string; tone: BadgeTone }>>)[file.kind]
+    ?? { label: file.kind, tone: 'waiting' as BadgeTone }
   return (
     <li>
       <button

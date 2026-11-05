@@ -49,6 +49,22 @@ jamais.
 
 Les deux pannes ont été trouvées par `npm run test:ui`, pas par relecture.
 
+**Une page plus vieille que son daemon se recharge** (`lib/bundle.ts`). Une
+page reste ouverte plus longtemps que le daemon qui l'a servie, la fenêtre
+desktop surtout. Remplacé par une version plus récente, le daemon parlait à
+l'**ancien** code, qui recevait des données qu'il ne connaissait pas. Constaté
+le 2026-11-05 : une fenêtre chargée face au protocole 11 a reçu les événements
+`browser.*`, sa timeline a levé une erreur, et React a démonté toute
+l'interface. Il ne restait que le fond, et l'auteur a cru à un gel. À chaque
+reconnexion, la page relit donc `index.html`, servi sans cache. Si le script
+qu'il désigne n'est plus le sien (Vite nomme le bundle d'après son contenu),
+elle se recharge, et le fragment garde la tâche ouverte. Dans le doute, elle
+ne se recharge pas.
+
+Deux filets de plus. Une erreur d'affichage montre son message et
+« Recharger » (`components/ErrorBoundary.tsx`), au lieu d'une page vide. Et un
+type d'événement inconnu s'affiche tel quel dans la timeline.
+
 ## Reprise sans trou
 
 C'est le point délicat du temps réel. Une WebSocket qui se rouvre naïvement
@@ -114,7 +130,8 @@ Deux niveaux, et le second a longtemps manqué :
   un lien profond survit à un `F5`, et la perte **comme le retour** de la
   connexion se voient. Depuis la Slice 5 : le formulaire (D9), le choix du
   modèle (D10), et un orchestrateur lancé du formulaire jusqu'à son arbre
-  (D11), sur un faux fournisseur. Il lui faut le dashboard compilé et
+  (D11), sur un faux fournisseur. Depuis la Slice 7 : une page plus vieille
+  que son daemon se recharge, et pas une page à jour (D15 et D7). Il lui faut le dashboard compilé et
   `npx playwright install chromium`, que `npm ci` ne fait pas.
 
 Ce que cette suite ne fait **pas** : comparer des pixels. Elle vérifie des

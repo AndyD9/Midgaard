@@ -17,7 +17,10 @@
  *  - **une image lue** entre au fil avec l'empreinte journalisée, que le panneau
  *    compare à celle du fichier relu ;
  *  - **une timeline chargée pendant que la tâche avance ne perd rien** : ce que
- *    la WebSocket diffuse pendant la requête survit à sa réponse.
+ *    la WebSocket diffuse pendant la requête survit à sa réponse ;
+ *  - **une page plus vieille que son daemon le voit** : le script que désigne
+ *    l'`index.html` servi n'est plus le sien. Dans le doute, elle ne se
+ *    recharge pas.
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
@@ -27,6 +30,7 @@ import { buildTerminal, sanitizeOutput } from '../../apps/dashboard/src/lib/term
 import { buildFileTree, languageFor, lastWrittenPath } from '../../apps/dashboard/src/lib/files.ts'
 import { browserSummary, closedReasonText } from '../../apps/dashboard/src/lib/browser.ts'
 import { appendEvent, mergeTimeline, unwatchTimeline, watchTimeline, type Timelines } from '../../apps/dashboard/src/lib/timeline.ts'
+import { bundleChanged, moduleScript } from '../../apps/dashboard/src/lib/bundle.ts'
 
 const ROOT = '00000000-0000-4000-8000-000000000001'
 const CHILD = '00000000-0000-4000-8000-000000000002'
@@ -276,5 +280,32 @@ describe('les timelines, chargées pendant que la tâche avance', () => {
     assert.equal(watchTimeline(t, T), t)
     // Un échec ne laisse pas une timeline partielle qui aurait l'air entière.
     assert.equal(unwatchTimeline(watchTimeline({}, T), T)[T], undefined)
+  })
+})
+
+describe('une page plus vieille que son daemon', () => {
+  // L'`index.html` tel que Vite l'écrit, attributs dans son ordre à lui.
+  const served = (name: string) =>
+    `<!doctype html><html><head><script type="module" crossorigin src="./assets/${name}.js"></script>` +
+    `<link rel="stylesheet" crossorigin href="./assets/index.css"></head><body><div id="root"></div></body></html>`
+
+  it('lit le script de module, attributs dans n’importe quel ordre', () => {
+    assert.equal(moduleScript(served('index-AAA')), './assets/index-AAA.js')
+    assert.equal(moduleScript(`<script src='/a.js' type='module'></script>`), '/a.js')
+    // Un script classique n'est pas le bundle.
+    assert.equal(moduleScript(`<script src="/legacy.js"></script><script type="module" src="/m.js"></script>`), '/m.js')
+    assert.equal(moduleScript('<p>pas de script</p>'), null)
+  })
+
+  it('se sait périmée quand le daemon sert un autre bundle, et seulement alors', () => {
+    assert.equal(bundleChanged('./assets/index-AAA.js', served('index-BBB')), true)
+    assert.equal(bundleChanged('./assets/index-AAA.js', served('index-AAA')), false)
+  })
+
+  it('dans le doute, ne se recharge pas', () => {
+    // La page d'aide d'un clone sans build n'a pas de script : quitter une
+    // page qui marche pour elle serait pire.
+    assert.equal(bundleChanged('./assets/index-AAA.js', '<html><body>npm run build</body></html>'), false)
+    assert.equal(bundleChanged(null, served('index-BBB')), false)
   })
 })
