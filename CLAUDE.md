@@ -330,7 +330,12 @@ résultat juste, 0,0086 $ « facturé par le fournisseur », aucune image en bas
 aucun Chromium après. Trouvé en chemin : une approbation **expirée** était
 inscrite « refusé par un humain » (`cancel(task, 'expired')` désormais). Reste
 ouvert : la fenêtre desktop ne répondait plus après deux redémarrages du
-daemon, cause non établie (`docs/SLICE7.md`, étape 8).
+daemon, cause non établie (`docs/SLICE7.md`, étape 8). Après l'essai,
+**moins d'approbations, la même garantie** : `browser_type` porte son Entrée
+(`press_enter`), et les textes annoncés à l'ouverture (`planned_inputs`) sont
+approuvés avec la session, puis tapés **une fois** chacun sans demande s'ils
+sont identiques à la lettre. Aucun texte n'entre dans un champ sans que
+l'humain l'ait lu ; la saisie libre en session a été écartée.
 
 ## Slice 6 terminée — un atelier façon VS Code
 

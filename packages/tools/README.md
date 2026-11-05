@@ -350,15 +350,29 @@ ces outils et pour lui seul. Absent, ou sans `ToolContext.vision.enabled`, tous
 
 | Outil | Décision |
 |---|---|
-| `browser_open` | **Approbation** : l'opération préparée porte l'objectif, l'adresse normalisée (`http:`/`https:` seulement) et la durée, bornée par l'échéance de la tâche ; le texte approuvé dit que les clics seront libres, envoi de formulaire compris. Refusé si une session est déjà ouverte |
+| `browser_open` | **Approbation** : l'opération préparée porte l'objectif, l'adresse normalisée (`http:`/`https:` seulement), la durée, bornée par l'échéance de la tâche, et les **textes prévus** (`planned_inputs`, 20 au plus, chacun avec ou sans Entrée) ; le texte approuvé les cite et dit que les clics seront libres, envoi de formulaire compris. Refusé si une session est déjà ouverte |
 | `browser_screenshot`, `browser_goto`, `browser_click`, `browser_scroll`, `browser_close` | Libres dans la session |
-| `browser_key` | Libre, **sauf Entrée** : approbation, puisqu'elle envoie le champ où l'on vient de taper |
-| `browser_type` | **Approbation**, avec le texte exact, l'adresse et le champ actif |
+| `browser_key` | Libre, **sauf Entrée** seule : approbation, puisqu'elle envoie le champ où l'on vient de taper |
+| `browser_type` | **Libre pour un texte prévu**, une fois, identique à la lettre et avec la même Entrée ; sinon **approbation**, avec le texte exact, l'adresse et le champ actif. `press_enter` tape puis presse Entrée sous la même décision |
 
 **Ce que l'humain a approuvé est revérifié au moment d'agir.** Une saisie ou
-une Entrée approuvées ne partent pas si l'adresse ou le champ actif ont changé
+une Entrée approuvées une par une ne partent pas si l'adresse ou le champ actif ont changé
 pendant la décision : une page peut se rediriger seule. Le test le prouve, et
 vérifie que rien n'a été tapé.
+
+**Les textes prévus regroupent les approbations sans rien relâcher** (décision
+du 2026-11-05, après l'essai réel). L'agent annonce à l'ouverture les textes
+qu'il compte taper ; l'humain les lit dans la demande de session, entre
+guillemets et échappés comme du JSON. Chacun part ensuite **une fois** sans
+nouvelle demande : la session le retire de sa liste **avant** de taper, et une
+préparation périmée qui le croyait encore prévu ne tape rien. À une lettre
+près, ou sans la même Entrée, c'est un autre texte, et l'humain est
+sollicité. Un texte prévu n'est lié **ni à une page ni à un champ** : il
+peut partir dans n'importe quel champ de la session, après un `browser_goto`
+compris. C'est le texte que l'humain a approuvé, avec l'objectif et l'adresse
+de départ ; il n'y a pas d'attente pendant laquelle la page aurait pu changer
+sous ses yeux, donc rien à revérifier. L'essai réel avait demandé sept approbations
+pour trois tâches ; il en aurait demandé une.
 
 **Un clic n'est jamais soumis à l'humain, même sur « Envoyer »** (décision du
 2026-11-05). Il peut envoyer ce que l'agent n'a pas tapé : un champ prérempli

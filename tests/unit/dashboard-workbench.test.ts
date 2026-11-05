@@ -185,6 +185,29 @@ describe('le navigateur d\'une tâche (Slice 7)', () => {
     assert.equal(browserSummary(NAV, denied)!.actions, 1)
   })
 
+  it('les textes prévus se barrent au fil des saisies permises sans demande, et seulement elles', () => {
+    const opened = ev(NAV, 'browser.opened', {
+      objective: 'o', start_url: 'https://a.example/',
+      planned_inputs: [{ text: 'pain', press_enter: true }, { text: 'pain', press_enter: true }, { text: 'CI', press_enter: false }],
+    })
+    const typed = (id: string, decision: string, args: Record<string, unknown>) =>
+      ev(NAV, 'tool.requested', { tool_call_id: id, name: 'browser_type', decision, arguments: JSON.stringify(args) })
+    const s = browserSummary(NAV, [
+      opened,
+      typed('t1', 'allow', { text: 'pain', press_enter: true }),
+      // Approuvée à part : ce n'est pas un texte prévu qui a servi.
+      typed('t2', 'approval', { text: 'CI', press_enter: false }),
+      // Même texte, sans Entrée : ne correspond à aucun texte prévu.
+      typed('t3', 'allow', { text: 'pain', press_enter: false }),
+    ])!
+    assert.deepEqual(
+      s.plannedInputs.map((p) => `${p.text}${p.pressEnter ? '↵' : ''}:${p.used ? 'tapé' : 'reste'}`),
+      ['pain↵:tapé', 'pain↵:reste', 'CI:reste'],
+    )
+    // Une session ouverte sans textes prévus, comme avant.
+    assert.deepEqual(browserSummary(NAV, [ev(NAV, 'browser.opened', { objective: 'o', start_url: 'https://a.example/' })])!.plannedInputs, [])
+  })
+
   it('fermée, elle dit pourquoi, en français ; une nouvelle session a une autre séquence d\'ouverture', () => {
     const first = ev(NAV, 'browser.opened', { objective: 'o', start_url: 'https://a.example/' })
     const closed = browserSummary(NAV, [first, ev(NAV, 'browser.closed', { reason: 'cut by the human operator' })])!

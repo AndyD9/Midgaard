@@ -130,12 +130,24 @@ export interface BrowserCapture extends BrowserPageView {
   viewport: { width: number; height: number }
 }
 
+/**
+ * Un texte que l'humain a lu et approuvé **avec la session** : l'agent le tape
+ * ensuite sans nouvelle demande, une fois, s'il est identique à la lettre.
+ */
+export interface BrowserPlannedInput {
+  text: string
+  /** Entrée suit la saisie : c'est approuvé avec le texte. */
+  press_enter: boolean
+}
+
 /** La session ouverte d'une tâche, telle que l'humain l'a approuvée. */
 export interface BrowserSessionInfo {
   objective: string
   start_url: string
   /** Échéance, en millisecondes depuis l'époque : la session se ferme seule à cette heure. */
   expires_at: number
+  /** Les textes prévus **qui restent** : chacun sort de la liste quand il est tapé. */
+  planned_inputs: BrowserPlannedInput[]
 }
 
 /** Ce que le port dit d'une tâche sans session ouverte : pourquoi, s'il y en a eu une. */
@@ -157,7 +169,19 @@ export interface BrowserPort {
   /** La session ouverte, ou pourquoi il n'y en a pas. */
   session(): BrowserSessionInfo | BrowserNoSession
   /** Ouvre la session approuvée et charge son adresse de départ. */
-  open(request: { objective: string; url: string; max_duration_s: number }): Promise<BrowserCapture>
+  open(request: {
+    objective: string
+    url: string
+    max_duration_s: number
+    planned_inputs: BrowserPlannedInput[]
+  }): Promise<BrowserCapture>
+  /**
+   * Retire un texte prévu de la session, s'il y est encore.
+   *
+   * @returns `false` s'il n'y est pas (déjà tapé, ou jamais prévu) : la saisie
+   *          ne part pas sans l'humain
+   */
+  claimPlanned(input: BrowserPlannedInput): boolean
   /** Ce que montre la page, sans capture : l'empreinte d'une saisie à approuver. */
   view(): Promise<BrowserPageView>
   screenshot(): Promise<BrowserCapture>

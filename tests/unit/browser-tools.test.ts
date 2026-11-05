@@ -49,8 +49,18 @@ function fakePort() {
     session: () => session ?? { closed_reason: closedReason },
     open: async (r) => {
       calls.push(`open ${r.url} ${r.max_duration_s}`)
-      session = { objective: r.objective, start_url: r.url, expires_at: Date.now() + r.max_duration_s * 1000 }
+      session = {
+        objective: r.objective, start_url: r.url, expires_at: Date.now() + r.max_duration_s * 1000,
+        planned_inputs: r.planned_inputs.map((p) => ({ ...p })),
+      }
       return capture()
+    },
+    claimPlanned: (input) => {
+      const at = session?.planned_inputs.findIndex((p) => p.text === input.text && p.press_enter === input.press_enter) ?? -1
+      if (at < 0) return false
+      session!.planned_inputs.splice(at, 1)
+      calls.push(`claim ${input.text}`)
+      return true
     },
     view: async () => ({ ...view }),
     screenshot: async () => (calls.push('screenshot'), capture()),
@@ -125,7 +135,7 @@ describe('les outils du navigateur, face à un faux port', () => {
     assert.ok(duration <= 120 && duration >= 118, `durée bornée par l'échéance : ${duration}`)
     assert.deepEqual(
       { ...prepared.detail, max_duration_s: 0 },
-      { tool: 'browser_open', objective: 'lire la page de prix', url: 'https://example.org/prix', max_duration_s: 0 },
+      { tool: 'browser_open', objective: 'lire la page de prix', url: 'https://example.org/prix', max_duration_s: 0, planned_inputs: [] },
     )
     assert.match(prepared.summary, /https:\/\/example\.org\/prix/)
     assert.match(prepared.summary, /lire la page de prix/)
@@ -144,7 +154,7 @@ describe('les outils du navigateur, face à un faux port', () => {
   it('regarder, aller, cliquer, défiler et les touches de déplacement sont libres dans la session', async () => {
     const { port, calls } = fakePort()
     const ctx = ctxWith({ browser: port })
-    await port.open({ objective: 'o', url: 'https://example.org/', max_duration_s: 60 })
+    await port.open({ objective: 'o', url: 'https://example.org/', max_duration_s: 60, planned_inputs: [] })
     for (const [name, args] of [
       ['browser_screenshot', {}], ['browser_goto', { url: 'https://example.org/b' }], ['browser_click', { x: 5, y: 6 }],
       ['browser_scroll', { dy: 300 }], ['browser_key', { key: 'Tab' }], ['browser_close', {}],
@@ -159,12 +169,12 @@ describe('les outils du navigateur, face à un faux port', () => {
   it('saisir et presser Entrée attendent un humain, avec le texte exact, la page et le champ', async () => {
     const { port } = fakePort()
     const ctx = ctxWith({ browser: port })
-    await port.open({ objective: 'o', url: 'https://example.org/', max_duration_s: 60 })
+    await port.open({ objective: 'o', url: 'https://example.org/', max_duration_s: 60, planned_inputs: [] })
     assert.equal(tool('browser_type').policy({ text: 'midgaard' }, ctx).decision, 'approval')
     assert.equal(tool('browser_key').policy({ key: 'Enter' }, ctx).decision, 'approval')
     const prepared = await tool('browser_type').prepare({ text: 'midgaard harness' }, ctx)
     assert.deepEqual(prepared.detail, {
-      tool: 'browser_type', text: 'midgaard harness', url: 'https://example.org/', focused: 'input[name="q"]',
+      tool: 'browser_type', text: 'midgaard harness', press_enter: false, url: 'https://example.org/', focused: 'input[name="q"]',
     })
     assert.equal(prepared.summary, 'saisir "midgaard harness" dans input[name="q"] de https://example.org/')
   })
@@ -172,7 +182,7 @@ describe('les outils du navigateur, face à un faux port', () => {
   it('une saisie approuvée n\'est PAS tapée si la page ou le champ ont changé pendant la décision', async () => {
     const { port, calls, setView } = fakePort()
     const ctx = ctxWith({ browser: port })
-    await port.open({ objective: 'o', url: 'https://example.org/', max_duration_s: 60 })
+    await port.open({ objective: 'o', url: 'https://example.org/', max_duration_s: 60, planned_inputs: [] })
     const typing = await tool('browser_type').prepare({ text: 'bonjour' }, ctx)
     const enter = await tool('browser_key').prepare({ key: 'Enter' }, ctx)
     // La page s'est redirigée seule pendant que l'humain lisait.
@@ -188,10 +198,63 @@ describe('les outils du navigateur, face à un faux port', () => {
     assert.equal(calls.at(-1), 'type bonjour')
   })
 
+  it('saisie puis Entrée en une seule approbation, qui les nomme toutes deux', async () => {
+    const { port, calls } = fakePort()
+    const ctx = ctxWith({ browser: port })
+    await port.open({ objective: 'o', url: 'https://example.org/', max_duration_s: 60, planned_inputs: [] })
+    const args = { text: 'Acheter du pain', press_enter: true }
+    assert.equal(tool('browser_type').policy(args, ctx).decision, 'approval')
+    const prepared = await tool('browser_type').prepare(args, ctx)
+    assert.equal(prepared.summary, 'saisir "Acheter du pain" puis presser Entrée dans input[name="q"] de https://example.org/')
+    assert.equal(prepared.detail.press_enter, true, 'Entrée est dans l\'empreinte')
+    const result = await tool('browser_type').run(args, ctx, prepared)
+    assert.deepEqual(calls.slice(-2), ['type Acheter du pain', 'press Enter'])
+    assert.equal(result.summary, 'typed 15 characters, then pressed Enter → https://example.org/')
+  })
+
+  it('un texte prévu à l\'ouverture part sans demande, une fois, et seulement à la lettre', async () => {
+    const { port, calls } = fakePort()
+    const ctx = ctxWith({ browser: port })
+    const open = {
+      objective: 'reproduire la maquette', url: 'https://example.org/',
+      planned_inputs: [{ text: 'Acheter du pain', press_enter: true }, { text: 'Lancer la CI' }],
+    }
+    const session = await tool('browser_open').prepare(open, ctx)
+    // L'humain lit les textes avec la session : ils sont dans le texte approuvé et dans l'empreinte.
+    assert.match(session.summary, /textes prévus, tapés une fois chacun sans nouvelle demande : "Acheter du pain" puis Entrée ; "Lancer la CI" — /)
+    assert.match(session.summary, /tout autre texte, et Entrée seule, approuvés chacun$/)
+    assert.deepEqual(session.detail.planned_inputs, [
+      { text: 'Acheter du pain', press_enter: true }, { text: 'Lancer la CI', press_enter: false },
+    ])
+    await tool('browser_open').run(open, ctx, session)
+
+    const type = tool('browser_type')
+    const planned = { text: 'Acheter du pain', press_enter: true }
+    assert.equal(type.policy(planned, ctx).decision, 'allow')
+    // À la lettre près, Entrée comprise : sinon, l'humain est sollicité.
+    for (const other of [
+      { text: 'Acheter du pain' }, { text: 'acheter du pain', press_enter: true },
+      { text: 'Acheter du pain ', press_enter: true }, { text: 'Lancer la CI', press_enter: true },
+    ]) {
+      assert.equal(type.policy(other, ctx).decision, 'approval', JSON.stringify(other))
+    }
+    const prepared = await type.prepare(planned, ctx)
+    await type.run(planned, ctx, prepared)
+    assert.deepEqual(calls.slice(-3), ['claim Acheter du pain', 'type Acheter du pain', 'press Enter'])
+    // Une fois seulement : la même saisie redemande l'humain…
+    assert.equal(type.policy(planned, ctx).decision, 'approval')
+    // …et une préparation périmée, qui la croyait prévue, ne tape rien.
+    const before = calls.length
+    await assert.rejects(type.run(planned, ctx, prepared), /already typed/)
+    assert.equal(calls.length, before, 'rien n\'a été tapé')
+    // L'autre texte prévu reste disponible.
+    assert.equal(type.policy({ text: 'Lancer la CI' }, ctx).decision, 'allow')
+  })
+
   it('une session coupée est refusée, avec son motif, à l\'action suivante', async () => {
     const { port, cut } = fakePort()
     const ctx = ctxWith({ browser: port })
-    await port.open({ objective: 'o', url: 'https://example.org/', max_duration_s: 60 })
+    await port.open({ objective: 'o', url: 'https://example.org/', max_duration_s: 60, planned_inputs: [] })
     cut('cut by the human operator')
     const verdict = tool('browser_click').policy({ x: 1, y: 1 }, ctx)
     assert.equal(verdict.decision, 'deny')
@@ -257,7 +320,7 @@ describe('les captures dans la conversation', () => {
     assert.equal(approvals.length, 1, 'la session seule a été approuvée, pas le clic')
     assert.match(approvals[0]!, /^browser_open — ouvrir un navigateur isolé sur https:\/\/example\.org\//)
     // L'humain approuve la session en sachant qu'un clic, même d'envoi, ne lui sera pas soumis.
-    assert.match(approvals[0]!, /clics libres pendant la session, envoi de formulaire compris ; saisie et Entrée approuvées chacune$/)
+    assert.match(approvals[0]!, /clics libres pendant la session, envoi de formulaire compris ; tout autre texte, et Entrée seule, approuvés chacun$/)
     const count = (r: CompletionRequest) => r.messages.reduce((n, m) => n + (m.role === 'user' ? m.images?.length ?? 0 : 0), 0)
     assert.equal(count(calls[1]!), 1)
     assert.equal(count(calls[2]!), 1, 'la capture du clic a chassé celle de l\'ouverture')
@@ -325,7 +388,7 @@ describe('les sessions du daemon', { skip }, () => {
     const sessions = new BrowserSessions({ bus, config: { httpPolicy: 'open', allowHosts: [] }, log: () => {}, guard: testGuard, openSession })
     const port = sessions.portFor('t1', (t) => t.replace('secret-123', '[REDACTED]'))
     try {
-      const cap = await port.open({ objective: 'remplir secret-123', url: `${origin}/`, max_duration_s: 60 })
+      const cap = await port.open({ objective: 'remplir secret-123', url: `${origin}/`, max_duration_s: 60, planned_inputs: [] })
       assert.equal(cap.title, 'Formulaire')
       assert.equal(cap.jpeg.subarray(0, 3).toString('hex'), 'ffd8ff')
       assert.equal(cap.focused, 'input#q[name="q"]')
@@ -353,7 +416,7 @@ describe('les sessions du daemon', { skip }, () => {
     const sessions = new BrowserSessions({ bus, config: { httpPolicy: 'open', allowHosts: [] }, log: () => {}, guard: testGuard, openSession })
     const port = sessions.portFor('t2', (t) => t)
     try {
-      await port.open({ objective: 'o', url: `${origin}/`, max_duration_s: 1 })
+      await port.open({ objective: 'o', url: `${origin}/`, max_duration_s: 1, planned_inputs: [] })
       await sleep(1500)
       assert.deepEqual(port.session(), { closed_reason: 'its approved duration is over' })
       assert.equal(events.at(-1)?.event.type, 'browser.closed')
@@ -368,13 +431,13 @@ describe('les sessions du daemon', { skip }, () => {
     const sessions = new BrowserSessions({ bus, config: { httpPolicy: 'open', allowHosts: [] }, log: () => {}, guard: testGuard, openSession })
     const port = sessions.portFor('t3', (t) => t)
     const before = pids.length
-    const opening = port.open({ objective: 'o', url: `${origin}/`, max_duration_s: 60 })
+    const opening = port.open({ objective: 'o', url: `${origin}/`, max_duration_s: 60, planned_inputs: [] })
     await sessions.endTask('t3', 'the task ended')
     await assert.rejects(opening, /ended while the browser was starting/)
     assert.equal(sessions.openCount, 0)
     assert.equal(pids.length, before + 1, 'Chromium avait bien démarré')
     assert.equal(groupAlive(pids.at(-1)!), 0, 'et il est mort')
-    await assert.rejects(port.open({ objective: 'o', url: `${origin}/`, max_duration_s: 60 }), /task is ending/)
+    await assert.rejects(port.open({ objective: 'o', url: `${origin}/`, max_duration_s: 60, planned_inputs: [] }), /task is ending/)
   })
 })
 

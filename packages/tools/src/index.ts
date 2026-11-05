@@ -32,7 +32,7 @@ import {
 export type {
   Tool, ToolContext, HttpPolicy, PreparedOperation,
   DelegableAgent, DelegateRequest, DelegationPort, DelegationRefusal, SubtaskAwaiting, SubtaskState, WaitStop,
-  BrowserCapture, BrowserNoSession, BrowserPageView, BrowserPort, BrowserSessionInfo,
+  BrowserCapture, BrowserNoSession, BrowserPageView, BrowserPlannedInput, BrowserPort, BrowserSessionInfo,
 } from './types.ts'
 export { ToolError, HTTP_POLICIES, MAX_TOOL_RESULT_BYTES, truncate } from './types.ts'
 export { canonicalRoot, isUnder, openUnderRoot, resolveUnderRoot, toolPath } from './paths.ts'

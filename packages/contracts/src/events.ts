@@ -72,7 +72,8 @@ import { taskStatusSchema } from './task.ts'
  * La Slice 7 ajoute deux types, qui encadrent une session de navigateur :
  *
  *  - `browser.opened` — la session approuvée est ouverte,
- *    `{ objective, start_url, max_duration_s, expires_at }` ;
+ *    `{ objective, start_url, max_duration_s, expires_at, planned_inputs }`,
+ *    ces derniers expurgés (les textes approuvés avec la session) ;
  *  - `browser.closed` — elle est fermée, `{ reason }` : par l'agent, à son
  *    échéance, par l'humain, ou avec la tâche.
  *

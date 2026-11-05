@@ -27,7 +27,8 @@
  *       fois** — dont même la première moitié ne doit pas être écrite ;
  *  - X7 le navigateur des agents (Slice 7) ne tape rien et ne presse pas
  *       Entrée sans approbation — vu par le serveur de la page, qui reçoit
- *       chaque frappe —, et aucune capture n'est en base ;
+ *       chaque frappe —, un texte prévu avec la session ne part qu'une fois,
+ *       et aucune capture n'est en base ;
  *  - X8 il n'atteint aucune adresse privée, sous sept écritures, avec la
  *       vraie garde ;
  *  - X9 aucun Chromium ne survit à un `SIGKILL` du daemon, Chromium figé
@@ -749,6 +750,20 @@ await scenario(outcomes, 'X7 aucune saisie ni Entrée n\'atteint la page sans ap
     if (!journal.some((e) => e.type === 'browser.closed')) problems.push(`${tag} session jamais fermée au journal`)
   }
 
+  // Un texte prévu à l'ouverture part sans demande — l'humain l'a lu avec la
+  // session —, mais **une fois** : le même texte une seconde fois redemande.
+  const plannedId = await navigate(target, '[X7-prevu]', repo, [
+    [{ tool: 'browser_open', args: { url: `${form.origin}/`, objective: '[X7] remplir', planned_inputs: [{ text: 'prevu' }] } }],
+    [{ tool: 'browser_type', args: { text: 'prevu' } }],
+    [{ tool: 'browser_type', args: { text: 'prevu' } }],
+    submit('jamais atteint'),
+  ])
+  const planned = await drive(target, plannedId, (a) => a.operation_detail?.tool === 'browser_open')
+  if (planned.decisions.join() !== 'browser_open approuvé,browser_type refusé') problems.push(`[X7-prevu] décisions : ${planned.decisions.join(' ; ')}`)
+  if (planned.last.task.status !== 'cancelled') problems.push(`[X7-prevu] statut ${planned.last.task.status}`)
+  await waitUntil(() => form!.hits.some((h) => h === '/frappe?v=prevu'), 3_000)
+  if (!form.hits.includes('/frappe?v=prevu')) problems.push('[X7-prevu] le texte prévu n\'est pas arrivé')
+
   // Le témoin : l'adresse `javascript:` ne contourne pas l'approbation, et une
   // saisie approuvée, elle, arrive — sans quoi l'absence de frappe pourrait
   // venir d'une page qui ne signale rien.
@@ -774,8 +789,8 @@ await scenario(outcomes, 'X7 aucune saisie ni Entrée n\'atteint la page sans ap
   const goto = (await toolCalls(target, id)).find((c) => c.name === 'browser_goto')
   if (!goto?.error?.includes('only http')) problems.push(`javascript: non refusé : ${goto?.error ?? 'aucune erreur'}`)
 
-  if (form.hits.filter((h) => h === '/').length < attempts.length + 1) problems.push(`la page n'a pas été chargée à chaque session : ${form.hits.join(', ')}`)
-  const leaked = form.hits.filter((h) => /refus|ghp_|envoye/.test(h))
+  if (form.hits.filter((h) => h === '/').length < attempts.length + 2) problems.push(`la page n'a pas été chargée à chaque session : ${form.hits.join(', ')}`)
+  const leaked = form.hits.filter((h) => /refus|ghp_|envoye|prevup/.test(h))
   if (leaked.length) problems.push(`atteint la page sans approbation (${leaked.length} requêtes) : ${leaked.slice(0, 3).join(', ')}…`)
   if (!form.hits.some((h) => h.includes('approuve'))) problems.push('la saisie approuvée n\'est jamais arrivée : la page ne signale rien')
   if (jpegHeader && jpegHeader.subarray(0, 3).toString('hex') !== 'ffd8ff') problems.push('la capture relevée n\'est pas un JPEG')
@@ -791,7 +806,7 @@ await scenario(outcomes, 'X7 aucune saisie ni Entrée n\'atteint la page sans ap
     verdict: problems.length ? 'FAIL' : 'PASS',
     detail: problems.length
       ? problems.join(' ; ')
-      : `saisie et Entrée refusées n'atteignent pas la page et annulent la tâche, session fermée ; javascript: refusé ; la saisie approuvée arrive (${form.hits.length} requêtes vues) ; ni capture ni clé en base, WAL ou journal`,
+      : `saisie et Entrée refusées n'atteignent pas la page et annulent la tâche, session fermée ; un texte prévu part une fois, pas deux ; javascript: refusé ; la saisie approuvée arrive (${form.hits.length} requêtes vues) ; ni capture ni clé en base, WAL ou journal`,
   }
 })
 

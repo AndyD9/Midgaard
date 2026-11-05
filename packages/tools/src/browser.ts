@@ -5,19 +5,27 @@
  * ## Ce qui est approuvé, et pourquoi là
  *
  *  - **`browser_open`** prépare une session — objectif, adresse de départ,
- *    durée maximale — que l'humain approuve comme toute opération préparée :
- *    l'empreinte porte sur ces trois champs (docs/SLICE7.md, décision 6) ;
+ *    durée maximale, et les **textes que l'agent prévoit de taper** — que
+ *    l'humain approuve comme toute opération préparée : l'empreinte porte sur
+ *    tous ces champs (docs/SLICE7.md, décision 6) ;
  *  - **dans la session**, regarder (`browser_screenshot`), aller à une adresse
  *    (`browser_goto`), cliquer, faire défiler et presser une touche de
- *    déplacement sont **libres** : l'humain a approuvé la session et la regarde ;
- *  - **saisir du texte** (`browser_type`) et **presser Entrée** sont approuvés
- *    **chacun**, avec le texte exact, l'adresse et le champ visé : c'est par là
- *    qu'une donnée part dans un formulaire. Ce que l'humain a approuvé est
- *    revérifié au moment d'agir : si la page ou le champ ont changé pendant
- *    l'attente, la saisie est refusée plutôt que tapée ailleurs.
+ *    déplacement sont **libres** : l'humain a approuvé la session et la regarde.
+ *    Un clic peut envoyer un formulaire, et c'est dit dans la demande de session
+ *    (décision du 2026-11-05) ;
+ *  - **saisir du texte** (`browser_type`, Entrée comprise si demandée) : un
+ *    texte **prévu** à l'ouverture se tape sans nouvelle demande, une fois, s'il
+ *    est identique à la lettre — l'humain l'a déjà lu. Tout autre texte, et
+ *    Entrée seule, sont approuvés **chacun**, avec le texte exact, l'adresse et
+ *    le champ visé : c'est par là qu'une donnée part dans un formulaire. Ce que
+ *    l'humain a approuvé un par un est revérifié au moment d'agir : si la page
+ *    ou le champ ont changé pendant l'attente, la saisie est refusée plutôt que
+ *    tapée ailleurs.
  *
- * Un clic sur un bouton « Envoyer » reste libre, et c'est assumé : il n'envoie
- * que ce qui a déjà été saisi, donc approuvé.
+ * Grouper ainsi ne relâche rien : **aucun texte n'entre dans un champ sans que
+ * l'humain l'ait lu**. Ce qui change, c'est le moment où il le lit. L'essai réel
+ * de l'étape 8 avait demandé sept approbations pour trois tâches ; une
+ * approbation qui n'apprend rien finit par se donner sans lire.
  *
  * ## Ce que l'agent reçoit
  *
@@ -33,7 +41,10 @@
  */
 import { z } from 'zod'
 import type { ToolResult } from '@midgaard/contracts'
-import { ToolError, type BrowserCapture, type BrowserPageView, type PreparedOperation, type Tool, type ToolContext } from './types.ts'
+import {
+  ToolError,
+  type BrowserCapture, type BrowserPageView, type BrowserPlannedInput, type PreparedOperation, type Tool, type ToolContext,
+} from './types.ts'
 
 /** Noms des outils du navigateur. Le profil qui en a un reçoit le port. */
 export const BROWSER_TOOLS = [
@@ -58,6 +69,10 @@ export const BROWSER_DEFAULT_DURATION_S = 600
 export const BROWSER_MAX_DURATION_S = 1800
 /** Texte maximal d'une saisie : un champ de formulaire, pas un document. */
 export const BROWSER_MAX_TYPE_CHARS = 2000
+/** Textes prévus à l'ouverture, au plus : l'humain doit pouvoir tous les lire. */
+export const BROWSER_MAX_PLANNED = 20
+/** Longueur d'un texte prévu, au plus : il s'affiche dans la demande de session. */
+export const BROWSER_MAX_PLANNED_CHARS = 500
 
 /** Pourquoi le navigateur est refusé à cette tâche, ou `null` s'il ne l'est pas. */
 function unavailable(ctx: ToolContext): string | null {
@@ -147,12 +162,36 @@ const openSchema = z.object({
     .max(BROWSER_MAX_DURATION_S)
     .default(BROWSER_DEFAULT_DURATION_S)
     .describe(`How long the session may last, in seconds (default ${BROWSER_DEFAULT_DURATION_S}). It closes by itself then.`),
+  planned_inputs: z
+    .array(
+      z.object({
+        text: z.string().min(1).max(BROWSER_MAX_PLANNED_CHARS).describe('Exact text you will type.'),
+        press_enter: z.boolean().default(false).describe('Whether you will press Enter right after it.'),
+      }),
+    )
+    .max(BROWSER_MAX_PLANNED)
+    .default([])
+    .describe(
+      'Every text you already know you will type in this session, in order. The human reads them with the ' +
+        'session; each one is then typed once without asking again, if identical to the letter (same press_enter). ' +
+        'Any other text needs its own approval.',
+    ),
 })
 
 /** Ce qui est figé pour l'approbation d'une session. */
 interface OpenState {
   url: string
   maxDurationS: number
+  plannedInputs: BrowserPlannedInput[]
+}
+
+/**
+ * Un texte prévu tel que l'humain le lit : entre guillemets, échappé comme du
+ * JSON — une espace finale ou un retour à la ligne se voient — et suivi de
+ * « puis Entrée » si Entrée est prévue.
+ */
+function describePlanned(p: BrowserPlannedInput): string {
+  return `${JSON.stringify(p.text)}${p.press_enter ? ' puis Entrée' : ''}`
 }
 
 /** Demande une session de navigateur, que l'humain approuve. */
@@ -162,10 +201,11 @@ export const browserOpenTool: Tool<z.infer<typeof openSchema>> = {
     'Ask a human to approve a browser session: a fresh, isolated browser (no cookies, no logins, public internet ' +
     'only) opened at `url`, for `objective`, for at most `max_duration_s`. Once approved, you see a screenshot ' +
     'after every action. Inside the session, browser_screenshot, browser_goto, browser_click, browser_scroll ' +
-    'and navigation keys are free; browser_type and the Enter key need a human approval each, with the exact ' +
-    'text. A click is never asked about, even one that submits a form: the human approves the session knowing ' +
-    'this, so only submit a form when the objective says so. The human watches the session live and can close ' +
-    'it at any time. One session at a time.',
+    'and navigation keys are free. List in `planned_inputs` every text you already know you will type: the ' +
+    'human approves them with the session, and each is then typed once without asking again. Any other text, ' +
+    'and the Enter key on its own, need a human approval each. A click is never asked about, even one that ' +
+    'submits a form: the human approves the session knowing this, so only submit a form when the objective ' +
+    'says so. The human watches the session live and can close it at any time. One session at a time.',
   schema: openSchema,
   policy: (_args, ctx) => {
     const refused = unavailable(ctx)
@@ -185,16 +225,22 @@ export const browserOpenTool: Tool<z.infer<typeof openSchema>> = {
     const left = ctx.deadline ? Math.floor((ctx.deadline - Date.now()) / 1000) : Infinity
     const maxDurationS = Math.max(1, Math.min(args.max_duration_s, left))
     const minutes = Math.round((maxDurationS / 60) * 10) / 10
-    const state: OpenState = { url, maxDurationS }
+    const plannedInputs = args.planned_inputs.map((p) => ({ text: p.text, press_enter: p.press_enter }))
+    const state: OpenState = { url, maxDurationS, plannedInputs }
+    // Les textes prévus sont lus **ici**, avec la session : c'est leur seule
+    // approbation. Ils entrent donc dans le détail, et dans l'empreinte.
+    const planned = plannedInputs.length
+      ? ` — textes prévus, tapés une fois chacun sans nouvelle demande : ${plannedInputs.map(describePlanned).join(' ; ')}`
+      : ''
     return {
       // La fin du texte n'est pas une formule : c'est ce que l'humain accepte.
       // Un clic part sans demande, y compris sur un bouton d'envoi ; le
       // reconnaître dans la page serait une promesse qu'une page hostile
       // déjoue (décision du 2026-11-05, docs/SLICE7.md, étape 7).
       summary:
-        `ouvrir un navigateur isolé sur ${url}, ${minutes} min au plus — objectif : ${args.objective}` +
-        ' — clics libres pendant la session, envoi de formulaire compris ; saisie et Entrée approuvées chacune',
-      detail: { tool: 'browser_open', objective: args.objective, url, max_duration_s: maxDurationS },
+        `ouvrir un navigateur isolé sur ${url}, ${minutes} min au plus — objectif : ${args.objective}${planned}` +
+        ' — clics libres pendant la session, envoi de formulaire compris ; tout autre texte, et Entrée seule, approuvés chacun',
+      detail: { tool: 'browser_open', objective: args.objective, url, max_duration_s: maxDurationS, planned_inputs: plannedInputs },
       state,
     }
   },
@@ -204,7 +250,9 @@ export const browserOpenTool: Tool<z.infer<typeof openSchema>> = {
     if (refused) throw new ToolError(refused)
     // Sans préparation (appel direct), on prépare ici, comme `exec`.
     const op = (prepared ?? (await browserOpenTool.prepare!(args, ctx))).state as OpenState
-    const cap = await ctx.browser!.open({ objective: args.objective, url: op.url, max_duration_s: op.maxDurationS })
+    const cap = await ctx.browser!.open({
+      objective: args.objective, url: op.url, max_duration_s: op.maxDurationS, planned_inputs: op.plannedInputs,
+    })
     return captured(`opened ${op.url}`, cap)
   },
 }
@@ -296,6 +344,12 @@ export const browserScrollTool: Tool<z.infer<typeof scrollSchema>> = {
  */
 interface InputState {
   view: BrowserPageView
+  /**
+   * Vrai si la saisie est un texte prévu, approuvé avec la session : aucun
+   * humain n'attend, il n'y a donc rien à revérifier, mais le texte doit
+   * encore figurer dans la liste au moment de taper.
+   */
+  planned?: boolean
 }
 
 /** Fige la page et le champ d'une saisie, pour que l'humain approuve où elle part. */
@@ -336,40 +390,73 @@ const typeSchema = z.object({
     .string()
     .min(1)
     .max(BROWSER_MAX_TYPE_CHARS)
-    .describe('Exact text to type into the focused field. Click the field first. A human approves this text.'),
+    .describe('Exact text to type into the focused field. Click the field first.'),
+  press_enter: z
+    .boolean()
+    .default(false)
+    .describe('Press Enter right after typing, within the same approval: use it rather than a separate browser_key.'),
 })
 
-/** Saisit un texte dans le champ actif. */
+/**
+ * Vrai si cette saisie figure, à la lettre et avec la même Entrée, parmi les
+ * textes prévus qui restent à la session : l'humain l'a lue avec elle.
+ */
+function isPlanned(ctx: ToolContext, args: { text: string; press_enter: boolean }): boolean {
+  const s = ctx.browser!.session()
+  return !('closed_reason' in s) && s.planned_inputs.some((p) => p.text === args.text && p.press_enter === args.press_enter)
+}
+
+/** Saisit un texte dans le champ actif, et presse Entrée si c'est demandé. */
 export const browserTypeTool: Tool<z.infer<typeof typeSchema>> = {
   name: 'browser_type',
   description:
-    'Type text into the focused field of the page (click it first). A human approves each input, reading the ' +
-    'exact text, the page and the field; if the page changes while they decide, nothing is typed. Never type ' +
-    'secrets, passwords or personal data: you have none, and the human will refuse.',
+    'Type text into the focused field of the page (click it first), then press Enter if `press_enter` is true. ' +
+    'A text listed in planned_inputs when the session opened is typed once without asking again, if identical ' +
+    'to the letter (same press_enter). Any other text needs a human approval, reading the exact text, the page ' +
+    'and the field; if the page changes while they decide, nothing is typed. Never type secrets, passwords or ' +
+    'personal data: you have none, and the human will refuse.',
   schema: typeSchema,
-  policy: (_args, ctx) => {
+  policy: (args, ctx) => {
     const refused = noSession(ctx)
-    return refused
-      ? { decision: 'deny', reason: refused }
+    if (refused) return { decision: 'deny', reason: refused }
+    return isPlanned(ctx, args)
+      ? { decision: 'allow', reason: 'texte prévu, approuvé avec la session' }
       : { decision: 'approval', reason: 'une saisie est approuvée par un humain, texte exact compris' }
   },
-  prepare: (args, ctx) => prepareInput(ctx, `saisir ${JSON.stringify(args.text)}`, { tool: 'browser_type', text: args.text }),
+  async prepare(args, ctx): Promise<PreparedOperation> {
+    const what = `saisir ${JSON.stringify(args.text)}${args.press_enter ? ' puis presser Entrée' : ''}`
+    const op = await prepareInput(ctx, what, { tool: 'browser_type', text: args.text, press_enter: args.press_enter })
+    // Même jugement que la politique, au même moment : la boucle exécute les
+    // appels l'un après l'autre, la liste n'a donc pas pu changer entre les deux.
+    return { ...op, state: { ...(op.state as InputState), planned: isPlanned(ctx, args) } }
+  },
   async run(args, ctx, prepared): Promise<ToolResult> {
-    await checkInput(ctx, prepared)
-    return captured(`typed ${args.text.length} characters`, await port(ctx).type(args.text))
+    const planned = prepared ? (prepared.state as InputState).planned === true : isPlanned(ctx, args)
+    if (planned) {
+      // Retiré **avant** de taper : un texte prévu ne sert qu'une fois. S'il
+      // n'est plus là, rien ne part sans l'humain.
+      if (!port(ctx).claimPlanned({ text: args.text, press_enter: args.press_enter })) {
+        throw new ToolError('this planned text was already typed in this session: call browser_type again to ask the human')
+      }
+    } else {
+      await checkInput(ctx, prepared)
+    }
+    let cap = await port(ctx).type(args.text)
+    if (args.press_enter) cap = await port(ctx).press('Enter')
+    return captured(`typed ${args.text.length} characters${args.press_enter ? ', then pressed Enter' : ''}`, cap)
   },
 }
 
 const keySchema = z.object({
-  key: z.enum(BROWSER_KEYS).describe('The key to press. Enter needs a human approval: it submits forms.'),
+  key: z.enum(BROWSER_KEYS).describe('The key to press. Enter on its own needs a human approval: it submits forms.'),
 })
 
 /** Presse une touche. Entrée, qui envoie un formulaire, est approuvée. */
 export const browserKeyTool: Tool<z.infer<typeof keySchema>> = {
   name: 'browser_key',
   description:
-    `Press one key on the page: ${BROWSER_KEYS.join(', ')}. Enter needs a human approval, since it submits ` +
-    'forms; the other keys are free.',
+    `Press one key on the page: ${BROWSER_KEYS.join(', ')}. Enter on its own needs a human approval, since it ` +
+    'submits forms: after typing, use browser_type with press_enter instead. The other keys are free.',
   schema: keySchema,
   policy: (args, ctx) => {
     const refused = noSession(ctx)

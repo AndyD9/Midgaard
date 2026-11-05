@@ -159,7 +159,13 @@ export class BrowserSessions {
           throw new ToolError('this task ended while the browser was starting: it was closed')
         }
         const expiresAt = Date.now() + request.max_duration_s * 1000
-        const info: BrowserSessionInfo = { objective: request.objective, start_url: request.url, expires_at: expiresAt }
+        // Une copie : la liste des textes prévus se vide au fil des saisies.
+        const info: BrowserSessionInfo = {
+          objective: request.objective,
+          start_url: request.url,
+          expires_at: expiresAt,
+          planned_inputs: request.planned_inputs.map((p) => ({ ...p })),
+        }
         const timer = setTimeout(() => {
           void this.close(taskId, 'its approved duration is over')
         }, request.max_duration_s * 1000)
@@ -175,6 +181,9 @@ export class BrowserSessions {
             start_url: redact(request.url),
             max_duration_s: request.max_duration_s,
             expires_at: new Date(expiresAt).toISOString(),
+            // Approuvés avec la session : l'atelier les montre, expurgés comme
+            // tout ce qui s'écrit. La version en mémoire, elle, reste exacte.
+            planned_inputs: request.planned_inputs.map((p) => ({ text: redact(p.text), press_enter: p.press_enter })),
           },
         })
         return act((s) => s.goto(request.url))
@@ -183,6 +192,14 @@ export class BrowserSessions {
         const l = live()
         const state = await l.session.state()
         return { ...state, focused: await l.session.focused() }
+      },
+      claimPlanned: (input) => {
+        const l = this.live.get(taskId)
+        if (!l) return false
+        const at = l.info.planned_inputs.findIndex((p) => p.text === input.text && p.press_enter === input.press_enter)
+        if (at < 0) return false
+        l.info.planned_inputs.splice(at, 1)
+        return true
       },
       screenshot: () => act(async () => {}),
       goto: (url) => act((s) => s.goto(url)),

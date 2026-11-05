@@ -174,7 +174,7 @@ describe('le Navigator dans un vrai daemon', () => {
     const known = new Set<string>()
 
     const session = await nextApproval(taskId, known)
-    assert.match(session.operation, /^browser_open — ouvrir un navigateur isolé sur http:\/\/127\.0\.0\.1:\d+\/, 2 min au plus — objectif : remplir le champ — clics libres pendant la session, envoi de formulaire compris ; saisie et Entrée approuvées chacune$/)
+    assert.match(session.operation, /^browser_open — ouvrir un navigateur isolé sur http:\/\/127\.0\.0\.1:\d+\/, 2 min au plus — objectif : remplir le champ — clics libres pendant la session, envoi de formulaire compris ; tout autre texte, et Entrée seule, approuvés chacun$/)
     assert.equal((await post(`/api/approvals/${session.id}/approve`, { by: 'test' })).status, 200)
 
     const typing = await nextApproval(taskId, known)

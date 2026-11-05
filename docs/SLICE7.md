@@ -89,7 +89,10 @@ font rien ; le navigateur ensuite, qui agit.
    et presser Entrée sont approuvés chacun**, avec le texte exact : c'est par là
    qu'un formulaire part. *Précisé à l'étape 7 : un clic peut aussi envoyer un
    formulaire, sans approbation ; c'est dit à l'humain dans la demande de
-   session, et au modèle (décision du 2026-11-05).* L'humain coupe la session quand il veut, et elle
+   session, et au modèle (décision du 2026-11-05).*
+   *Allégé après l'essai réel (décision du 2026-11-05) : les textes que
+   l'agent annonce à l'ouverture sont approuvés avec la session, et une
+   saisie peut porter son Entrée ; voir « Après l'essai ».* L'humain coupe la session quand il veut, et elle
    expire seule.
 7. **L'humain voit ce que voit l'agent.** Un onglet « Navigateur » dans
    l'atelier montre la dernière capture, au fil des actions. Les captures
@@ -807,3 +810,52 @@ voir si elle se reconnecte.
 un vrai modèle qui lit les images, sur une vraie application publique, sous
 session approuvée et surveillée. Il ne prouve pas qu'un modèle détourné
 serait tenu. Ce sont X7 à X9 qui le prouvent, avec un faux fournisseur.
+
+### Après l'essai — moins d'approbations, la même garantie (2026-11-05)
+
+**Le constat de l'auteur** : sept approbations pour ajouter trois tâches,
+c'est trop. On lui demandait de confirmer des gestes déjà décidés, une par
+saisie et une par Entrée. Une approbation qui n'apprend rien finit par se
+donner sans lire, et c'est pire pour la sécurité.
+
+**Ce qui mérite le regard de l'humain, c'est le texte qui part dans une
+page.** L'agent a lu le projet, et une page piégée peut lui faire recopier
+un fichier dans un formulaire. **Décision : les deux allégements**, et pas le
+troisième.
+
+1. **Saisie et Entrée en une approbation.** `browser_type` prend `press_enter`
+   ; la demande dit « saisir "…" puis presser Entrée dans … », et Entrée est
+   dans l'empreinte. `browser_key` Entrée seule reste approuvée.
+2. **Les textes prévus, approuvés avec la session.** `browser_open` prend
+   `planned_inputs`, au plus 20 textes de 500 caractères, chacun avec ou sans
+   Entrée. La demande de session les cite entre guillemets, échappés comme du
+   JSON : une espace finale se voit. Ils entrent dans le détail, donc dans
+   l'empreinte. Chacun part ensuite **une fois** sans demande, s'il est
+   identique à la lettre avec la même Entrée. La session le retire **avant**
+   de taper ; une préparation périmée qui le croyait prévu ne tape rien.
+   L'onglet « Navigateur » les montre, barrés au fil des saisies.
+3. **Écarté : la saisie libre dans une session approuvée.** C'est exactement
+   la garantie qu'on perdrait.
+
+La garantie reste : **aucun texte n'entre dans un champ sans que l'humain
+l'ait lu.** Ce qui change, c'est le moment où il le lit. Un texte prévu n'est
+lié ni à une page ni à un champ : il peut partir dans n'importe quel champ de
+la session, y compris après un `browser_goto`. L'essai réel aurait demandé
+**une** approbation au lieu de sept.
+
+**Vérifié :**
+- `npm run typecheck` ; `npm run test:unit` (542 tests, aucun sauté) :
+  - saisie puis Entrée sous une seule approbation, qui les nomme ;
+  - un texte prévu permis sans demande, puis redemandé une fois servi ;
+  - « à la lettre » : la casse, une espace finale, une Entrée en plus ou en
+    moins redemandent l'humain ;
+  - une préparation périmée ne tape rien ;
+  - l'atelier barre le texte servi, et lui seul ;
+- **X7** dans `test:security`, sur un vrai daemon et un vrai Chromium : le
+  texte prévu arrive à la page sans demande, et le même une seconde fois
+  attend l'humain. Refusé, il n'arrive pas. Contre-épreuve : une session qui
+  ne retire pas le texte servi le laisse partir deux fois, et X7 échoue ;
+- `npm run test:ui` : 14 scénarios.
+
+*Pas encore éprouvé avec un vrai modèle : qu'il annonce bien ses textes à
+l'ouverture, plutôt que de les taper un par un sous approbation.*

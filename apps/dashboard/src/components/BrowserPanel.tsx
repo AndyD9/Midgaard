@@ -159,6 +159,20 @@ export function BrowserPanel({
         <p className="text-muted">
           Objectif approuvé : <span className="text-ink">{summary.objective}</span>
         </p>
+        {summary.plannedInputs.length > 0 && (
+          // Approuvés avec la session : chacun part une fois sans demande. Les
+          // voir barrés au fil des saisies dit ce qui peut encore partir seul.
+          <p className="text-muted" data-testid="browser-planned">
+            Textes prévus :{' '}
+            {summary.plannedInputs.map((p, i) => (
+              <span key={i} className={p.used ? 'line-through' : 'text-ink'} title={p.used ? 'déjà tapé' : 'peut partir sans nouvelle demande'}>
+                {i > 0 && ' ; '}
+                {JSON.stringify(p.text)}
+                {p.pressEnter && ' ↵'}
+              </span>
+            ))}
+          </p>
+        )}
         <p className="truncate font-mono" title={url} data-testid="browser-url">
           {url}
         </p>
