@@ -1,0 +1,114 @@
+/**
+ * @file Faux serveur MCP stdio, pour éprouver le client du daemon
+ * (`@midgaard/mcp-client`, Slice 8) sans REA ni Ghidra.
+ *
+ * C'est un vrai serveur du SDK, sur un vrai tube : seul son comportement est
+ * scripté, par des outils qui reproduisent ce qu'un serveur réel fait de
+ * gênant — durer, annoncer sa progression, lancer un processus à lui, mourir
+ * en cours d'appel, écrire sur sa sortie d'erreur.
+ *
+ * Il se lance par `node [--conditions=midgaard-dev] tests/fake-mcp-server.ts`,
+ * suivi d'un mode facultatif :
+ *
+ *  - `--hang` : lit son entrée sans jamais répondre, `initialize` compris ;
+ *  - `--stubborn` : ignore `SIGTERM` et survit à la fermeture de son entrée,
+ *    pour prouver que l'arrêt va jusqu'à `SIGKILL`.
+ *
+ * Le dossier `FAKE_MCP_MARKS`, s'il est déclaré dans son environnement, reçoit
+ * un fichier par événement que le test doit constater sans le lui demander
+ * (`cancelled` : une annulation reçue).
+ */
+import { spawn } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { z } from 'zod'
+
+const mode = process.argv[2]
+const marks = process.env.FAKE_MCP_MARKS
+
+/** Laisse une trace que le test lira : le serveur n'a pas d'autre moyen de lui parler hors protocole. */
+function mark(name: string, content = ''): void {
+  if (marks) writeFileSync(join(marks, name), content)
+}
+
+if (mode === '--hang') {
+  // Lit sans répondre : un programme qui n'est pas un serveur MCP.
+  process.stdin.resume()
+} else {
+  if (mode === '--stubborn') {
+    process.on('SIGTERM', () => {})
+    // Survit à la fin de l'entrée : rien d'autre ne le retient.
+    setInterval(() => {}, 1_000)
+  }
+
+  const server = new McpServer({ name: 'fake-mcp', version: '1.0.0' }, { instructions: 'Fake server for tests.' })
+
+  server.registerTool(
+    'echo',
+    { description: 'Return the text it was given.', inputSchema: { text: z.string() }, annotations: { readOnlyHint: true } },
+    async ({ text }) => ({ content: [{ type: 'text', text }] }),
+  )
+
+  server.registerTool('env', { description: 'List the names of the environment variables it received.' }, async () => ({
+    content: [{ type: 'text', text: JSON.stringify(Object.keys(process.env).sort()) }],
+  }))
+
+  server.registerTool(
+    'slow',
+    { description: 'Wait, announcing progress, unless cancelled.', inputSchema: { ms: z.number() } },
+    async ({ ms }, extra) => {
+      const started = Date.now()
+      let step = 0
+      while (Date.now() - started < ms) {
+        if (extra.signal.aborted) {
+          mark('cancelled', String(Date.now()))
+          return { content: [{ type: 'text', text: 'cancelled' }], isError: true }
+        }
+        if (extra._meta?.progressToken !== undefined) {
+          await extra.sendNotification({
+            method: 'notifications/progress',
+            params: { progressToken: extra._meta.progressToken, progress: ++step, message: `step ${step}` },
+          })
+        }
+        await new Promise((r) => setTimeout(r, 50))
+      }
+      return { content: [{ type: 'text', text: 'done' }] }
+    },
+  )
+
+  server.registerTool('spawn_sleeper', { description: 'Start a child process that never ends; return its pid.' }, async () => {
+    // Un fils **non détaché** : il reste dans le groupe du serveur, comme
+    // Ghidra lancé par REA. Il ne lit pas son entrée, donc il ne mourra pas
+    // de lui-même avec son parent : seul un signal au groupe le tue.
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
+    return { content: [{ type: 'text', text: String(child.pid) }] }
+  })
+
+  server.registerTool(
+    'exit',
+    { description: 'Exit the server process in the middle of the call.', inputSchema: { code: z.number() } },
+    async ({ code }) => {
+      setTimeout(() => process.exit(code), 20)
+      return new Promise(() => {})
+    },
+  )
+
+  server.registerTool(
+    'stderr',
+    { description: 'Write the text on standard error.', inputSchema: { text: z.string() } },
+    async ({ text }) => {
+      process.stderr.write(text)
+      return { content: [{ type: 'text', text: 'written' }] }
+    },
+  )
+
+  server.registerTool('fail', { description: 'A tool that reports an error result.' }, async () => ({
+    content: [{ type: 'text', text: 'it went wrong' }],
+    isError: true,
+  }))
+
+  await server.connect(new StdioServerTransport())
+  mark('pid', String(process.pid))
+}

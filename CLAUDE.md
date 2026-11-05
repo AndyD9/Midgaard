@@ -3,7 +3,8 @@
 Harness local qui laisse Claude Code déléguer des tâches à des agents exécutants,
 les observer et les soumettre à approbation humaine. **Lire d'abord** :
 [README.md](README.md) (état, commandes), [docs/PLAN.md](docs/PLAN.md) (décisions
-et slices), [docs/SLICE7.md](docs/SLICE7.md) (images et navigateur isolé, décidée),
+et slices), [docs/SLICE8.md](docs/SLICE8.md) (serveurs MCP et agents créés à la
+volée, en cours), [docs/SLICE7.md](docs/SLICE7.md) (images et navigateur isolé, décidée),
 [docs/SLICE6.md](docs/SLICE6.md) (atelier façon VS Code, essais réels),
 [docs/SLICE5.md](docs/SLICE5.md) (orchestrateur intégré, essai réel), [docs/SLICE4.md](docs/SLICE4.md) (durcissement,
 distribution abandonnée, essai depuis un clone), [docs/SLICE3.md](docs/SLICE3.md) (Developer, worktrees,
@@ -45,7 +46,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
 | `npm run harness -- workspaces` | Worktrees : `remove`, `clean` — la branche reste toujours |
 | `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme), `revoke` |
-| `npm run test:unit` | ~11 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git), navigateur (vrai Chromium) |
+| `npm run test:unit` | ~15 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git), navigateur (vrai Chromium), client MCP (vrai serveur stdio, processus comptés) |
 | `npm run test:vault` | ~1 s — les coffres seuls, sur le coffre réel de la machine |
 | `npm run test:worktrees` | ~8 s — worktrees, écriture et `exec` seuls, sortie en direct et lecture des fichiers d'une tâche comprises (rejoués en CI sur trois plateformes) |
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
@@ -279,6 +280,26 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
+
+## Slice 8 en cours — des serveurs MCP pour les agents, des agents créés à la volée
+
+Décidée le 2026-11-05 avec l'auteur : l'humain branche un serveur MCP (REA,
+`rea-agents`, stdio, d'abord) ; ses outils vont aux **profils qui le
+déclarent**, libres s'ils sont **cochés** (empreinte du nom, de la
+description et du schéma : un outil changé n'est plus libre), approuvés sur
+leurs arguments exacts sinon, leurs résultats toujours encadrés et non
+fiables ; et l'orchestrateur **crée ses agents à la volée** (`create_agent`),
+sans jamais dépasser le type de base, les limites, les serveurs ni les
+modèles que l'humain a ouverts. Décisions et découpage en sept étapes :
+[docs/SLICE8.md](docs/SLICE8.md). Étape 1 faite : le paquet `mcp-client`
+(`McpConnection`, `GuardedStdioTransport`, `serverEnv`). **Le transport stdio
+du SDK n'est pas employé** : il lance le serveur dans le groupe du daemon et
+ne tue que le processus principal, et REA lance Ghidra. Le serveur est chef
+de son groupe, confié à la garde avant la poignée de main, tué par groupe à
+la fermeture ; le client ne déclare **aucune capacité** (pas de `sampling`,
+qui ferait dépenser le modèle de l'agent) ; une progression ne prolonge pas
+un appel. Le test du daemon tué net **fige** le serveur et regarde un
+petit-enfant, sinon il passerait sans la garde.
 
 ## Slice 7 terminée — les agents voient
 

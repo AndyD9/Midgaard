@@ -15,6 +15,7 @@
     "@midgaard/secrets": "*",
     "@midgaard/tools": "*",
     "@midgaard/browser": "*",
+    "@midgaard/mcp-client": "*",
     "@midgaard/workspace": "*",
     "@modelcontextprotocol/sdk": "^1.32.2"
   }

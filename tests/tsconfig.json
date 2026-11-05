@@ -16,6 +16,7 @@
     { "path": "../packages/providers" },
     { "path": "../packages/tools" },
     { "path": "../packages/browser" },
+    { "path": "../packages/mcp-client" },
     { "path": "../packages/workspace" },
     { "path": "../packages/agent-runtime" },
     { "path": "../packages/persistence" },

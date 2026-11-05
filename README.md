@@ -31,11 +31,13 @@ et les coûts.
 | 5 | Orchestrateur intégré sur n'importe quel modèle, lancé du dashboard | ✅ **Terminée** le 2026-11-01 — essai réel : un orchestrateur sur Venice délègue à un Developer sous approbation, coût exact ([docs/SLICE5.md](docs/SLICE5.md)) |
 | 6 | Atelier façon VS Code dans une app Tauri : chat avec l'orchestrateur, boucle orchestrateur ⇄ Developer, fichiers et terminal en direct | ✅ **Terminée** le 2026-11-03 — l'atelier dans sa fenêtre Tauri : conversation avec l'orchestrateur, questions et revue entre agents, explorateur et éditeur en lecture seule, terminal des commandes en direct ; deux essais réels sur Venice ([docs/SLICE6.md](docs/SLICE6.md)) |
 | 7 | Les agents voient : lire des images, puis piloter un navigateur isolé sous sessions approuvées | ✅ **Terminée** le 2026-11-05 — `read_image`, un Chromium jetable derrière un proxy gardé, le profil Navigator, l'onglet « Navigateur » de l'atelier ; essai réel : un modèle Venice lit une maquette et la reproduit dans TodoMVC, chaque saisie approuvée ([docs/SLICE7.md](docs/SLICE7.md)) |
+| 8 | Des serveurs MCP pour les agents (REA d'abord), et des agents que l'orchestrateur crée à la volée | 🚧 **En cours** depuis le 2026-11-05 — étape 1 faite : le client MCP stdio du daemon, sous la garde des processus ([docs/SLICE8.md](docs/SLICE8.md)) |
 
 Le détail des slices est dans [docs/PLAN.md](docs/PLAN.md). Ce que chaque slice a
 prouvé et appris : [docs/SLICE0.md](docs/SLICE0.md), [docs/SLICE1.md](docs/SLICE1.md),
 [docs/SLICE2.md](docs/SLICE2.md), [docs/SLICE3.md](docs/SLICE3.md), [docs/SLICE4.md](docs/SLICE4.md),
-[docs/SLICE5.md](docs/SLICE5.md), [docs/SLICE6.md](docs/SLICE6.md), [docs/SLICE7.md](docs/SLICE7.md).
+[docs/SLICE5.md](docs/SLICE5.md), [docs/SLICE6.md](docs/SLICE6.md), [docs/SLICE7.md](docs/SLICE7.md),
+[docs/SLICE8.md](docs/SLICE8.md).
 
 ## Installer
 
@@ -200,6 +202,7 @@ Midgaard/
 │   ├── SLICE5.md                 orchestrateur intégré : décisions, étapes, essai réel
 │   ├── SLICE6.md                 atelier façon VS Code : conversations, boucle entre agents, Tauri
 │   ├── SLICE7.md                 les agents voient : images, navigateur isolé
+│   ├── SLICE8.md                 serveurs MCP pour les agents, agents créés à la volée
 │   └── DEPANNAGE.md              symptômes, causes et remèdes ; variables d'environnement
 ├── packages/
 │   ├── contracts/                schémas Zod, machine à états, protocole — aucune dépendance
@@ -208,6 +211,7 @@ Midgaard/
 │   ├── providers/                adaptateurs de modèles : compatible OpenAI (Venice) et Gemini
 │   ├── tools/                    outils des agents : lecture, écriture et exec dans le worktree, git_diff, http_fetch
 │   ├── browser/                  navigateur isolé : Chromium jetable, proxy gardé, aucun processus survivant
+│   ├── mcp-client/               client MCP du daemon : serveur stdio déclaré, lancé sous la garde, aucun processus survivant
 │   ├── workspace/                worktrees Git des agents écrivants : création, commit, diff, retrait
 │   ├── agent-runtime/            la boucle : budgets, limites, approbations, résultat structuré
 │   ├── daemon/                   HTTP, WebSocket, bus d'événements, moteurs de tâches
