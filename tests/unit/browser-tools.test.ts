@@ -256,6 +256,8 @@ describe('les captures dans la conversation', () => {
     assert.equal(outcome.status === 'completed' && outcome.result.untrusted, true, 'la tâche a vu une page web')
     assert.equal(approvals.length, 1, 'la session seule a été approuvée, pas le clic')
     assert.match(approvals[0]!, /^browser_open — ouvrir un navigateur isolé sur https:\/\/example\.org\//)
+    // L'humain approuve la session en sachant qu'un clic, même d'envoi, ne lui sera pas soumis.
+    assert.match(approvals[0]!, /clics libres pendant la session, envoi de formulaire compris ; saisie et Entrée approuvées chacune$/)
     const count = (r: CompletionRequest) => r.messages.reduce((n, m) => n + (m.role === 'user' ? m.images?.length ?? 0 : 0), 0)
     assert.equal(count(calls[1]!), 1)
     assert.equal(count(calls[2]!), 1, 'la capture du clic a chassé celle de l\'ouverture')

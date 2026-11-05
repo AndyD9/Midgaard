@@ -85,7 +85,9 @@ font rien ; le navigateur ensuite, qui agit.
    objectif, adresse de départ, durée maximale — que l'humain approuve. Dans la
    session, regarder, faire défiler et cliquer sont libres ; **saisir du texte
    et presser Entrée sont approuvés chacun**, avec le texte exact : c'est par là
-   qu'un formulaire part. L'humain coupe la session quand il veut, et elle
+   qu'un formulaire part. *Précisé à l'étape 7 : un clic peut aussi envoyer un
+   formulaire, sans approbation ; c'est dit à l'humain dans la demande de
+   session, et au modèle (décision du 2026-11-05).* L'humain coupe la session quand il veut, et elle
    expire seule.
 7. **L'humain voit ce que voit l'agent.** Un onglet « Navigateur » dans
    l'atelier montre la dernière capture, au fil des actions. Les captures
@@ -651,18 +653,32 @@ chromium`). Sans lui, X7 à X9 **échouent** en donnant la commande : ce sont de
 preuves de sécurité, et un saut ne doit pas avoir l'air d'une réussite. La CI
 de bout en bout l'installe déjà avant la suite.
 
-**Ce qui reste ouvert : Entrée n'est pas le seul chemin d'un formulaire.** La
+**Tranché : Entrée n'est pas le seul chemin d'un formulaire.** La
 décision 6 dit que saisir et presser Entrée sont approuvés, « c'est par là
 qu'un formulaire part ». C'est incomplet. Les clics sont libres dans la
 session, et un clic sur un bouton d'envoi envoie un formulaire sans
 approbation. `Tab` puis `Space` sur ce bouton aussi. Ce qui est prouvé, c'est
 qu'**aucun texte choisi par l'agent n'entre dans un champ** sans que l'humain
 l'ait lu. Un formulaire déjà rempli par la page, ou dont les champs sont des
-cases et des listes, peut partir d'un clic. À trancher avec l'auteur avant
-l'essai réel :
-- garder ce partage, et le dire dans la consigne de session ;
+cases et des listes, peut partir d'un clic. Deux voies :
+- garder ce partage, et le dire ;
 - ou approuver aussi un clic qui envoie un formulaire, ce qui demande de le
   reconnaître dans la page, que l'agent ne contrôle pas, mais qui peut mentir.
+
+**Décision de l'auteur (2026-11-05) : garder, et le dire.** Approuver ces
+clics promettrait plus que ce qu'on peut tenir : une page hostile déguise un
+bouton, ou envoie ses données par un script au simple clic. C'est désormais
+dit partout où quelqu'un décide :
+- **à l'humain**, dans la demande de session elle-même : « clics libres
+  pendant la session, envoi de formulaire compris ; saisie et Entrée
+  approuvées chacune ». C'est ce qu'il approuve (`browser-tools.test.ts` et
+  `navigator.test.ts` le vérifient) ;
+- **au modèle**, dans les descriptions de `browser_open` et `browser_click`
+  et dans la consigne du Navigator : aucun clic n'est soumis à l'humain, et
+  l'agent n'envoie un formulaire que si son objectif le demande.
+
+Le README du paquet `tools` disait qu'un clic sur « Envoyer » « n'envoie que
+ce qui a déjà été saisi, donc approuvé ». C'était faux, et c'est corrigé.
 
 **Vérifié :**
 - `npm run typecheck` ; `npm run test:unit` (538 tests, aucun sauté) ;

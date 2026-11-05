@@ -320,8 +320,10 @@ privées refusées, aucun Chromium après `SIGKILL` du daemon, aucune capture en
 base). Trouvé en chemin : un littéral IPv6 entre crochets était jugé comme un
 nom (`assertPublicHost` ôte les crochets), et **Chromium quitte seul à la mort
 de son parent** : un test de la garde ne la prouve qu'en figeant Chromium
-(`SIGSTOP`) avant. Reste ouvert : un clic sur un bouton d'envoi envoie un
-formulaire sans approbation (`docs/SLICE7.md`, étape 7).
+(`SIGSTOP`) avant. **Un clic n'est jamais approuvé, même s'il envoie un
+formulaire** (décision du 2026-11-05) : c'est dit dans la demande de session
+que l'humain approuve, et au modèle. Seul le texte tapé par l'agent est
+garanti lu par l'humain.
 
 ## Slice 6 terminée — un atelier façon VS Code
 

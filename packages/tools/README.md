@@ -350,16 +350,25 @@ ces outils et pour lui seul. Absent, ou sans `ToolContext.vision.enabled`, tous
 
 | Outil | Décision |
 |---|---|
-| `browser_open` | **Approbation** : l'opération préparée porte l'objectif, l'adresse normalisée (`http:`/`https:` seulement) et la durée, bornée par l'échéance de la tâche. Refusé si une session est déjà ouverte |
+| `browser_open` | **Approbation** : l'opération préparée porte l'objectif, l'adresse normalisée (`http:`/`https:` seulement) et la durée, bornée par l'échéance de la tâche ; le texte approuvé dit que les clics seront libres, envoi de formulaire compris. Refusé si une session est déjà ouverte |
 | `browser_screenshot`, `browser_goto`, `browser_click`, `browser_scroll`, `browser_close` | Libres dans la session |
-| `browser_key` | Libre, **sauf Entrée** : approbation, puisqu'elle envoie un formulaire |
+| `browser_key` | Libre, **sauf Entrée** : approbation, puisqu'elle envoie le champ où l'on vient de taper |
 | `browser_type` | **Approbation**, avec le texte exact, l'adresse et le champ actif |
 
 **Ce que l'humain a approuvé est revérifié au moment d'agir.** Une saisie ou
 une Entrée approuvées ne partent pas si l'adresse ou le champ actif ont changé
 pendant la décision : une page peut se rediriger seule. Le test le prouve, et
-vérifie que rien n'a été tapé. Un clic sur « Envoyer » reste libre : il
-n'envoie que ce qui a déjà été saisi, donc approuvé.
+vérifie que rien n'a été tapé.
+
+**Un clic n'est jamais soumis à l'humain, même sur « Envoyer »** (décision du
+2026-11-05). Il peut envoyer ce que l'agent n'a pas tapé : un champ prérempli
+par la page, une case, une liste. Le reconnaître dans la page aurait été une
+promesse qu'une page hostile déjoue (un bouton déguisé, un script au clic).
+On le dit donc plutôt que de le cacher : dans la demande de session, que
+l'humain approuve, et aux descriptions de `browser_open` et `browser_click`
+et dans la consigne du Navigator, qui ne doit envoyer que ce que son objectif
+demande. Ce qui est garanti, c'est qu'**aucun texte choisi par l'agent n'entre
+dans un champ** sans que l'humain l'ait lu.
 
 Chaque action rend une **capture** JPEG et l'adresse, le titre et le champ
 actif de la page. Le résultat est **non fiable** : encadré, et la tâche marquée.

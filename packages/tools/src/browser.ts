@@ -163,7 +163,9 @@ export const browserOpenTool: Tool<z.infer<typeof openSchema>> = {
     'only) opened at `url`, for `objective`, for at most `max_duration_s`. Once approved, you see a screenshot ' +
     'after every action. Inside the session, browser_screenshot, browser_goto, browser_click, browser_scroll ' +
     'and navigation keys are free; browser_type and the Enter key need a human approval each, with the exact ' +
-    'text. The human watches the session live and can close it at any time. One session at a time.',
+    'text. A click is never asked about, even one that submits a form: the human approves the session knowing ' +
+    'this, so only submit a form when the objective says so. The human watches the session live and can close ' +
+    'it at any time. One session at a time.',
   schema: openSchema,
   policy: (_args, ctx) => {
     const refused = unavailable(ctx)
@@ -185,7 +187,13 @@ export const browserOpenTool: Tool<z.infer<typeof openSchema>> = {
     const minutes = Math.round((maxDurationS / 60) * 10) / 10
     const state: OpenState = { url, maxDurationS }
     return {
-      summary: `ouvrir un navigateur isolé sur ${url}, ${minutes} min au plus — objectif : ${args.objective}`,
+      // La fin du texte n'est pas une formule : c'est ce que l'humain accepte.
+      // Un clic part sans demande, y compris sur un bouton d'envoi ; le
+      // reconnaître dans la page serait une promesse qu'une page hostile
+      // déjoue (décision du 2026-11-05, docs/SLICE7.md, étape 7).
+      summary:
+        `ouvrir un navigateur isolé sur ${url}, ${minutes} min au plus — objectif : ${args.objective}` +
+        ' — clics libres pendant la session, envoi de formulaire compris ; saisie et Entrée approuvées chacune',
       detail: { tool: 'browser_open', objective: args.objective, url, max_duration_s: maxDurationS },
       state,
     }
@@ -255,7 +263,9 @@ const clickSchema = z.object({
 /** Clique. */
 export const browserClickTool: Tool<z.infer<typeof clickSchema>> = {
   name: 'browser_click',
-  description: 'Click at a position of the page, in pixels of the latest screenshot. Click a field before typing into it.',
+  description:
+    'Click at a position of the page, in pixels of the latest screenshot. Click a field before typing into it. ' +
+    'No human approves a click, even one on a button that submits a form: submit only what the objective calls for.',
   schema: clickSchema,
   policy: inSession('cliquer, dans la session approuvée'),
   async run(args, ctx): Promise<ToolResult> {
