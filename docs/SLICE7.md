@@ -565,7 +565,15 @@ navigateur.
    processus. Le moteur rattrape désormais cette erreur une fois arrêté ; la
    tâche sera `interrupted` au démarrage suivant, comme toute autre. Prouvé
    par `navigator.test.ts` (« un daemon fermé en pleine tâche »), qui compte
-   les rejets non rattrapés. **Pourquoi D14 attendait sous Windows reste à
-   lire** : le plantage a empêché d'en écrire le motif, et la prochaine CI le
-   dira.
+   les rejets non rattrapés.
+
+*Constaté en CI sur `74ebdb7`, qui porte ces deux correctifs : « Worktrees »
+(`41944581983`) et « Bout en bout » (`41944582116`) verts sous macOS, Linux et
+Windows. Sous Windows, D14 passe : son attente venait donc du même défaut, et
+le plantage cachait le reste. Sous macOS, D14 a d'abord échoué une fois sur
+l'image du fil (« ne s'affiche pas »), puis il est passé à la relance du poste.
+L'échec est intermittent et sa cause n'est pas connue : il n'a été vu ni sous
+Linux ni sous Windows, ni dans les passages locaux sous macOS. D14 dit désormais
+ce que le fil montrait à la place (l'élément, une note, la largeur décodée de
+l'image), pour qu'un prochain échec dise lequel.*
 

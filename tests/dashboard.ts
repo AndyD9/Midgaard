@@ -789,7 +789,17 @@ await scenario(outcomes, 'D14 l’atelier montre ce que voit un Navigator, et l�
       await shown.waitFor({ timeout: UI_TIMEOUT })
       if (!(await imageLoaded('chat-image'))) throw new Error('image vide')
     } catch {
-      return { verdict: 'FAIL', detail: 'l’image lue par l’agent ne s’affiche pas dans le fil' }
+      // Ce que le fil montre à la place : l'élément, une note, ou rien. Vu
+      // échouer une fois en CI sous macOS, sans qu'on sache lequel.
+      const items = await page.locator('[data-testid="chat-item"][data-kind="image"]').count()
+      const note = await page.getByTestId('chat-image-note').first().textContent({ timeout: 500 }).catch(() => null)
+      const width = await shown.first().evaluate((el) => (el as unknown as { naturalWidth: number }).naturalWidth).catch(() => null)
+      return {
+        verdict: 'FAIL',
+        detail:
+          `l’image lue par l’agent ne s’affiche pas dans le fil (élément image : ${items}, note : ${note ?? 'aucune'}, ` +
+          `largeur décodée : ${width ?? 'pas d’img'}, tâche ${(await taskOf()).status})`,
+      }
     }
 
     // 3. La session approuvée, l'onglet s'ouvre seul sur la capture.
