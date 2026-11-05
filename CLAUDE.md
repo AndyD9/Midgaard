@@ -340,7 +340,8 @@ premier jet l'oubliait. Sous-tâches actives plafonnées
 et une case par serveur pour chaque profil qui peut en recevoir ; la carte
 « Sous-tâches » montre le budget de l'arbre et les agents créés **avec leur
 rôle**. **La déclaration d'un serveur reste à la CLI** : elle seule résout le
-programme et saisit un secret sans écho. D16 et D17 dans `test:ui`.
+programme et saisit un secret sans écho. D16 et D17 dans `test:ui`, verts en CI sur trois
+plateformes (passage `42056152169`).
 
 ## Slice 7 terminée — les agents voient
 
