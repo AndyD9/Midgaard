@@ -12,7 +12,8 @@ faite le même jour, verte en CI sur macOS, Linux et Windows (passage
 `42007433791`) ; étape 3 faite le même jour, verte en CI sur les trois plateformes (passage
 `42011901280`) ; étape 4 faite le même jour, verte en CI sur les trois plateformes (passage
 `42016819429`) ; étape 5 faite le même jour, verte en CI sur les trois plateformes (passage
-`42056152169`) ; étape 6 faite le même jour, verte sous macOS.
+`42056152169`) ; étape 6 faite le même jour, verte en CI sur les trois plateformes (passage
+`42059539829`).
 
 ---
 
@@ -170,7 +171,7 @@ ouvert.
 | 3 | Les outils MCP derrière `ToolContext.mcp` : noms préfixés, liste blanche à empreinte, approbation sur arguments exacts, encadrement, plafond, expurgation ; `mcp_servers` sur un profil ; `PROTOCOL_VERSION` | **fait** — migration 12, `PROTOCOL_VERSION` 15 ; un agent réel du daemon appelle un serveur MCP, vu échouer sur deux défauts introduits ; verte en CI sur trois plateformes |
 | 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | **fait** — migration 13, budget d'arbre ; trois défauts introduits vus échouer, un trou trouvé en écrivant ; verte en CI sur trois plateformes |
 | 5 | Le dashboard : page « Serveurs MCP » (déclarer, tester, cocher), serveurs d'un profil, appels MCP dans le fil, agents créés et leur consigne dans l'arbre | **fait** — la déclaration reste à la CLI ; D16 et D17 dans `test:ui` ; vu dans le navigateur ; verte en CI sur trois plateformes |
-| 6 | Preuves : `test:orchestrator` (création, délégation parallèle, outil MCP), `test:security` (outil non coché refusé sans atteindre le serveur, empreinte changée → plus libre, agent créé qui tente de dépasser son type, rien de non expurgé en base, aucun serveur vivant après `SIGKILL`), CI sur trois plateformes | **fait** — X10 à X13 dans `test:security`, chacun vu échouer sur la protection qu'il garde ; CI à constater |
+| 6 | Preuves : `test:orchestrator` (création, délégation parallèle, outil MCP), `test:security` (outil non coché refusé sans atteindre le serveur, empreinte changée → plus libre, agent créé qui tente de dépasser son type, rien de non expurgé en base, aucun serveur vivant après `SIGKILL`), CI sur trois plateformes | **fait** — X10 à X13 dans `test:security`, chacun vu échouer sur la protection qu'il garde ; verts en CI sur trois plateformes |
 | 7 | L'essai réel : un orchestrateur sur Venice crée deux agents de reverse sur REA et un Developer, analyse un binaire, rend une synthèse ; coût relevé | à faire |
 
 ### Ce que chaque étape doit surveiller
@@ -484,4 +485,9 @@ processus vivants dix secondes après la mort du daemon).
 la conversation relevée par le faux fournisseur, qui contient aussi les appels
 écrits par le modèle scénarisé — lequel recopie le jeton lui-même. Seuls les
 résultats d'outils, ce que le harness rend au modèle, comptent.
+
+**Constaté en CI** (passage `42059539829`) : 13 scénarios sur 13 sous macOS,
+Linux et Windows. Sous Windows, X13 ne fige pas le serveur (`SIGSTOP`
+n'existe pas) : son fils, qui ne lit rien, y prouve la garde seul, et le
+scénario le dit.
 

@@ -341,8 +341,8 @@ et une case par serveur pour chaque profil qui peut en recevoir ; la carte
 « Sous-tâches » montre le budget de l'arbre et les agents créés **avec leur
 rôle**. **La déclaration d'un serveur reste à la CLI** : elle seule résout le
 programme et saisit un secret sans écho. D16 et D17 dans `test:ui`, verts en CI sur trois
-plateformes (passage `42056152169`). Étape 6 faite : X10 à X13 dans
-`test:security` — le faux serveur **note chaque appel reçu**, et un outil non
+plateformes (passage `42056152169`). Étape 6 faite, verte en CI sur trois plateformes (passage
+`42059539829`) : X10 à X13 dans `test:security` — le faux serveur **note chaque appel reçu**, et un outil non
 coché ou changé depuis ne lui arrive jamais ; secret d'un serveur jamais
 persisté ; exécutant créé borné et hors de tout autre arbre ; aucun serveur
 après `SIGKILL` du daemon, serveur figé avant. Chacun vu échouer sur la
