@@ -10,6 +10,7 @@
     { "path": "../workspace" },
     { "path": "../tools" },
     { "path": "../browser" },
+    { "path": "../mcp-client" },
     { "path": "../agent-runtime" }
   ]
 }

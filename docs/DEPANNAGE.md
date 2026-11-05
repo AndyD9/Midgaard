@@ -365,6 +365,50 @@ terminal. `--yes` passe outre, en connaissance de cause.
 
 ---
 
+## Les serveurs MCP des agents
+
+### `npm run harness -- mcp add` : « programme introuvable ou non exécutable »
+
+Le programme est cherché dans le `PATH` **du terminal**, puis déclaré par son
+chemin absolu. Les entrées relatives du `PATH` (`.`) sont ignorées. Donner le
+chemin complet, par exemple `-- /opt/homebrew/bin/node /chemin/vers/rea/scripts/rea.mjs mcp`.
+
+### « invalid_command » : « le programme doit être un chemin absolu »
+
+Le daemon ne lance qu'un programme déclaré par son chemin absolu, et revérifie
+à chaque lancement qu'il existe et s'exécute. Sous Windows, un `.cmd` ou un
+`.bat` est refusé (« ne se lance pas sans shell ») : déclarer `node.exe` et le
+script `.js` ou `.mjs`, comme REA le recommande pour une déclaration manuelle.
+
+### Le test dit « ne répond pas » : « did not complete the MCP handshake »
+
+Le programme s'est lancé mais n'a pas terminé `initialize` dans les 30 s. La
+fin du message cite le début et la fin de sa sortie d'erreur, expurgés :
+module introuvable (un chemin relatif dans les arguments, que `mcp add` rend
+pourtant absolu s'il existe), Java absent pour Ghidra, ou un programme qui
+n'est pas un serveur MCP. Le serveur tourne dans le dossier runtime au moment
+du test, pas dans ton terminal.
+
+### Un outil coché est « changé »
+
+Le serveur l'annonce autrement qu'au moment où tu l'as coché : description,
+schéma ou annotations — le plus souvent une mise à jour du serveur. Il est
+**approuvé à chaque appel** jusqu'à ce que tu le relises
+(`npm run harness -- mcp tools rea`) et le recoches (`npm run harness -- mcp allow rea nom_de_l_outil`).
+
+### « no_catalog » en cochant un outil
+
+Aucun catalogue n'a encore été lu, ou la déclaration a changé depuis : on ne
+coche que ce que le serveur a annoncé. `npm run harness -- mcp test rea` le lit.
+
+### `npm run harness -- mcp allow` : « pas de terminal pour confirmer »
+
+Comme `exec allow` : un outil coché ne sera plus montré à un humain. La CLI
+demande confirmation, et refuse sans terminal. `--yes` passe outre, en
+connaissance de cause.
+
+---
+
 ## La fenêtre desktop
 
 ### « La coque desktop n'est pas construite »

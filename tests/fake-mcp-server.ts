@@ -12,7 +12,15 @@
  *
  *  - `--hang` : lit son entrée sans jamais répondre, `initialize` compris ;
  *  - `--stubborn` : ignore `SIGTERM` et survit à la fermeture de son entrée,
- *    pour prouver que l'arrêt va jusqu'à `SIGKILL`.
+ *    pour prouver que l'arrêt va jusqu'à `SIGKILL` ;
+ *  - `--fail-with-env NOM` : écrit la valeur de la variable `NOM` sur sa
+ *    sortie d'erreur, puis quitte sans répondre — comme un serveur qui
+ *    répète un jeton dans son message d'échec. Le test vérifie qu'elle est
+ *    expurgée avant d'être montrée.
+ *
+ * `FAKE_MCP_ECHO_DESCRIPTION`, si elle est déclarée, remplace la description
+ * de l'outil `echo` : c'est un serveur mis à jour qui annonce un outil
+ * autrement, pour éprouver l'empreinte d'un outil coché (Slice 8, étape 2).
  *
  * Le dossier `FAKE_MCP_MARKS`, s'il est déclaré dans son environnement, reçoit
  * un fichier par événement que le test doit constater sans le lui demander
@@ -33,7 +41,10 @@ function mark(name: string, content = ''): void {
   if (marks) writeFileSync(join(marks, name), content)
 }
 
-if (mode === '--hang') {
+if (mode === '--fail-with-env') {
+  process.stderr.write(`cannot start: token ${process.env[process.argv[3] ?? ''] ?? '(absent)'} refused\n`)
+  process.exit(1)
+} else if (mode === '--hang') {
   // Lit sans répondre : un programme qui n'est pas un serveur MCP.
   process.stdin.resume()
 } else {
@@ -47,7 +58,11 @@ if (mode === '--hang') {
 
   server.registerTool(
     'echo',
-    { description: 'Return the text it was given.', inputSchema: { text: z.string() }, annotations: { readOnlyHint: true } },
+    {
+      description: process.env.FAKE_MCP_ECHO_DESCRIPTION ?? 'Return the text it was given.',
+      inputSchema: { text: z.string() },
+      annotations: { readOnlyHint: true },
+    },
     async ({ text }) => ({ content: [{ type: 'text', text }] }),
   )
 

@@ -13,6 +13,7 @@ import { loadConfig } from '@midgaard/contracts'
 import { decide, doctor, init, start, status, stop } from './commands.ts'
 import { agents, pricing, providers } from './providers.ts'
 import { exec, workspaces } from './workspaces.ts'
+import { mcp } from './mcp.ts'
 import { desktop } from './desktop.ts'
 import { extractHome } from './args.ts'
 import { bold, dim, setAdviceHome } from './ui.ts'
@@ -38,6 +39,18 @@ ${bold('Agents et fournisseurs')}
   providers remove <id> Retire un fournisseur et sa clé
   pricing               Tarifs en vigueur, et leur date de relevé
   pricing refresh <id>  Relève les tarifs chez le fournisseur (Venice les publie)
+
+${bold('Serveurs MCP des agents')}
+  mcp                   Serveurs MCP déclarés, et ce que dit leur dernier test
+  mcp add <id> [--env NOM=v]… [--secret-env NOM]… -- <programme> [arguments…]
+                        Déclare un serveur stdio et le teste ; une valeur secrète est saisie sans écho
+  mcp test <id>         Lance le serveur et relit son catalogue d'outils
+  mcp tools <id>        Le catalogue : outils libres, changés, ou approuvés à chaque appel
+  mcp allow <id> [--yes] (--read-only | <outil>…)
+                        Coche des outils libres, après avertissement et confirmation
+  mcp revoke <id> <outil>…
+                        Les décoche : chaque appel attendra de nouveau un humain
+  mcp remove <id>       Retire un serveur, ses outils cochés et ses secrets
 
 ${bold('Worktrees et commandes des agents écrivants')}
   workspaces            Worktrees des tâches Developer, leur état sur le disque, les orphelins
@@ -112,6 +125,8 @@ export async function run(argv: string[]): Promise<number> {
       return agents(config)
     case 'providers':
       return providers(config, rest)
+    case 'mcp':
+      return mcp(config, rest)
     case 'pricing':
       return pricing(config, rest)
     case 'workspaces':

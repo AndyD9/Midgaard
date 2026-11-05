@@ -65,9 +65,12 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *  - 13 : Slice 7, étape 5 — un profil peut être de type `navigator`, que les
  *        versions antérieures refuseraient à la validation, et
  *        `GET /api/agents` rend `disabled_reason`, le motif calculé par le
- *        daemon (fournisseur absent, ou modèle qui ne lit pas les images).
+ *        daemon (fournisseur absent, ou modèle qui ne lit pas les images) ;
+ *  - 14 : Slice 8, étape 2 — les routes `/api/mcp` (serveurs MCP déclarés,
+ *        leur catalogue, les outils cochés). Un daemon de protocole 13
+ *        répondrait 404 à `harness mcp` : la CLI doit le faire remplacer.
  */
-export const PROTOCOL_VERSION = 13
+export const PROTOCOL_VERSION = 14
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({

@@ -17,6 +17,7 @@ soit le nombre de sessions Claude Code ouvertes.
 | `bus.ts` | **Seul chemin d'écriture** : ce qui est écrit est diffusé |
 | `task-manager.ts` | Machine à états en marche ; port de délégation d'un orchestrateur et annulation en cascade (Slice 5) |
 | `agents.ts` | Profils livrés, rattachement à un fournisseur, choix du fournisseur et du modèle (`PATCH /api/agents/:id`) |
+| `mcp-servers.ts` | Serveurs MCP déclarés (Slice 8) : coffre d'abord, test qui lit le vrai catalogue, outils cochés avec leur empreinte |
 | `http.ts` | Routeur de l'API locale |
 | `ws.ts` | Diffusion temps réel et **reprise sans trou** après coupure |
 | `security.ts` | `Host` exact, `Origin` en liste blanche, `Sec-Fetch-Site`, jeton porteur |
@@ -225,6 +226,29 @@ web ou d'un worktree écrit par l'agent, et ne doivent pas pouvoir devenir une
 page. La garde réseau est celle
 d'`http_fetch`, plus la liste blanche quand la politique HTTP est `allowlist`
 (`defaultBrowserGuard`). Playwright n'est chargé qu'à la première session.
+
+## Les serveurs MCP déclarés (Slice 8)
+
+`mcp-servers.ts` suit le chemin des fournisseurs : **le coffre d'abord, la
+base ensuite** pour les variables secrètes, dont la base ne garde que le nom ;
+et un « Tester la connexion » qui **prouve** : le serveur est lancé
+(`@midgaard/mcp-client`, sous la garde des processus, dans le dossier
+runtime), `initialize` puis `tools/list`, et le test n'est réussi que si le
+catalogue est revenu. Un échec cite le début et la fin de la sortie d'erreur
+du serveur, **expurgés** des valeurs secrètes — un serveur peut répéter son
+jeton en échouant, `tests/unit/mcp-servers.test.ts` le fait exprès et lit la
+base octet par octet.
+
+Le programme est vérifié à la déclaration **et** à chaque lancement (absolu,
+présent, exécutable ; ni `.cmd` ni `.bat` sous Windows). Il est gardé tel que
+déclaré, pas canonicalisé : `node` de Homebrew est un lien vers un dossier
+versionné, qu'une mise à jour fait disparaître.
+
+On ne coche que le **catalogue constaté** : rien sans test réussi, rien qui n'y
+figure pas. Chaque outil coché garde l'empreinte de ce que l'humain a lu ;
+redéclarer un serveur efface son catalogue, et le test suivant dit quels
+outils cochés le serveur annonce désormais autrement (`changed`). Chaque
+autorisation est journalisée avec son auteur.
 
 ## Installation
 

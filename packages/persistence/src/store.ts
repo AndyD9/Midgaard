@@ -31,6 +31,9 @@ import {
   type EventType,
   type HarnessConfig,
   type InputRequest,
+  type McpServer,
+  type McpTest,
+  type McpTool,
   type ProviderConfig,
   type ProviderKind,
   type ProviderPreset,
@@ -1156,6 +1159,143 @@ export class HarnessStore {
     }))
   }
 
+  // --- Serveurs MCP (Slice 8) ---------------------------------------------
+
+  /**
+   * Déclare ou met à jour un serveur MCP. Aucun secret ne passe ici : le
+   * daemon dépose les valeurs des variables secrètes au coffre **avant**, et
+   * ne transmet que leurs noms.
+   *
+   * Le dernier test **et le catalogue** d'un serveur existant sont effacés :
+   * changer de programme, d'arguments ou d'environnement invalide ce qu'on
+   * avait constaté, et continuer à montrer l'ancien catalogue ferait croire à
+   * des outils que le nouveau programme n'annonce peut-être pas. Les outils
+   * cochés, eux, restent : leur empreinte dira, au prochain test, s'ils sont
+   * toujours ceux que l'humain a lus.
+   */
+  upsertMcpServer(input: {
+    id: string
+    name: string
+    command: string
+    args: readonly string[]
+    env: Record<string, string>
+    secretEnv: readonly string[]
+  }): McpServer {
+    const now = new Date().toISOString()
+    this.db
+      .prepare(
+        `INSERT INTO mcp_servers
+           (id, name, transport, command, args_json, env_json, secret_env_json,
+            created_at, updated_at, last_test_json, catalog_json, catalog_at)
+         VALUES (:id, :name, 'stdio', :command, :args, :env, :secret_env, :now, :now, NULL, NULL, NULL)
+         ON CONFLICT(id) DO UPDATE SET
+           name = :name, command = :command, args_json = :args, env_json = :env,
+           secret_env_json = :secret_env, updated_at = :now,
+           last_test_json = NULL, catalog_json = NULL, catalog_at = NULL`,
+      )
+      .run({
+        id: input.id,
+        name: input.name,
+        command: input.command,
+        args: JSON.stringify(input.args),
+        env: JSON.stringify(input.env),
+        secret_env: JSON.stringify(input.secretEnv),
+        now,
+      })
+    return this.getMcpServer(input.id)!
+  }
+
+  getMcpServer(id: string): McpServer | null {
+    const found = row<McpServerRow>(this.db.prepare('SELECT * FROM mcp_servers WHERE id = :id').get({ id }))
+    return found ? toMcpServer(found) : null
+  }
+
+  /** Serveurs déclarés, dans l'ordre de déclaration. */
+  listMcpServers(): McpServer[] {
+    return rows<McpServerRow>(this.db.prepare('SELECT * FROM mcp_servers ORDER BY created_at ASC, id ASC').all()).map(
+      toMcpServer,
+    )
+  }
+
+  /**
+   * Enregistre un « Tester la connexion ». Un test réussi remplace le
+   * catalogue ; un test échoué le **laisse** — mais le dernier test dit
+   * l'échec, et l'interface montre la date du catalogue.
+   *
+   * @returns `null` si le serveur n'existe plus
+   */
+  recordMcpTest(id: string, test: McpTest, catalog: readonly McpTool[] | null): McpServer | null {
+    const info = catalog
+      ? this.db
+          .prepare(
+            `UPDATE mcp_servers SET last_test_json = :t, catalog_json = :c, catalog_at = :at, updated_at = :at
+             WHERE id = :id`,
+          )
+          .run({ id, t: JSON.stringify(test), c: JSON.stringify(catalog), at: test.at })
+      : this.db
+          .prepare('UPDATE mcp_servers SET last_test_json = :t, updated_at = :at WHERE id = :id')
+          .run({ id, t: JSON.stringify(test), at: test.at })
+    return info.changes === 1 ? this.getMcpServer(id) : null
+  }
+
+  /** Le catalogue constaté au dernier test réussi, et sa date ; `null` s'il n'y en a pas. */
+  mcpCatalog(id: string): { tools: McpTool[]; at: string } | null {
+    const found = row<{ catalog_json: string | null; catalog_at: string | null }>(
+      this.db.prepare('SELECT catalog_json, catalog_at FROM mcp_servers WHERE id = :id').get({ id }),
+    )
+    if (!found?.catalog_json || !found.catalog_at) return null
+    return { tools: JSON.parse(found.catalog_json) as McpTool[], at: found.catalog_at }
+  }
+
+  /**
+   * Supprime un serveur, et ce qu'on y avait coché (clé étrangère en
+   * cascade). Les valeurs secrètes sont au coffre : c'est au daemon de les
+   * effacer.
+   *
+   * @returns vrai si quelque chose a été supprimé
+   */
+  deleteMcpServer(id: string): boolean {
+    return this.db.prepare('DELETE FROM mcp_servers WHERE id = :id').run({ id }).changes === 1
+  }
+
+  /**
+   * Coche des outils, chacun avec l'empreinte de ce que l'humain a lu. Un
+   * outil déjà coché prend la nouvelle empreinte : le recocher, c'est
+   * accepter ce que le serveur annonce maintenant.
+   *
+   * Tout ou rien, dans une transaction : une liste cochée à moitié laisserait
+   * croire à l'humain que sa commande a abouti.
+   */
+  allowMcpTools(serverId: string, tools: readonly { name: string; fingerprint: string }[], by: string): void {
+    const at = new Date().toISOString()
+    const insert = this.db.prepare(
+      `INSERT INTO mcp_tool_allow (server_id, tool_name, fingerprint, added_at, added_by)
+       VALUES (:server, :tool, :fp, :at, :by)
+       ON CONFLICT(server_id, tool_name) DO UPDATE SET fingerprint = :fp, added_at = :at, added_by = :by`,
+    )
+    this.tx(() => {
+      for (const t of tools) insert.run({ server: serverId, tool: t.name, fp: t.fingerprint, at, by })
+    })
+  }
+
+  /** Décoche des outils. @returns les noms qui étaient cochés */
+  revokeMcpTools(serverId: string, names: readonly string[]): string[] {
+    const del = this.db.prepare('DELETE FROM mcp_tool_allow WHERE server_id = :server AND tool_name = :tool')
+    return this.tx(() => names.filter((tool) => del.run({ server: serverId, tool }).changes === 1))
+  }
+
+  /** Outils cochés d'un serveur, dans l'ordre où ils l'ont été. */
+  mcpToolAllow(serverId: string): { tool_name: string; fingerprint: string; added_at: string; added_by: string }[] {
+    return rows<{ tool_name: string; fingerprint: string; added_at: string; added_by: string }>(
+      this.db
+        .prepare(
+          `SELECT tool_name, fingerprint, added_at, added_by FROM mcp_tool_allow
+           WHERE server_id = :server ORDER BY added_at, rowid`,
+        )
+        .all({ server: serverId }),
+    )
+  }
+
   /** Les worktrees, du plus récent au plus ancien. */
   listWorkspaces(filter: { status?: WorkspaceStatus; limit?: number } = {}): Workspace[] {
     const limit = filter.limit ?? 500
@@ -1263,6 +1403,34 @@ interface ProviderRow {
   created_at: string
   updated_at: string
   last_test_json: string | null
+}
+
+interface McpServerRow {
+  id: string
+  name: string
+  transport: string
+  command: string
+  args_json: string
+  env_json: string
+  secret_env_json: string
+  created_at: string
+  updated_at: string
+  last_test_json: string | null
+}
+
+function toMcpServer(row: McpServerRow): McpServer {
+  return {
+    id: row.id,
+    name: row.name,
+    transport: 'stdio',
+    command: row.command,
+    args: JSON.parse(row.args_json) as string[],
+    env: JSON.parse(row.env_json) as Record<string, string>,
+    secret_env: JSON.parse(row.secret_env_json) as string[],
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    last_test: row.last_test_json ? (JSON.parse(row.last_test_json) as McpTest) : null,
+  }
 }
 
 function toProvider(row: ProviderRow): ProviderConfig {

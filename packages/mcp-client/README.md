@@ -32,7 +32,7 @@ await connection.close()                                 // idempotente, ne lèv
 | Aucun secret du daemon | `serverEnv` ne transmet qu'une liste nommée (dossier personnel, `PATH`, dossiers temporaires, langue), plus ce que l'humain déclare. Une clé d'API posée dans l'environnement du daemon n'atteint pas le serveur — vérifié par le serveur lui-même |
 | Aucune capacité cliente | Ni `sampling` (le serveur ferait appeler le modèle de l'agent, à ses frais), ni `roots`, ni `elicitation`. Un serveur qui en demande reçoit « méthode inconnue » |
 | Appels bornés | Chaque appel prend le délai de la tâche ; une progression **ne le prolonge pas**. À l'annulation ou au délai, le SDK envoie `notifications/cancelled` — reçue par le serveur, constaté |
-| Sortie standard du daemon intacte | Ce que le serveur écrit sur sa sortie d'erreur n'est recopié nulle part ; on en garde les 8 derniers Kio, **non expurgés**, pour expliquer un échec — au daemon de les expurger avant de les montrer |
+| Sortie standard du daemon intacte | Ce que le serveur écrit sur sa sortie d'erreur n'est recopié nulle part ; on en garde les 8 derniers Kio, **non expurgés**, pour expliquer un échec — au daemon de les expurger avant de les montrer. L'arrêt attend la fermeture des **tubes**, pas seulement la sortie du processus : ce qu'un serveur écrit juste avant de mourir arrive après |
 | Mémoire bornée | Un message reçu de plus de 16 Mio ferme la connexion et le dit ; un catalogue de plus de 1 000 outils, ou dont la pagination boucle, est refusé |
 
 ## Les échecs
@@ -43,7 +43,7 @@ pas abouti, avec sa raison :
 
 | `reason` | Sens |
 |---|---|
-| `start` | Le programme n'est pas absolu, ne se lance pas, ou ne termine pas `initialize` — un binaire qui existe sans parler MCP est dit tel |
+| `start` | Le programme n'est pas absolu, ne se lance pas, ou ne termine pas `initialize` — un binaire qui existe sans parler MCP est dit tel. L'erreur porte `stderrTail`, la fin de la sortie d'erreur **non expurgée** : la connexion n'existe plus pour la demander |
 | `exited` | Le serveur est sorti (code ou signal dans le message) ; la connexion ne sert plus |
 | `timeout` | Pas de réponse dans le délai ; la connexion reste utilisable |
 | `cancelled` | La tâche a été annulée |

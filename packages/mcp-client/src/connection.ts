@@ -48,11 +48,19 @@ export type McpCallResult = CallToolResult
 export class McpClientError extends Error {
   /** `cancelled` et `timeout` ne disent rien du serveur ; `exited` et `start` disent qu'il ne sert plus. */
   readonly reason: 'start' | 'exited' | 'timeout' | 'cancelled' | 'protocol'
+  /**
+   * Pour un démarrage raté, la fin de la sortie d'erreur du serveur, **non
+   * expurgée** : la connexion n'existe plus pour la demander, et c'est souvent
+   * elle qui dit pourquoi (Java absent, module introuvable). À expurger avant
+   * de la montrer.
+   */
+  readonly stderrTail: string
 
-  constructor(reason: McpClientError['reason'], message: string) {
+  constructor(reason: McpClientError['reason'], message: string, stderrTail = '') {
     super(message)
     this.name = 'McpClientError'
     this.reason = reason
+    this.stderrTail = stderrTail
   }
 }
 
@@ -126,7 +134,11 @@ export class McpConnection {
       // chose pour l'appelant : ce serveur n'est pas utilisable.
       throw translated.reason === 'cancelled'
         ? translated
-        : new McpClientError('start', `the MCP server ${spec.command} did not complete the MCP handshake: ${translated.message}`)
+        : new McpClientError(
+            'start',
+            `the MCP server ${spec.command} did not complete the MCP handshake: ${translated.message}`,
+            connection.stderrTail(),
+          )
     }
   }
 

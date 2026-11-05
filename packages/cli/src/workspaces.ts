@@ -290,7 +290,7 @@ async function revoke(config: HarnessConfig, dir: string, argv: string[]): Promi
 }
 
 /** Pose une question oui/non sur le terminal. Tout ce qui n'est pas « o » ou « oui » vaut non. */
-function confirm(question: string): Promise<boolean> {
+export function confirm(question: string): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   return new Promise((resolve) => {
     rl.question(question, (answer) => {

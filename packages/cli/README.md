@@ -17,6 +17,13 @@ harness workspaces clean [--force]
 harness exec                  # commandes lancées sans approbation dans ce dépôt
 harness exec allow [--yes] [--] <commande…>
 harness exec revoke [--] <commande…>
+harness mcp                   # serveurs MCP déclarés, et leur dernier test
+harness mcp add <id> [--env NOM=v]… [--secret-env NOM]… -- <programme> [arguments…]
+harness mcp test <id>         # lance le serveur et relit son catalogue
+harness mcp tools <id>        # outils libres, changés, ou approuvés à chaque appel
+harness mcp allow <id> [--yes] (--read-only | <outil>…)
+harness mcp revoke <id> <outil>…
+harness mcp remove <id>
 ```
 
 Midgaard ne s'installe que depuis un clone (la distribution npm a été
@@ -70,6 +77,26 @@ qui a accès au shell de l'utilisateur — Claude Code avec son outil Bash, par
 exemple — peut passer `--yes`, comme il pourrait lancer `harness approve`. La
 frontière reste la même qu'à la Slice 0 : les permissions de Claude Code sur le
 shell, que l'utilisateur accorde commande par commande.
+
+## `mcp` : déclarer un serveur, cocher ce qu'on a lu (Slice 8)
+
+`mcp add` **résout le programme ici**, par le `PATH` du terminal, et l'envoie
+absolu : le daemon ne résout rien par son propre `PATH`. Un argument qui
+désigne un fichier relatif au dossier courant (`./rea.mjs`,
+`scripts/rea.mjs`) est rendu absolu, et c'est affiché : le serveur tourne
+ailleurs — constaté au premier essai, `node tests/fake-mcp-server.ts` ne
+trouvait pas son script. Un mot sans séparateur (`mcp`) reste un mot. La
+déclaration est **testée dans la foulée** : le serveur est lancé, son
+catalogue lu.
+
+Une valeur secrète (`--secret-env NOM`) est saisie sans écho et part au
+coffre ; une variable `--env` est gardée **en clair**, et la CLI le dit.
+
+`mcp allow` s'annonce et se confirme comme `exec allow`, **et refuse sans
+terminal** sauf `--yes`. `--read-only` propose les outils que le serveur dit
+en lecture seule et non destructifs : une proposition, que l'humain lit avant
+de confirmer — les annotations sont celles du serveur, pas une garantie. Un
+outil MCP n'est pas borné au projet, et l'avertissement le dit.
 
 ## La clé d'API ne s'affiche pas
 

@@ -35,6 +35,8 @@ le code en cours fait échouer l'ouverture, au lieu d'être interprétée de tra
 | `provider_configs` | Fournisseurs de modèles ; la clé n'y est jamais, seulement sa référence au coffre |
 | `agents` | Profils d'exécution ; seuls le fournisseur et le modèle s'y règlent hors démarrage (`setAgentModel`) |
 | `tool_calls` | Appels d'outils, arguments et résultats expurgés |
+| `mcp_servers` | Serveurs MCP déclarés (migration 11) : programme, arguments, variables ordinaires ; les secrètes n'y ont que leur **nom**. `catalog_json` est le catalogue constaté au dernier test réussi, effacé à chaque redéclaration |
+| `mcp_tool_allow` | Outils MCP cochés libres, avec l'**empreinte** de ce que l'humain a lu ; en cascade du serveur |
 | `workspaces` | Worktree de chaque tâche d'agent écrivant : branche, commit de départ, ce qui y manque (travail non commité, sous-modules), cycle `active → kept → removed` |
 
 Trois tables du plan n'existeront pas : `usage` (la consommation vit dans

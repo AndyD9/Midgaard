@@ -12,6 +12,8 @@ export type { Refusal, TaskView } from './task-manager.ts'
 export { SimulatedEngine } from './engines/simulated.ts'
 export { keyCommand, visionOf } from './engines/agent.ts'
 export { secretRefFor, upsertProvider } from './providers.ts'
+export { checkMcpCommand, mcpSecretRef, stderrExcerpt } from './mcp-servers.ts'
+export type { McpServiceDeps } from './mcp-servers.ts'
 export type { EngineContext, TaskEngine } from './engines/types.ts'
 export {
   ensureBuiltinAgents,

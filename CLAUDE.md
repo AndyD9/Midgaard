@@ -46,6 +46,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
 | `npm run harness -- workspaces` | Worktrees : `remove`, `clean` — la branche reste toujours |
 | `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme), `revoke` |
+| `npm run harness -- mcp` | Serveurs MCP : `add` (programme résolu, testé dans la foulée), `test`, `tools`, `allow` (avertit, confirme), `revoke`, `remove` |
 | `npm run test:unit` | ~15 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git), navigateur (vrai Chromium), client MCP (vrai serveur stdio, processus comptés) |
 | `npm run test:vault` | ~1 s — les coffres seuls, sur le coffre réel de la machine |
 | `npm run test:worktrees` | ~8 s — worktrees, écriture et `exec` seuls, sortie en direct et lecture des fichiers d'une tâche comprises (rejoués en CI sur trois plateformes) |
@@ -300,7 +301,15 @@ de son groupe, confié à la garde avant la poignée de main, tué par groupe à
 la fermeture ; le client ne déclare **aucune capacité** (pas de `sampling`,
 qui ferait dépenser le modèle de l'agent) ; une progression ne prolonge pas
 un appel. Le test du daemon tué net **fige** le serveur et regarde un
-petit-enfant, sinon il passerait sans la garde.
+petit-enfant, sinon il passerait sans la garde. Étape 2 faite : migration 11
+(`mcp_servers`, `mcp_tool_allow`), `PROTOCOL_VERSION` 14, routes `/api/mcp`,
+`harness mcp`. **On ne coche que le catalogue constaté**, avec l'empreinte de
+ce que l'humain a lu (nom, titre, description, schéma d'entrée, annotations) ;
+redéclarer efface le catalogue, et un outil annoncé autrement devient
+`changed`, approuvé à chaque appel. Les variables secrètes vont au coffre
+(`mcp.<empreinte>.<serveur>.<nom>`). La CLI résout le programme **et rend
+absolus les arguments-fichiers** : la vraie CLI a montré que `node
+tests/fake-mcp-server.ts`, déclaré tel quel, ne trouvait pas son script.
 
 ## Slice 7 terminée — les agents voient
 

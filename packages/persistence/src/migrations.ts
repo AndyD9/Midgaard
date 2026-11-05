@@ -312,6 +312,46 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE agents ADD COLUMN vision INTEGER;
     `,
   },
+  {
+    version: 11,
+    label: 'Slice 8 — serveurs MCP déclarés, outils cochés',
+    sql: `
+      -- Serveurs MCP déclarés par l'humain. Aucun secret ici : secret_env_json
+      -- ne porte que des NOMS de variables, dont les valeurs sont au coffre.
+      -- catalog_json est le catalogue constaté au dernier test réussi (outils et
+      -- empreintes), NULL tant qu'il n'y en a pas : on ne décrit pas un outil
+      -- qu'on n'a pas lu chez le serveur.
+      CREATE TABLE mcp_servers (
+        id              TEXT PRIMARY KEY,
+        name            TEXT NOT NULL,
+        transport       TEXT NOT NULL,
+        command         TEXT NOT NULL,
+        args_json       TEXT NOT NULL DEFAULT '[]',
+        env_json        TEXT NOT NULL DEFAULT '{}',
+        secret_env_json TEXT NOT NULL DEFAULT '[]',
+        created_at      TEXT NOT NULL,
+        updated_at      TEXT NOT NULL,
+        last_test_json  TEXT,
+        catalog_json    TEXT,
+        catalog_at      TEXT
+      );
+
+      -- Outils cochés libres, avec l'empreinte de ce que l'humain a lu en les
+      -- cochant. Un outil dont l'empreinte annoncée ne correspond plus n'est
+      -- plus libre. added_by dit qui l'a coché, comme exec_allow.
+      --
+      -- ON DELETE CASCADE : retirer un serveur retire ce qu'on y avait coché.
+      -- Redéclaré plus tard sous le même nom, il ne doit rien hériter.
+      CREATE TABLE mcp_tool_allow (
+        server_id   TEXT NOT NULL REFERENCES mcp_servers(id) ON DELETE CASCADE,
+        tool_name   TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        added_at    TEXT NOT NULL,
+        added_by    TEXT NOT NULL,
+        PRIMARY KEY (server_id, tool_name)
+      );
+    `,
+  },
 ]
 
 // Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',

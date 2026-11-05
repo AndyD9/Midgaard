@@ -8,7 +8,7 @@ agents à la volée** au lieu de piocher dans cinq profils figés.
 
 **État : en cours.** Décisions acceptées par l'auteur le 2026-11-05 ; étape 1
 faite le même jour, verte en CI sur macOS, Linux et Windows (passage
-`42002800496`).
+`42002800496`) ; étape 2 faite le même jour, verte sous macOS.
 
 ---
 
@@ -155,7 +155,7 @@ ouvert.
 | # | Étape | État |
 |---|---|---|
 | 1 | Le paquet `mcp-client` : lancer un serveur stdio sous la garde, `initialize`, `tools/list`, `tools/call`, annulation, délai ; aucun processus survivant, `SIGKILL` du daemon compris ; éprouvé contre un faux serveur MCP de test | **fait** — 15 tests, vus échouer sans la garde et sans le groupe ; verts en CI sur trois plateformes |
-| 2 | La déclaration : migration (serveurs, outils cochés et leurs empreintes), `harness mcp add/list/test/allow/remove`, routes `/api/mcp`, « Tester la connexion » qui lit vraiment le catalogue | à faire |
+| 2 | La déclaration : migration (serveurs, outils cochés et leurs empreintes), `harness mcp add/list/test/allow/remove`, routes `/api/mcp`, « Tester la connexion » qui lit vraiment le catalogue | **fait** — migration 11, `PROTOCOL_VERSION` 14 ; deux défauts trouvés par la vraie CLI, réglés ; CI à constater |
 | 3 | Les outils MCP derrière `ToolContext.mcp` : noms préfixés, liste blanche à empreinte, approbation sur arguments exacts, encadrement, plafond, expurgation ; `mcp_servers` sur un profil ; `PROTOCOL_VERSION` | à faire |
 | 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | à faire |
 | 5 | Le dashboard : page « Serveurs MCP » (déclarer, tester, cocher), serveurs d'un profil, appels MCP dans le fil, agents créés et leur consigne dans l'arbre | à faire |
@@ -230,3 +230,62 @@ prouve la garde seul.
 
 **Ce qui reste à constater** : le comportement de Ghidra lancé par REA —
 reste-t-il dans le groupe ? — à l'essai réel.
+
+### Étape 2 — déclarer un serveur, cocher ce qu'on a lu (2026-11-05)
+
+Contrats (`contracts/src/mcp.ts`), migration 11 (`mcp_servers`,
+`mcp_tool_allow`), service du daemon (`daemon/src/mcp-servers.ts`), routes
+`/api/mcp`, commande `harness mcp` (`cli/src/mcp.ts`), `PROTOCOL_VERSION` 14
+— sans quoi une CLI à jour face à un daemon resté au protocole 13 aurait pris
+un 404.
+
+Ce qui a été tranché en écrivant :
+
+- **L'empreinte couvre ce que l'humain a lu** : nom, titre, description,
+  schéma d'entrée **et annotations** — un outil qui cesse de se dire
+  « lecture seule » a changé. Le schéma de sortie n'en fait pas partie : il ne
+  change ni ce que le modèle lit pour décider, ni ce que l'appel peut faire.
+  JSON canonique, pour qu'un ordre de clés différent ne la change pas.
+- **Redéclarer un serveur efface son catalogue**, mais pas ses outils cochés :
+  le test suivant dit lesquels le serveur annonce autrement (`changed`), et ils
+  redemandent une approbation à chaque appel jusqu'à ce qu'on les recoche.
+- **Un identifiant de serveur n'a pas de souligné** : `rea__open_binary` doit
+  se découper sans ambiguïté (décision 9).
+- **Les variables secrètes vont au coffre**, sous
+  `mcp.<empreinte du dossier runtime>.<serveur>.<nom>` ; le coffre normalise en
+  minuscules, d'où le refus de deux noms qui ne diffèrent que par la casse. Les
+  variables ordinaires sont en clair, et la CLI le dit.
+- **Le programme est résolu par la CLI**, au `PATH` du terminal, et déclaré
+  absolu ; le daemon le revérifie à chaque lancement sans le canonicaliser
+  (`node` de Homebrew est un lien vers un dossier versionné).
+- **`mcp allow --read-only`** propose les outils annoncés en lecture seule et
+  non destructifs, que l'humain lit et confirme : les annotations restent des
+  indications.
+
+**Ce que le vrai essai de la CLI a trouvé**, que les tests ne voyaient pas —
+les tests passaient au programme des arguments absolus :
+
+1. **Un argument relatif ne mène nulle part.** `mcp add fake -- node
+   tests/fake-mcp-server.ts` déclarait le script tel quel ; le serveur, lancé
+   dans le dossier runtime, ne le trouvait pas. La CLI rend désormais absolu
+   tout argument qui a l'air d'un chemin et désigne un fichier existant, et
+   l'affiche. Un humain qui tape `-- node ./rea.mjs mcp` serait tombé dessus.
+2. **L'extrait de la sortie d'erreur avait perdu la cause.** N'en garder que
+   la fin montrait la pile d'appels et coupait « Cannot find module ». Il
+   garde désormais le début et la fin (`stderrExcerpt`).
+
+Et deux défauts trouvés par les tests eux-mêmes : un serveur qui échoue à la
+poignée de main **perdait sa sortie d'erreur** (la connexion n'existe plus
+quand on veut la lire : `McpClientError` la porte désormais, et l'arrêt attend
+la fermeture des tubes, pas seulement la sortie du processus) ; et
+`checkMcpCommand` jugeait un chemin Windows avec les règles de l'hôte.
+
+**Les preuves.** `tests/unit/mcp-servers.test.ts` (22 tests, dans
+`test:unit`), sur un vrai daemon et le faux serveur, qui sait désormais
+changer la description d'`echo` et répéter un jeton en échouant. La valeur
+secrète est cherchée octet pour octet dans la base, son WAL et le journal :
+**vu échouer** en retirant l'expurgation du message d'échec. `test:security`
+et `test:restart` restent verts au protocole 14. Et la CLI, rejouée de bout en
+bout dans un dossier runtime jetable : déclaration, test, `--read-only`, refus
+sans terminal, outil devenu `changed` après redéclaration, retrait.
+

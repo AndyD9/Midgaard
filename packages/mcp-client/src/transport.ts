@@ -87,6 +87,8 @@ export class GuardedStdioTransport implements Transport {
   private stderrSize = 0
   private exited: ServerExit | null = null
   private closing: Promise<void> | null = null
+  /** Résolue quand le processus est sorti **et** que ses tubes sont fermés : sa sortie d'erreur est alors complète. */
+  private streamsDone: Promise<void> = Promise.resolve()
   private closedFired = false
 
   /**
@@ -141,6 +143,7 @@ export class GuardedStdioTransport implements Transport {
       return Promise.reject(new Error(`cannot start the MCP server ${this.spec.command}: ${(e as NodeJS.ErrnoException).code ?? (e as Error).message}`))
     }
     this.child = child
+    this.streamsDone = new Promise((resolve) => child.once('close', () => resolve()))
     // Confié à la garde dès qu'il a un pid, avant même de savoir s'il a démarré.
     if (child.pid !== undefined) this.release = guardGroup(child.pid, this.log)
 
@@ -226,7 +229,10 @@ export class GuardedStdioTransport implements Transport {
       if (!(await settles(closed, MCP_KILL_GRACE_MS))) killGroup(child, 'SIGKILL')
     }
     killGroup(child, 'SIGKILL')
-    await settles(closed, MCP_KILL_GRACE_MS)
+    // On attend la fermeture des tubes, pas seulement la sortie : ce que le
+    // serveur a écrit sur sa sortie d'erreur juste avant de mourir arrive
+    // après `exit`, et c'est souvent ce qui explique l'échec.
+    await settles(this.streamsDone, MCP_KILL_GRACE_MS)
     // Le groupe est tué : il peut quitter la garde. Libérer avant de tuer
     // laisserait un daemon tué entre les deux abandonner le groupe.
     this.release()

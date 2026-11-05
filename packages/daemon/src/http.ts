@@ -45,6 +45,13 @@
  * | DELETE | `/api/providers/:id` | Retire un fournisseur et sa clé | 200, 404 |
  * | POST | `/api/providers/:id/test` | « Test connection » | 200, 404 |
  * | POST | `/api/providers/:id/pricing` | Relève les tarifs chez le fournisseur | 200, 400, 404, 502 |
+ * | GET  | `/api/mcp` | Serveurs MCP déclarés, catalogue annoté, **sans aucun secret** | 200 |
+ * | POST | `/api/mcp` | Déclare un serveur MCP, dépose ses variables secrètes au coffre | 200, 400, 500 |
+ * | GET  | `/api/mcp/:id` | Un serveur MCP et son catalogue | 200, 404 |
+ * | DELETE | `/api/mcp/:id` | Retire un serveur, ses outils cochés et ses secrets | 200, 404 |
+ * | POST | `/api/mcp/:id/test` | « Tester la connexion » : lance le serveur, lit son catalogue | 200, 404 |
+ * | POST | `/api/mcp/:id/allow` | Coche des outils du catalogue, avec leur empreinte | 200, 400, 404, 409 |
+ * | POST | `/api/mcp/:id/revoke` | Décoche des outils | 200, 400, 404 |
  * | GET  | `/api/approvals` | Demandes en attente | 200 |
  * | POST | `/api/approvals/:id/approve` | Décision humaine | 200, 404, 409 |
  * | POST | `/api/approvals/:id/reject` | Décision humaine | 200, 404, 409 |
@@ -59,9 +66,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import {
   createTaskRequestSchema,
   execAllowRequestSchema,
+  mcpAllowRequestSchema,
   postMessageRequestSchema,
   removeWorkspaceRequestSchema,
   updateAgentRequestSchema,
+  upsertMcpServerRequestSchema,
   upsertProviderRequestSchema,
   type HarnessConfig,
   type Health,
@@ -76,8 +85,18 @@ import {
   refreshPricing,
   testProvider,
   upsertProvider,
+  type ProviderRefusal,
   type ProviderServiceDeps,
 } from './providers.ts'
+import {
+  allowMcpTools,
+  deleteMcpServer,
+  mcpServerView,
+  mcpServerViews,
+  revokeMcpTools,
+  testMcpServer,
+  upsertMcpServer,
+} from './mcp-servers.ts'
 import { checkEnvelope, checkToken, type SecurityContext } from './security.ts'
 import { execAllowFor, listWorkspaces, removeWorkspace, workspaceView } from './workspaces.ts'
 import { FileAccessError, taskFileContent, taskFileTree, taskImage } from './files.ts'
@@ -208,6 +227,7 @@ export function createRequestHandler(deps: HttpDeps) {
       if (section === 'tasks') return handleTasks(deps, res, method, url, id, action, req)
       if (section === 'agents') return handleAgents(deps, res, method, id, req)
       if (section === 'providers') return handleProviders(deps, res, method, id, action, req)
+      if (section === 'mcp') return handleMcp(deps, res, method, id, action, req)
       if (section === 'workspaces') return handleWorkspaces(deps, res, method, id, action, req)
       if (section === 'exec-allow') return handleExecAllow(deps, res, method, url, id, req)
       if (section === 'pricing' && method === 'GET') {
@@ -220,6 +240,69 @@ export function createRequestHandler(deps: HttpDeps) {
       return send(res, 400, { error: 'bad_request', detail: (e as Error).message })
     }
   }
+}
+
+/**
+ * Routes `/api/mcp…` (Slice 8) : serveurs MCP déclarés par l'humain.
+ *
+ * ⚠️ Comme pour les fournisseurs, ce que ces routes **rendent** ne contient
+ * aucun secret : une déclaration ne porte que les **noms** des variables
+ * secrètes. Les valeurs n'arrivent que dans le corps d'un `POST /api/mcp`, et
+ * partent au coffre.
+ */
+async function handleMcp(
+  deps: HttpDeps,
+  res: ServerResponse,
+  method: string,
+  id: string | undefined,
+  action: string | undefined,
+  req: IncomingMessage,
+): Promise<void> {
+  const refuse = (r: ProviderRefusal) => send(res, r.status, { error: r.error, ...r.detail })
+
+  if (!id) {
+    if (method === 'GET') return send(res, 200, { servers: mcpServerViews(deps.providers) })
+    if (method === 'POST') {
+      const parsed = upsertMcpServerRequestSchema.safeParse(await readJson(req))
+      if (!parsed.success) return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
+      const outcome = await upsertMcpServer(deps.providers, parsed.data)
+      return 'error' in outcome ? refuse(outcome) : send(res, 200, { server: outcome })
+    }
+    return send(res, 405, { error: 'method_not_allowed' })
+  }
+
+  if (!action) {
+    if (method === 'GET') {
+      const view = mcpServerView(deps.providers, id)
+      return view ? send(res, 200, { server: view }) : send(res, 404, { error: 'mcp_server_not_found' })
+    }
+    if (method === 'DELETE') {
+      const outcome = await deleteMcpServer(deps.providers, id)
+      return 'error' in outcome ? refuse(outcome) : send(res, 200, outcome)
+    }
+    return send(res, 405, { error: 'method_not_allowed' })
+  }
+
+  if (method === 'POST' && action === 'test') {
+    // Un test lance un programme et peut durer jusqu'au délai de la poignée
+    // de main : l'abandon du client l'arrête, groupe de processus compris.
+    const aborter = new AbortController()
+    res.on('close', () => {
+      if (!res.writableFinished) aborter.abort()
+    })
+    const outcome = await testMcpServer(deps.providers, id, aborter.signal)
+    return 'error' in outcome ? refuse(outcome) : send(res, 200, { server: outcome })
+  }
+
+  if (method === 'POST' && (action === 'allow' || action === 'revoke')) {
+    const parsed = mcpAllowRequestSchema.safeParse(await readJson(req))
+    if (!parsed.success) return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
+    const { tools, by } = parsed.data
+    const outcome = action === 'allow' ? allowMcpTools(deps.providers, id, tools, by) : revokeMcpTools(deps.providers, id, tools, by)
+    return 'error' in outcome ? refuse(outcome) : send(res, 200, { server: outcome })
+  }
+
+  return send(res, 405, { error: 'method_not_allowed' })
 }
 
 /** Routes `/api/workspaces…`. */
