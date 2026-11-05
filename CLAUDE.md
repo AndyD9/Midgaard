@@ -291,7 +291,8 @@ leurs arguments exacts sinon, leurs résultats toujours encadrés et non
 fiables ; et l'orchestrateur **crée ses agents à la volée** (`create_agent`),
 sans jamais dépasser le type de base, les limites, les serveurs ni les
 modèles que l'humain a ouverts. Décisions et découpage en sept étapes :
-[docs/SLICE8.md](docs/SLICE8.md). Étape 1 faite : le paquet `mcp-client`
+[docs/SLICE8.md](docs/SLICE8.md). Étape 1 faite, verte en CI sur trois plateformes
+(passage `42002800496`) : le paquet `mcp-client`
 (`McpConnection`, `GuardedStdioTransport`, `serverEnv`). **Le transport stdio
 du SDK n'est pas employé** : il lance le serveur dans le groupe du daemon et
 ne tue que le processus principal, et REA lance Ghidra. Le serveur est chef

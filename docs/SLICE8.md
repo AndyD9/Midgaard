@@ -7,7 +7,8 @@ l'orchestrateur s'en servent ; et que **l'orchestrateur crée et choisisse ses
 agents à la volée** au lieu de piocher dans cinq profils figés.
 
 **État : en cours.** Décisions acceptées par l'auteur le 2026-11-05 ; étape 1
-faite le même jour, verte sous macOS, pas encore constatée en CI.
+faite le même jour, verte en CI sur macOS, Linux et Windows (passage
+`42002800496`).
 
 ---
 
@@ -153,7 +154,7 @@ ouvert.
 
 | # | Étape | État |
 |---|---|---|
-| 1 | Le paquet `mcp-client` : lancer un serveur stdio sous la garde, `initialize`, `tools/list`, `tools/call`, annulation, délai ; aucun processus survivant, `SIGKILL` du daemon compris ; éprouvé contre un faux serveur MCP de test | **fait** — 15 tests, vus échouer sans la garde et sans le groupe ; CI à constater |
+| 1 | Le paquet `mcp-client` : lancer un serveur stdio sous la garde, `initialize`, `tools/list`, `tools/call`, annulation, délai ; aucun processus survivant, `SIGKILL` du daemon compris ; éprouvé contre un faux serveur MCP de test | **fait** — 15 tests, vus échouer sans la garde et sans le groupe ; verts en CI sur trois plateformes |
 | 2 | La déclaration : migration (serveurs, outils cochés et leurs empreintes), `harness mcp add/list/test/allow/remove`, routes `/api/mcp`, « Tester la connexion » qui lit vraiment le catalogue | à faire |
 | 3 | Les outils MCP derrière `ToolContext.mcp` : noms préfixés, liste blanche à empreinte, approbation sur arguments exacts, encadrement, plafond, expurgation ; `mcp_servers` sur un profil ; `PROTOCOL_VERSION` | à faire |
 | 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | à faire |
@@ -222,7 +223,10 @@ sur deux défauts introduits exprès : sans inscription à la garde, le
 petit-enfant survit au daemon tué net ; sans groupe de processus, le serveur
 survit à la fermeture.
 
-**Ce qui reste à constater** : la CI sur Linux et Windows (le cas `SIGSTOP`
-ne s'y applique pas sous Windows, où le petit-enfant prouve la garde seul), et
-le comportement de Ghidra lancé par REA — reste-t-il dans le groupe ? — à
-l'essai réel.
+**Constaté en CI** sur macOS, Linux et Windows (passage `42002800496`) : les
+15 tests passent partout, les trois cas de processus compris. Sous Windows,
+le serveur n'est pas figé (`SIGSTOP` n'existe pas) : le petit-enfant y
+prouve la garde seul.
+
+**Ce qui reste à constater** : le comportement de Ghidra lancé par REA —
+reste-t-il dans le groupe ? — à l'essai réel.
