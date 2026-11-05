@@ -587,6 +587,20 @@ Linux ni sous Windows, ni dans les passages locaux sous macOS. D14 dit désormai
 ce que le fil montrait à la place (l'élément, une note, la largeur décodée de
 l'image), pour qu'un prochain échec dise lequel.*
 
+**La cause, trouvée le 2026-11-05** grâce à ce diagnostic : D14 a échoué
+de nouveau sous Linux, sur `2de69bf`. Le fil ne montrait **aucun élément
+image, ni note**, alors que la tâche avait avancé jusqu'à la demande de
+session. L'événement de `read_image` manquait donc à la timeline du
+dashboard. À l'ouverture d'une tâche, le dashboard la charge par HTTP. Ce
+que la WebSocket diffusait pendant la requête était **jeté**, faute de
+timeline, et la réponse **remplaçait** ensuite tout. Un événement émis entre la
+lecture du daemon et l'arrivée de la réponse était perdu jusqu'au
+rechargement. D14 ouvre la tâche à l'instant où `read_image` se termine. La
+timeline s'ouvre désormais avant la requête, et la réponse est fusionnée
+(`apps/dashboard/src/lib/timeline.ts`) ; `dashboard-workbench.test.ts` rejoue
+la course. **Ce défaut n'était pas propre au navigateur** : toute tâche ouverte
+pendant qu'elle avançait pouvait perdre un événement, n'importe lequel.
+
 
 ### Étape 7 — les preuves (2026-11-05)
 

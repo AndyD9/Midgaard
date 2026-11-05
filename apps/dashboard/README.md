@@ -63,6 +63,13 @@ l'ouverture (`/api/tasks/:id/events`) puis tenue à jour en direct. On n'accumul
 jamais les événements d'une tâche jamais ouverte : ce serait un historique
 partiel silencieux, commençant au moment de la connexion.
 
+Une timeline est **ouverte avant que sa requête parte**, et la réponse est
+**fusionnée** avec ce que le direct y a mis entre-temps (`lib/timeline.ts`).
+Remplacer perdait les événements émis entre la lecture du daemon et l'arrivée
+de la réponse : une tâche ouverte juste après sa création pouvait ne jamais
+montrer l'image lue par l'agent (Slice 7, D14 intermittent en CI). Une requête
+qui échoue referme la timeline, plutôt que de laisser un historique partiel.
+
 ## Les types viennent de `@midgaard/contracts`
 
 Uniquement les **types** : le point d'entrée du paquet charge des modules Node

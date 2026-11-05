@@ -15,7 +15,9 @@
  *    journal, la capture n'est redemandée qu'après un événement qui l'a changée,
  *    et l'onglet ne reprend le premier plan qu'à une **nouvelle** session ;
  *  - **une image lue** entre au fil avec l'empreinte journalisée, que le panneau
- *    compare à celle du fichier relu.
+ *    compare à celle du fichier relu ;
+ *  - **une timeline chargée pendant que la tâche avance ne perd rien** : ce que
+ *    la WebSocket diffuse pendant la requête survit à sa réponse.
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
@@ -24,6 +26,7 @@ import { buildThread, composerState } from '../../apps/dashboard/src/lib/thread.
 import { buildTerminal, sanitizeOutput } from '../../apps/dashboard/src/lib/terminal.ts'
 import { buildFileTree, languageFor, lastWrittenPath } from '../../apps/dashboard/src/lib/files.ts'
 import { browserSummary, closedReasonText } from '../../apps/dashboard/src/lib/browser.ts'
+import { appendEvent, mergeTimeline, unwatchTimeline, watchTimeline, type Timelines } from '../../apps/dashboard/src/lib/timeline.ts'
 
 const ROOT = '00000000-0000-4000-8000-000000000001'
 const CHILD = '00000000-0000-4000-8000-000000000002'
@@ -239,3 +242,39 @@ describe('le navigateur d\'une tâche (Slice 7)', () => {
   })
 })
 
+describe('les timelines, chargées pendant que la tâche avance', () => {
+  const T = '00000000-0000-4000-8000-000000000009'
+
+  it('un événement diffusé pendant le chargement survit à la réponse, qui ne le contenait pas', () => {
+    // D14 échouait par intermittence ainsi : `read_image` finissait entre la
+    // lecture du daemon et l'arrivée de la réponse, et l'image n'entrait
+    // jamais au fil.
+    seq = 0
+    const created = ev(T, 'task.created')
+    const started = ev(T, 'task.started')
+    const imageRead = ev(T, 'tool.completed', { tool_call_id: 'i1', summary: 'maquette.png · image/png' })
+    let t: Timelines = {}
+    // Sans timeline ouverte, le direct n'invente rien.
+    assert.equal(appendEvent(t, created), t)
+    t = watchTimeline(t, T)
+    t = appendEvent(t, imageRead)
+    // La réponse a été lue par le daemon avant `imageRead`.
+    t = mergeTimeline(t, T, [created, started])
+    assert.deepEqual(t[T]!.map((e) => e.seq), [created.seq, started.seq, imageRead.seq])
+  })
+
+  it('fusionne sans doublon, dans l\'ordre de la tâche, et ferme une timeline dont le chargement a échoué', () => {
+    seq = 0
+    const a = ev(T, 'task.created')
+    const b = ev(T, 'task.started')
+    let t = watchTimeline({}, T)
+    t = appendEvent(t, b)
+    t = appendEvent(t, b)
+    t = mergeTimeline(t, T, [b, a])
+    assert.deepEqual(t[T]!.map((e) => e.seq), [a.seq, b.seq])
+    // Ouvrir une timeline déjà chargée ne la vide pas.
+    assert.equal(watchTimeline(t, T), t)
+    // Un échec ne laisse pas une timeline partielle qui aurait l'air entière.
+    assert.equal(unwatchTimeline(watchTimeline({}, T), T)[T], undefined)
+  })
+})

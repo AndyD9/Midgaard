@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 import type { Approval, Health, ServerMessage, Task, TaskEvent } from '@midgaard/contracts'
 import { bootstrap, currentToken, fetchTaskEvents, forgetToken } from './api'
+import { appendEvent, mergeTimeline, unwatchTimeline, watchTimeline } from './timeline'
 
 /**
  * Sous-protocoles WebSocket, repris de `@midgaard/contracts`
@@ -54,6 +55,8 @@ type Action =
   | { kind: 'status'; status: ConnectionStatus }
   | { kind: 'message'; message: ServerMessage }
   | { kind: 'events'; taskId: string; events: TaskEvent[] }
+  | { kind: 'watch'; taskId: string }
+  | { kind: 'unwatch'; taskId: string }
   | { kind: 'error'; error: string | null }
 
 const initialState: HarnessState = {
@@ -73,31 +76,19 @@ function upsertTask(tasks: Task[], task: Task): Task[] {
   return [task, ...without].sort((a, b) => b.created_at.localeCompare(a.created_at))
 }
 
-/**
- * Ajoute un événement à la timeline d'une tâche **si elle est déjà chargée**.
- *
- * On n'en crée pas une pour une tâche jamais ouverte : ce serait une timeline
- * partielle silencieuse, qui commencerait au moment de la connexion. Mieux vaut
- * la charger entière quand on ouvre la tâche.
- *
- * La déduplication par `seq` est nécessaire : à la reconnexion, les événements
- * rejoués peuvent recouvrir ceux déjà reçus.
- */
-function appendEvent(events: Record<string, TaskEvent[]>, event: TaskEvent): Record<string, TaskEvent[]> {
-  const existing = events[event.task_id]
-  if (!existing) return events
-  if (existing.some((e) => e.seq === event.seq)) return events
-  return { ...events, [event.task_id]: [...existing, event].sort((a, b) => a.task_seq - b.task_seq) }
-}
-
 function reduce(state: HarnessState, action: Action): HarnessState {
   switch (action.kind) {
     case 'status':
       return { ...state, status: action.status }
     case 'error':
       return { ...state, error: action.error }
+    case 'watch':
+      return { ...state, events: watchTimeline(state.events, action.taskId) }
+    case 'unwatch':
+      return { ...state, events: unwatchTimeline(state.events, action.taskId) }
     case 'events':
-      return { ...state, events: { ...state.events, [action.taskId]: action.events } }
+      // Fusionnée, jamais remplacée : voir la course décrite dans `timeline.ts`.
+      return { ...state, events: mergeTimeline(state.events, action.taskId, action.events) }
     case 'message': {
       const m = action.message
       if (m.type === 'snapshot') {
@@ -212,12 +203,17 @@ export function useHarness() {
     }
   }, [])
 
-  /** Charge la timeline complète d'une tâche, si elle ne l'est pas déjà. */
+  /**
+   * Charge la timeline complète d'une tâche. Elle est ouverte **avant** la
+   * requête, pour que le direct s'y accumule pendant qu'elle part (`timeline.ts`).
+   */
   const loadEvents = useCallback(async (taskId: string) => {
+    dispatch({ kind: 'watch', taskId })
     try {
       const { events } = await fetchTaskEvents(taskId)
       dispatch({ kind: 'events', taskId, events })
     } catch (e) {
+      dispatch({ kind: 'unwatch', taskId })
       dispatch({ kind: 'error', error: `timeline indisponible : ${(e as Error).message}` })
     }
   }, [])
