@@ -301,7 +301,7 @@ de son groupe, confié à la garde avant la poignée de main, tué par groupe à
 la fermeture ; le client ne déclare **aucune capacité** (pas de `sampling`,
 qui ferait dépenser le modèle de l'agent) ; une progression ne prolonge pas
 un appel. Le test du daemon tué net **fige** le serveur et regarde un
-petit-enfant, sinon il passerait sans la garde. Étape 2 faite : migration 11
+petit-enfant, sinon il passerait sans la garde. Étape 2 faite, verte en CI sur trois plateformes (passage `42007433791`) : migration 11
 (`mcp_servers`, `mcp_tool_allow`), `PROTOCOL_VERSION` 14, routes `/api/mcp`,
 `harness mcp`. **On ne coche que le catalogue constaté**, avec l'empreinte de
 ce que l'humain a lu (nom, titre, description, schéma d'entrée, annotations) ;

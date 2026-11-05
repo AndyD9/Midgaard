@@ -8,7 +8,8 @@ agents à la volée** au lieu de piocher dans cinq profils figés.
 
 **État : en cours.** Décisions acceptées par l'auteur le 2026-11-05 ; étape 1
 faite le même jour, verte en CI sur macOS, Linux et Windows (passage
-`42002800496`) ; étape 2 faite le même jour, verte sous macOS.
+`42002800496`) ; étape 2 faite le même jour, verte en CI sur les trois plateformes (passage
+`42007433791`).
 
 ---
 
@@ -155,7 +156,7 @@ ouvert.
 | # | Étape | État |
 |---|---|---|
 | 1 | Le paquet `mcp-client` : lancer un serveur stdio sous la garde, `initialize`, `tools/list`, `tools/call`, annulation, délai ; aucun processus survivant, `SIGKILL` du daemon compris ; éprouvé contre un faux serveur MCP de test | **fait** — 15 tests, vus échouer sans la garde et sans le groupe ; verts en CI sur trois plateformes |
-| 2 | La déclaration : migration (serveurs, outils cochés et leurs empreintes), `harness mcp add/list/test/allow/remove`, routes `/api/mcp`, « Tester la connexion » qui lit vraiment le catalogue | **fait** — migration 11, `PROTOCOL_VERSION` 14 ; deux défauts trouvés par la vraie CLI, réglés ; CI à constater |
+| 2 | La déclaration : migration (serveurs, outils cochés et leurs empreintes), `harness mcp add/list/test/allow/remove`, routes `/api/mcp`, « Tester la connexion » qui lit vraiment le catalogue | **fait** — migration 11, `PROTOCOL_VERSION` 14 ; deux défauts trouvés par la vraie CLI, réglés ; verte en CI sur trois plateformes |
 | 3 | Les outils MCP derrière `ToolContext.mcp` : noms préfixés, liste blanche à empreinte, approbation sur arguments exacts, encadrement, plafond, expurgation ; `mcp_servers` sur un profil ; `PROTOCOL_VERSION` | à faire |
 | 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | à faire |
 | 5 | Le dashboard : page « Serveurs MCP » (déclarer, tester, cocher), serveurs d'un profil, appels MCP dans le fil, agents créés et leur consigne dans l'arbre | à faire |
@@ -285,7 +286,9 @@ la fermeture des tubes, pas seulement la sortie du processus) ; et
 changer la description d'`echo` et répéter un jeton en échouant. La valeur
 secrète est cherchée octet pour octet dans la base, son WAL et le journal :
 **vu échouer** en retirant l'expurgation du message d'échec. `test:security`
-et `test:restart` restent verts au protocole 14. Et la CLI, rejouée de bout en
+et `test:restart` restent verts au protocole 14. En CI (passage `42007433791`),
+les 22 tests passent sous macOS, Linux et Windows — le refus d'un `.cmd` et
+l'expurgation compris. Et la CLI, rejouée de bout en
 bout dans un dossier runtime jetable : déclaration, test, `--read-only`, refus
 sans terminal, outil devenu `changed` après redéclaration, retrait.
 
