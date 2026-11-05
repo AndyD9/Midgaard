@@ -161,6 +161,11 @@ ouvert.
 
 - **Le processus REA partagé par arbre** (décision 3) si le démarrage de
   Ghidra par tâche se révèle trop lent à l'essai.
+- **Le délai d'un premier appel Ghidra face aux limites des profils.** REA
+  laisse jusqu'à 330 s à Ghidra pour importer et analyser un binaire ; le
+  Researcher a `timeout_s` 300, et une limite ne se relève pas par l'API (règle
+  de la Slice 5). Un essai sur un binaire natif demande donc d'abord de
+  trancher comment l'humain relève les limites d'un profil.
 
 ## Découpage
 
@@ -172,7 +177,7 @@ ouvert.
 | 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | **fait** — migration 13, budget d'arbre ; trois défauts introduits vus échouer, un trou trouvé en écrivant ; verte en CI sur trois plateformes |
 | 5 | Le dashboard : page « Serveurs MCP » (déclarer, tester, cocher), serveurs d'un profil, appels MCP dans le fil, agents créés et leur consigne dans l'arbre | **fait** — la déclaration reste à la CLI ; D16 et D17 dans `test:ui` ; vu dans le navigateur ; verte en CI sur trois plateformes |
 | 6 | Preuves : `test:orchestrator` (création, délégation parallèle, outil MCP), `test:security` (outil non coché refusé sans atteindre le serveur, empreinte changée → plus libre, agent créé qui tente de dépasser son type, rien de non expurgé en base, aucun serveur vivant après `SIGKILL`), CI sur trois plateformes | **fait** — X10 à X13 dans `test:security`, chacun vu échouer sur la protection qu'il garde ; verts en CI sur trois plateformes |
-| 7 | L'essai réel : un orchestrateur sur Venice crée deux agents de reverse sur REA et un Developer, analyse un binaire, rend une synthèse ; coût relevé | à faire |
+| 7 | L'essai réel : un orchestrateur sur Venice crée deux agents de reverse sur REA et un Developer, analyse un binaire, rend une synthèse ; coût relevé | **protocole prêt** — d'abord une cible JavaScript, sans Ghidra ; REA à installer par l'auteur |
 
 ### Ce que chaque étape doit surveiller
 
@@ -490,4 +495,105 @@ résultats d'outils, ce que le harness rend au modèle, comptent.
 Linux et Windows. Sous Windows, X13 ne fige pas le serveur (`SIGSTOP`
 n'existe pas) : son fils, qui ne lit rien, y prouve la garde seul, et le
 scénario le dit.
+
+### Étape 7 — l'essai réel avec REA (protocole, 2026-11-05)
+
+**À lancer par l'auteur** : REA n'est pas installé sur la machine de
+développement, et l'essai fait travailler un vrai modèle, donc dépense.
+
+#### Le choix de la cible
+
+**Une application JavaScript d'abord, pas un binaire natif.** Deux raisons :
+l'analyse JavaScript de REA ne demande ni Ghidra, ni Hopper, ni IDA ; et un
+premier appel Ghidra peut durer jusqu'à 330 s, au-delà du `timeout_s` du
+Researcher (300 s), qu'aucune route ne relève (voir « Reste à trancher »). Le
+binaire natif sera le second essai.
+
+**La cible est le dashboard de Midgaard, compilé et minifié, sans ses
+sources**, copié seul dans un dépôt jetable. C'est notre code — aucune
+question de licence —, et **la bonne réponse est connue** : à chaque
+reconnexion, la page relit `index.html` servi sans cache, compare le script
+qu'il désigne au sien, et se recharge s'il diffère (`lib/bundle.ts`, Slice 7).
+On peut donc juger le résultat, pas seulement le fait qu'il y en ait un.
+
+#### Préparer (une fois, dans un terminal)
+
+**Node d'abord.** `rea-agents` 6.8.0 exige Node `^22.23.4 || ^24.22.1 ||
+>=26.12.1` (relevé sur npm le 2026-11-05) ; la machine de développement a
+Node 24.18.0. Midgaard, lui, se contente de Node 24 : c'est REA qui impose la
+montée. Le serveur MCP de REA se lance avec le `node` que `mcp add` résout,
+donc celui du `PATH` du terminal au moment de la déclaration.
+
+Installer REA, depuis un dossier qui n'est pas un projet :
+
+```bash
+npm install --global rea-agents
+```
+
+Déclarer REA, avec le profil de schémas compact (le catalogue entier est relu
+à chaque appel de modèle), puis lire son catalogue, à la racine du clone de
+Midgaard :
+
+```bash
+npm run harness -- mcp add rea --env REA_MCP_INPUT_SCHEMA_PROFILE=compact -- node "$(npm root -g)/rea-agents/scripts/rea.mjs" mcp
+```
+
+```bash
+npm run harness -- mcp tools rea
+```
+
+Cocher les outils de lecture **après les avoir lus** dans la liste
+qu'affiche la commande, puis donner REA au Researcher :
+
+```bash
+npm run harness -- mcp allow rea --read-only
+```
+
+```bash
+npm run harness -- mcp attach rea researcher
+```
+
+Construire la cible, un dépôt d'un commit qui ne contient que le bundle :
+
+```bash
+npm run build && rm -rf ~/midgaard-essai-rea && mkdir -p ~/midgaard-essai-rea && cp -R apps/dashboard/dist ~/midgaard-essai-rea/cible && git -C ~/midgaard-essai-rea init -q && git -C ~/midgaard-essai-rea add -A && git -C ~/midgaard-essai-rea -c user.name=Essai -c user.email=essai@example.org commit -qm cible
+```
+
+#### Lancer
+
+Au dashboard, « Nouvelle tâche » : profil `orchestrator`, dossier
+`~/midgaard-essai-rea` (chemin absolu), objectif :
+
+> Le dossier `cible/` contient une application web compilée et minifiée, sans
+> ses sources. Avec l'outil d'analyse de rétro-ingénierie disponible pour les
+> exécutants, explique comment cette application décide de se recharger
+> d'elle-même après une reconnexion au serveur, avec les preuves (fichier,
+> fonction, chaîne) et ce qui reste incertain.
+
+Profils : `orchestrator` et `researcher` sur `venice`, modèle
+`deepseek-v4-flash-0731` (tarifé, appelle des outils). Limites des profils :
+orchestrateur 0,5 $ pour **tout l'arbre**, Researcher 12 étapes, 300 s.
+
+#### Ce qu'on constate
+
+| # | Attendu | Ce qui le constate |
+|---|---|---|
+| R1 | `mcp add` teste REA : catalogue lu, nombre d'outils, aucun processus REA ensuite | CLI, `ps` |
+| R2 | Seuls des outils lus et cochés sont libres ; leur empreinte est enregistrée | `mcp tools rea` |
+| R3 | **Venice accepte les schémas des outils de REA** dans la liste d'outils | premier appel du Researcher sans erreur 400 |
+| R4 | REA démarre au départ de la sous-tâche, dans `~/midgaard-essai-rea` ; la timeline dit « serveur MCP rea : N outil(s), M libre(s) » | timeline |
+| R5 | L'orchestrateur délègue au Researcher, ou crée un exécutant à partir de lui avec `rea` ; dans ce cas l'arbre montre l'agent et son rôle | carte « Sous-tâches » |
+| R6 | Un outil REA non coché attend l'humain, serveur, outil et arguments exacts sous les yeux | approbations |
+| R7 | **La réponse est juste** : relecture de `index.html`, comparaison du script, rechargement s'il diffère | résultat |
+| R8 | Le résultat est **non fiable** | résultat |
+| R9 | Chaque coût a sa provenance ; l'arbre reste sous 0,5 $ ; le coût du catalogue se lit dans les jetons d'entrée du premier appel du Researcher | base, carte « Sous-tâches » |
+| R10 | Aucun processus REA après la fin | `ps` |
+
+Échec du produit : un outil non coché qui part sans l'humain, un coût sans
+provenance ou au-delà du budget de l'arbre, un processus REA survivant, une
+tâche qui démarre sans ses serveurs. Échec de l'essai, à rejouer : un modèle
+qui n'emploie pas REA, épuise ses étapes, ou se trompe sur la cible.
+
+Ce que l'essai ne couvre pas : Ghidra et un binaire natif (second essai, après
+avoir tranché les limites), un processus REA partagé par arbre.
 
