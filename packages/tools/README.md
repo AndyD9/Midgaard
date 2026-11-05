@@ -20,6 +20,7 @@ une tâche `orchestrator`.
 | `delegate_task` | Crée une sous-tâche et rend son identifiant **sans l'attendre** |
 | `wait_for_task` | Attend la fin d'une sous-tâche, pauses d'approbation comprises ; résultat **non fiable** |
 | `cancel_task` | Annule une sous-tâche de cette tâche, et d'aucune autre |
+| `create_agent` | Crée un exécutant **pour cette tâche** à partir d'un profil de base (Slice 8) ; tout dépassement du profil est refusé avec son motif |
 | `<serveur>__<outil>` | Un outil d'un serveur MCP déclaré (Slice 8), **construit pour la tâche** ; libre s'il est coché, approuvé sinon ; résultat **non fiable** |
 | `submit_result` | **Le seul outil qui termine une tâche** |
 

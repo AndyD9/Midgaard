@@ -7,7 +7,7 @@
 export { startDaemon, defaultDashboardDir } from './daemon.ts'
 export type { Daemon, StartOptions } from './daemon.ts'
 export { EventBus } from './bus.ts'
-export { TaskManager, STEPS_TOTAL, APPROVAL_STEP } from './task-manager.ts'
+export { TaskManager, STEPS_TOTAL, APPROVAL_STEP, MAX_CREATED_AGENTS } from './task-manager.ts'
 export type { Refusal, TaskView } from './task-manager.ts'
 export { SimulatedEngine } from './engines/simulated.ts'
 export { keyCommand, visionOf } from './engines/agent.ts'
@@ -16,8 +16,12 @@ export { checkMcpCommand, mcpSecretRef, stderrExcerpt } from './mcp-servers.ts'
 export type { McpServiceDeps } from './mcp-servers.ts'
 export type { EngineContext, TaskEngine } from './engines/types.ts'
 export {
+  CREATED_ROLE_HEADING,
+  MCP_CAPABLE_KINDS,
   ensureBuiltinAgents,
   reconcileAgents,
+  resolveCreatedAgent,
+  setAgentMcpServers,
   RESEARCHER_AGENT_ID,
   RESEARCHER_TOOLS,
   RESEARCHER_SYSTEM_PROMPT,

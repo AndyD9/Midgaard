@@ -218,6 +218,40 @@ export interface DelegableAgent {
    * permet à l'orchestrateur de choisir à qui confier un travail qui en a besoin.
    */
   mcp_servers: { id: string; name: string }[]
+  /** Vrai pour un agent que cette tâche a créé (Slice 8) ; absent pour un profil. */
+  created?: boolean | undefined
+}
+
+/**
+ * Ce qu'un orchestrateur demande en créant un agent (Slice 8, étape 4). Tout
+ * ce qui n'est pas dit vient du profil de base, et rien ne peut dépasser ce
+ * profil : le daemon **refuse avec le motif** plutôt que de réduire en silence.
+ */
+export interface CreateAgentRequest {
+  name: string
+  /** Profil de base : ses outils et sa consigne. */
+  base: 'researcher' | 'developer' | 'navigator'
+  /** Rôle, **ajouté** à la consigne du profil. */
+  role: string
+  /** Fournisseur déclaré ; celui du profil de base par défaut. */
+  provider_id?: string | undefined
+  /** Modèle ; celui du profil de base, ou du fournisseur, par défaut. */
+  model?: string | undefined
+  /** Sous-ensemble des serveurs MCP du profil de base ; aucun par défaut. */
+  mcp_servers?: string[] | undefined
+  /** Limites, au plus celles du profil de base. */
+  limits?: RequestedLimits | undefined
+}
+
+/** Un agent créé, tel que l'orchestrateur le reçoit. */
+export interface CreatedAgentInfo {
+  agent_id: string
+  name: string
+  base: string
+  provider_id: string
+  model: string | null
+  mcp_servers: string[]
+  limits: AgentLimits
 }
 
 /** Une sous-tâche, telle que la délégation la rend à l'orchestrateur. */
@@ -293,6 +327,11 @@ export interface DelegationPort {
   listAgents(): DelegableAgent[]
   /** Crée une sous-tâche et rend la main tout de suite. */
   delegate(request: DelegateRequest): SubtaskState | DelegationRefusal
+  /**
+   * Crée un agent pour cette tâche (Slice 8), à partir d'un profil de base.
+   * Il ne sert qu'aux sous-tâches de cette tâche.
+   */
+  createAgent(request: CreateAgentRequest): CreatedAgentInfo | DelegationRefusal
   /**
    * Attend la fin d'une sous-tâche, **pauses d'approbation comprises** : une
    * sous-tâche qui attend un humain est attendue avec lui. Rend la main plus

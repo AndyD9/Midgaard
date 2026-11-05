@@ -29,6 +29,11 @@ export interface BudgetState {
   /** Vrai si une annulation a été demandée. */
   cancelled: boolean
   now?: number
+  /**
+   * Le budget de l'arbre de la tâche (Slice 8) : le plafond de l'orchestrateur,
+   * et ce qu'ont dépensé les **autres** tâches de l'arbre. Absent hors arbre.
+   */
+  tree?: { limit: number; others: number } | null | undefined
 }
 
 /**
@@ -75,6 +80,16 @@ export function checkLimits(state: BudgetState): StopReason | null {
     // Le détail ne répète pas le montant dépensé : l'appelant l'ajoute pour
     // les quatre raisons d'arrêt, et le dire deux fois rend le message illisible.
     return { kind: 'budget', detail: `budget de ${formatUsd(state.limits.max_cost_usd)} atteint` }
+  }
+  // Le budget de l'arbre : ce que cette tâche a dépensé plus ce qu'ont dépensé
+  // les autres. Même statut d'arrêt — un plafond est atteint, rien n'a échoué —
+  // et le motif dit que c'est l'arbre, pas la tâche, qui l'a atteint. Le coût
+  // propre encore inconnu (avant le premier appel) compte pour zéro, mais **ne
+  // dispense pas** du contrôle : une sous-tâche qui démarre dans un arbre déjà
+  // à court ne doit pas faire un seul appel payant.
+  const own = state.usage.cost_source !== 'unknown' ? state.usage.cost_usd : 0
+  if (state.tree && own + state.tree.others >= state.tree.limit) {
+    return { kind: 'budget', detail: `budget de l'arbre de tâches, ${formatUsd(state.tree.limit)}, atteint` }
   }
 
   return null

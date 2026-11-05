@@ -41,8 +41,8 @@ function ended(result: Partial<TaskResult> = {}): SubtaskState {
 
 /** Faux port : rend ce qu'on lui dit, et garde trace de ce qu'on lui demande. */
 function fakePort(over: Partial<DelegationPort> = {}) {
-  const asked: { delegated: unknown[]; cancelled: string[]; sent: [string, string][]; accepted: string[] } = {
-    delegated: [], cancelled: [], sent: [], accepted: [],
+  const asked: { delegated: unknown[]; created: unknown[]; cancelled: string[]; sent: [string, string][]; accepted: string[] } = {
+    delegated: [], created: [], cancelled: [], sent: [], accepted: [],
   }
   const port: DelegationPort = {
     listAgents: () => [
@@ -56,6 +56,13 @@ function fakePort(over: Partial<DelegationPort> = {}) {
         mcp_servers: [],
       },
     ],
+    createAgent: (request) => {
+      asked.created.push(request)
+      return {
+        agent_id: 'reverser-abc123', name: request.name, base: request.base, provider_id: 'faux', model: null,
+        mcp_servers: request.mcp_servers ?? [], limits: DEFAULT_RESEARCHER_LIMITS,
+      }
+    },
     delegate: (request) => {
       asked.delegated.push(request)
       return { ...ended(), status: 'queued', ended: false, result: null }
@@ -97,6 +104,7 @@ describe('sans port de délégation', () => {
       const args =
         name === 'delegate_task' ? { agent_id: 'researcher', objective: 'o' }
         : name === 'list_agents' ? {}
+        : name === 'create_agent' ? { name: 'Reverser', base: 'researcher', role: 'r' }
         : name === 'send_message' ? { task_id: CHILD, message: 'm' }
         : { task_id: CHILD }
       const { verdict, result } = await call(name, args, ctx())
@@ -114,6 +122,23 @@ describe('avec un port', () => {
     assert.deepEqual(listed.map((a) => a.id), ['researcher', 'developer'])
     assert.equal(listed[1]!.disabled_reason, 'no model provider is configured for this profile')
     assert.equal(listed[0]!.disabled_reason, undefined, 'aucun motif pour un profil actif')
+  })
+
+  it('create_agent transmet la demande et rend l\'identifiant à passer à delegate_task', async () => {
+    const { port, asked } = fakePort()
+    const { verdict, result } = await call(
+      'create_agent',
+      { name: 'Reverser', base: 'researcher', role: 'Reverse binaries with REA.', mcp_servers: ['rea'] },
+      ctx(port),
+    )
+    assert.equal(verdict.decision, 'allow', 'bornée par le daemon, sans approbation (décision prise avec l\'auteur)')
+    assert.deepEqual(asked.created, [{ name: 'Reverser', base: 'researcher', role: 'Reverse binaries with REA.', mcp_servers: ['rea'] }])
+    assert.equal((JSON.parse(result!.content) as { agent_id: string }).agent_id, 'reverser-abc123')
+  })
+
+  it('create_agent refuse au schéma un orchestrateur comme base', async () => {
+    const tool = findTool('create_agent')!
+    assert.equal(tool.schema.safeParse({ name: 'x', base: 'orchestrator', role: 'r' }).success, false)
   })
 
   it('list_agents dit les serveurs MCP d\'un profil, et se tait pour un profil qui n\'en a pas', async () => {

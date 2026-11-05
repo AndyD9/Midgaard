@@ -155,6 +155,7 @@ export const listAgentsTool: Tool<z.infer<typeof listAgentsSchema>> = {
         limits: a.limits,
         // Seulement s'il y en a : un profil sans serveur MCP n'a rien à en dire.
         ...(a.mcp_servers.length ? { mcp_servers: a.mcp_servers } : {}),
+        ...(a.created ? { created_by_you: true } : {}),
       })),
       null,
       2,
@@ -163,6 +164,58 @@ export const listAgentsTool: Tool<z.infer<typeof listAgentsSchema>> = {
       content,
       bytes: Buffer.byteLength(content),
       summary: `${agents.length} profil(s), ${agents.filter((a) => a.enabled).length} actif(s)`,
+      untrusted: false,
+    }
+  },
+}
+
+// --- create_agent ------------------------------------------------------------
+
+const createAgentSchema = z.object({
+  name: z.string().trim().min(1).max(60).describe('Short name for this executor, e.g. "Binary reverser".'),
+  base: z
+    .enum(['researcher', 'developer', 'navigator'])
+    .describe('Base profile: the executor gets its tools and rules. Call list_agents to see what each one can do.'),
+  role: z
+    .string()
+    .trim()
+    .min(1)
+    .max(4000)
+    .describe('What this executor specialises in and how it should work. Added to the base profile rules, never replacing them.'),
+  provider_id: z.string().min(1).max(64).optional().describe('Model provider; the base profile\'s by default.'),
+  model: z.string().min(1).max(200).optional().describe('Model; the base profile\'s by default. Must be offered by the provider and have a known price.'),
+  mcp_servers: z
+    .array(z.string().min(1).max(64))
+    .max(8)
+    .optional()
+    .describe('MCP servers to give it, among those of the base profile (see list_agents). None by default.'),
+  limits: requestedLimitsSchema
+    .optional()
+    .describe('Optional limits. They can only be equal to or LOWER than the base profile limits.'),
+})
+
+/**
+ * Crée un exécutant pour cette tâche à partir d'un profil de base (Slice 8).
+ * Pas d'approbation, décision prise avec l'auteur : la création est **bornée**
+ * par le daemon, qui refuse tout ce qui dépasserait le profil de base.
+ */
+export const createAgentTool: Tool<z.infer<typeof createAgentSchema>> = {
+  name: 'create_agent',
+  description:
+    'Create a specialised executor for this task, derived from a base profile, and return its agent_id for ' +
+    'delegate_task. It keeps the base profile tools and rules; your role is added to them. You may pick another ' +
+    'model and some of the base profile MCP servers, and lower its limits; anything beyond the base profile is ' +
+    'refused with the reason. It exists only within this task.',
+  schema: createAgentSchema,
+  policy: (_args, ctx) => delegationPolicy(ctx),
+
+  async run(args, ctx): Promise<ToolResult> {
+    const created = orThrow(portOf(ctx).createAgent(args))
+    const content = JSON.stringify(created, null, 2)
+    return {
+      content,
+      bytes: Buffer.byteLength(content),
+      summary: `agent ${created.agent_id} créé (${created.base}, ${created.model ?? 'modèle par défaut'})`,
       untrusted: false,
     }
   },

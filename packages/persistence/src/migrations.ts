@@ -363,6 +363,29 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE agents ADD COLUMN mcp_servers_json TEXT NOT NULL DEFAULT '[]';
     `,
   },
+  {
+    version: 13,
+    label: 'Slice 8 — agents créés à la volée par un orchestrateur',
+    sql: `
+      -- Un agent créé appartient à l'arbre de l'orchestrateur qui l'a créé
+      -- (task_id) : il ne sert qu'à ses sous-tâches, et disparaît avec lui
+      -- (ON DELETE CASCADE, comme le journal). Ce n'est pas un profil : la
+      -- table agents reste celle des profils que l'humain règle.
+      CREATE TABLE created_agents (
+        id                TEXT PRIMARY KEY,
+        task_id           TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        name              TEXT NOT NULL,
+        base_agent_id     TEXT NOT NULL,
+        provider_id       TEXT NOT NULL,
+        model             TEXT,
+        role              TEXT NOT NULL,
+        mcp_servers_json  TEXT NOT NULL DEFAULT '[]',
+        limits_json       TEXT NOT NULL,
+        created_at        TEXT NOT NULL
+      );
+      CREATE INDEX created_agents_task_idx ON created_agents(task_id);
+    `,
+  },
 ]
 
 // Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',

@@ -16,7 +16,9 @@
  * égale à `{{task_id}}` est remplacée par le dernier `task_id` lu dans un
  * résultat d'outil de la conversation, `{{task_id:N}}` par le N-ième (à partir
  * de 0, dans l'ordre d'apparition) — ce que ferait le modèle. Le serveur reste
- * sans état : la conversation porte tout.
+ * sans état : la conversation porte tout. `{{agent_id}}` suit la même règle
+ * pour l'identifiant d'un agent créé par `create_agent` (Slice 8) : le dernier
+ * `agent_id` lu dans un résultat d'outil.
  */
 import { createServer, type Server } from 'node:http'
 
@@ -70,8 +72,13 @@ function completion(
         .filter((id): id is string => id !== undefined),
     ),
   ]
+  const agentIds = messages
+    .filter((m) => m.role === 'tool')
+    .map((m) => /"agent_id":\s*"([a-z0-9][a-z0-9_-]*)"/.exec(m.content ?? '')?.[1])
+    .filter((id): id is string => id !== undefined)
   const fill = (v: unknown): unknown => {
     if (v === '{{task_id}}') return taskIds.at(-1) ?? v
+    if (v === '{{agent_id}}') return agentIds.at(-1) ?? v
     const nth = typeof v === 'string' ? /^\{\{task_id:(\d+)\}\}$/.exec(v) : null
     return nth ? (taskIds[Number(nth[1])] ?? v) : v
   }

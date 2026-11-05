@@ -228,6 +228,12 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   du dashboard et de l'orchestrateur (Slice 6). **`awaiting_input` est une
   propriété du statut** `waiting_input` : exigé à l'entrée, refusé ailleurs,
   effacé à la sortie par le dépôt.
+- **Un agent créé par un orchestrateur ne dépasse jamais son profil de base
+  et n'existe que dans son arbre** (Slice 8) : outils et consigne du profil,
+  le rôle ajouté après ; limites, serveurs MCP et modèle refusés avec motif
+  au-delà. Ailleurs, il répond comme un profil inconnu. **Le budget de
+  l'orchestrateur couvre tout son arbre**, contrôlé avant chaque appel de
+  modèle de chaque tâche, premier compris.
 - **Aucune sous-tâche ne survit à son parent.** Un parent en
   `cancel_requested` ou dans un statut final emporte ses sous-tâches actives ;
   le vérifier en **comptant les tâches actives en base**. Profondeur 1 : un
@@ -319,7 +325,16 @@ départ** (`daemon/src/mcp-sessions.ts`), tout ou rien, et un échec arrête la
 tâche avant tout appel de modèle. **L'empreinte se compare au catalogue
 annoncé au lancement**, pas à celui enregistré : un test qui redéclare le
 serveur ne le prouve pas (le catalogue enregistré est effacé), il faut un
-serveur mis à jour sur place.
+serveur mis à jour sur place. Étape 4 faite : `create_agent` (orchestrateur
+seulement, sans approbation, décision de l'auteur) crée un exécutant **pour
+son arbre** (`created_agents`, migration 13), résolu à partir de son profil de
+base par `TaskManager.agentFor` — mêmes outils, consigne du profil **puis** le
+rôle. **Tout dépassement est refusé avec son motif, jamais réduit en
+silence** ; un modèle doit être offert **et tarifé** ; serveurs MCP pris parmi
+ceux du profil de base. **Le `max_cost_usd` de l'orchestrateur couvre tout son
+arbre** (`treeBudget`), contrôlé dès le premier appel de chaque tâche — le
+premier jet l'oubliait. Sous-tâches actives plafonnées
+(`MIDGAARD_MAX_ACTIVE_SUBTASKS`, 4).
 
 ## Slice 7 terminée — les agents voient
 

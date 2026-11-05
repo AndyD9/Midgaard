@@ -28,6 +28,8 @@ import {
   type Approval,
   type ApprovalStatus,
   type ConnectionTest,
+  type CreatableBase,
+  type CreatedAgent,
   type EventType,
   type HarnessConfig,
   type InputRequest,
@@ -906,6 +908,43 @@ export class HarnessStore {
     return this.listAgents().filter((a) => a.mcp_servers.includes(serverId))
   }
 
+  // --- Agents créés à la volée (Slice 8) ------------------------------------
+
+  /** Enregistre un agent créé par un orchestrateur. Les règles sont celles de l'appelant. */
+  createCreatedAgent(input: Omit<CreatedAgent, 'created_at'>): CreatedAgent {
+    this.db
+      .prepare(
+        `INSERT INTO created_agents
+           (id, task_id, name, base_agent_id, provider_id, model, role, mcp_servers_json, limits_json, created_at)
+         VALUES (:id, :task_id, :name, :base, :provider_id, :model, :role, :mcp, :limits, :now)`,
+      )
+      .run({
+        id: input.id,
+        task_id: input.task_id,
+        name: input.name,
+        base: input.base_agent_id,
+        provider_id: input.provider_id,
+        model: input.model,
+        role: input.role,
+        mcp: JSON.stringify(input.mcp_servers),
+        limits: JSON.stringify(input.limits),
+        now: new Date().toISOString(),
+      })
+    return this.getCreatedAgent(input.id)!
+  }
+
+  getCreatedAgent(id: string): CreatedAgent | null {
+    const found = row<CreatedAgentRow>(this.db.prepare('SELECT * FROM created_agents WHERE id = :id').get({ id }))
+    return found ? toCreatedAgent(found) : null
+  }
+
+  /** Les agents créés par une tâche orchestrateur, dans l'ordre de création. */
+  createdAgentsOf(taskId: string): CreatedAgent[] {
+    return rows<CreatedAgentRow>(
+      this.db.prepare('SELECT * FROM created_agents WHERE task_id = :t ORDER BY created_at, rowid').all({ t: taskId }),
+    ).map(toCreatedAgent)
+  }
+
   /** Profils rattachés à un fournisseur donné, pour les désactiver quand il disparaît. */
   agentsUsingProvider(providerId: string): Agent[] {
     return rows<AgentRow>(
@@ -1422,6 +1461,34 @@ interface ProviderRow {
   created_at: string
   updated_at: string
   last_test_json: string | null
+}
+
+interface CreatedAgentRow {
+  id: string
+  task_id: string
+  name: string
+  base_agent_id: string
+  provider_id: string
+  model: string | null
+  role: string
+  mcp_servers_json: string
+  limits_json: string
+  created_at: string
+}
+
+function toCreatedAgent(row: CreatedAgentRow): CreatedAgent {
+  return {
+    id: row.id,
+    task_id: row.task_id,
+    name: row.name,
+    base_agent_id: row.base_agent_id as CreatableBase,
+    provider_id: row.provider_id,
+    model: row.model,
+    role: row.role,
+    mcp_servers: JSON.parse(row.mcp_servers_json) as string[],
+    limits: JSON.parse(row.limits_json) as AgentLimits,
+    created_at: row.created_at,
+  }
 }
 
 interface McpServerRow {

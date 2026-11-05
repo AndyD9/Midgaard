@@ -163,6 +163,10 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
   let pricing: PricingTable = loadPricing(config, (m) => log(m))
   log(`tarifs : ${Object.keys(pricing.entries).length} modèle(s), relevés le ${pricing.updated_at.slice(0, 10)}`)
 
+  // Le gérant refuse à un agent créé un modèle sans tarif connu (Slice 8) :
+  // il lit les tarifs en vigueur, rafraîchissement compris.
+  tasks.usePricing(() => pricing)
+
   const providers: ProviderServiceDeps = {
     config,
     store,

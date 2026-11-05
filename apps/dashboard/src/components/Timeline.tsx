@@ -8,7 +8,7 @@
  */
 import {
   Archive, CircleCheck, CircleSlash, CircleX, Coins, Flag, FolderGit2, FolderX, Hourglass, MessageCircleQuestion,
-  Globe, MessageSquare, MessagesSquare, Play, ShieldCheck, ShieldQuestion, SquareTerminal, TimerOff, User, Wallet, Wrench,
+  Globe, MessageSquare, MessagesSquare, Play, ShieldCheck, ShieldQuestion, SquareTerminal, TimerOff, User, UserPlus, Wallet, Wrench,
 } from 'lucide-react'
 import type { EventType, TaskEvent } from '@midgaard/contracts'
 import { formatCost, formatDateTime, formatTime } from '@/lib/utils'
@@ -44,6 +44,7 @@ const EVENT_LOOK: Record<EventType, Look> = {
   'exec.output': { icon: SquareTerminal, label: 'Sortie de commande', className: 'text-muted' },
   'browser.opened': { icon: Globe, label: 'Navigateur ouvert', className: 'text-running' },
   'browser.closed': { icon: Globe, label: 'Navigateur fermé', className: 'text-muted' },
+  'agent.created': { icon: UserPlus, label: 'Agent créé', className: 'text-running' },
 }
 
 /** Ce qu'attend une tâche en `waiting_input`, dit à l'utilisateur. */
@@ -78,6 +79,10 @@ function describe(event: TaskEvent): string | null {
   }
   if (event.type === 'browser.opened') return `${String(p.start_url)} — ${String(p.objective)}`
   if (event.type === 'browser.closed') return closedReasonText(String(p.reason))
+  // Un agent créé par l'orchestrateur (Slice 8) : ce qu'il est, d'où il dérive.
+  if (event.type === 'agent.created') {
+    return `${String(p.name)} · ${String(p.agent_id)} — ${String(p.base_agent_id)}, ${String(p.model ?? 'modèle par défaut')}`
+  }
   if (event.type === 'task.interrupted') return `statut précédent : ${String(p.previous_status)}`
   if (event.type === 'subtask.waiting') {
     return `${String(p.agent_id)} · ${String(p.task_id).slice(0, 8)} (${String(p.status)})`

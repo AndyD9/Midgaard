@@ -796,6 +796,8 @@ export class AgentEngine implements TaskEngine {
         )
       },
 
+      treeBudget: () => ctx.treeBudget(taskId),
+
       isCancelled: () => {
         if (state.cancelled) return true
         // Une tâche devenue terminale pendant qu'on tournait — refus humain,

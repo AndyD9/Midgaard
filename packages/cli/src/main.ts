@@ -75,7 +75,7 @@ ${bold('Options')}
 
 ${dim('Environnement : MIDGAARD_HOME, MIDGAARD_PORT, MIDGAARD_IDLE_SHUTDOWN_S, MIDGAARD_DASHBOARD_DIR,')}
 ${dim('               MIDGAARD_VAULT, MIDGAARD_HTTP_POLICY, MIDGAARD_HTTP_ALLOW,')}
-${dim('               MIDGAARD_EXEC_ALLOW, MIDGAARD_APPROVAL_TTL_S, MIDGAARD_INPUT_TTL_S')}`
+${dim('               MIDGAARD_EXEC_ALLOW, MIDGAARD_APPROVAL_TTL_S, MIDGAARD_INPUT_TTL_S, MIDGAARD_MAX_ACTIVE_SUBTASKS')}`
 
 /**
  * Version du paquet, pour `--version`, lue dans `packages/cli/package.json` —

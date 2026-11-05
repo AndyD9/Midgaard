@@ -10,7 +10,7 @@ agents à la volée** au lieu de piocher dans cinq profils figés.
 faite le même jour, verte en CI sur macOS, Linux et Windows (passage
 `42002800496`) ; étape 2 faite le même jour, verte en CI sur les trois plateformes (passage
 `42007433791`) ; étape 3 faite le même jour, verte en CI sur les trois plateformes (passage
-`42011901280`).
+`42011901280`) ; étape 4 faite le même jour, verte sous macOS.
 
 ---
 
@@ -121,11 +121,14 @@ ouvert.
     - les **outils** sont ceux du type de base, jamais plus ;
     - les **limites** sont abaissées depuis celles du profil de base
       (`tightenLimits`), jamais relevées ;
-    - les **serveurs MCP** sont pris parmi ceux que l'humain a ouverts aux
-      agents créés (une case par serveur, fermée par défaut) ;
-    - le **modèle** est pris parmi ceux d'un fournisseur configuré ; la vision
-      d'un Navigator reste **constatée** au catalogue, sinon l'agent est refusé
-      avec son motif ;
+    - les **serveurs MCP** sont pris parmi ceux du **profil de base** — que
+      l'humain lui a donnés (`harness mcp attach`). *Précisé à l'étape 4 : une
+      case de plus par serveur aurait doublé le réglage sans rien ajouter ; le
+      profil de base est déjà ce que l'humain ouvre ;*
+    - le **modèle** est pris parmi ceux d'un fournisseur configuré, **offerts**
+      à son dernier test de connexion **et tarifés** — un coût inconnu
+      échapperait au budget de l'arbre ; la vision d'un Navigator reste
+      **constatée** au catalogue, au départ de sa tâche ;
     - un orchestrateur ne crée jamais d'orchestrateur (profondeur 1, Slice 5).
 14. **La consigne de rôle s'ajoute à celle du type, ne la remplace jamais.** Les
     règles qui protègent (`submit_result`, le traitement des contenus non
@@ -142,13 +145,17 @@ ouvert.
     parallèle multiplie la dépense ; le plafond se vérifie **avant** la
     création de la sous-tâche, comme toute limite.
 
-## À trancher avec l'auteur
+## Tranché en cours de route (2026-11-05)
 
-- **Un budget d'arbre ?** Aujourd'hui, chaque sous-tâche a son propre plafond
-  de coût, et l'orchestrateur le sien, sans somme. Avec des agents créés à la
-  volée, un plafond sur la **somme de l'arbre** serait la seule protection
-  contre un orchestrateur qui crée dix agents. Proposition : oui, porté par le
-  profil de l'orchestrateur, vérifié avant chaque appel de modèle de l'arbre.
+- **Un budget d'arbre : oui** (décision de l'auteur, à l'étape 4). Le
+  `max_cost_usd` de l'orchestrateur couvre la somme de son arbre — ses appels
+  et ceux de chaque sous-tâche —, vérifié avant chaque appel de modèle de
+  chaque tâche de l'arbre et avant chaque délégation.
+- **La création d'un agent n'est pas approuvée** (décision de l'auteur, à
+  l'étape 4) : elle est bornée par le daemon, et visible de l'humain.
+
+## Reste à trancher
+
 - **Le processus REA partagé par arbre** (décision 3) si le démarrage de
   Ghidra par tâche se révèle trop lent à l'essai.
 
@@ -159,7 +166,7 @@ ouvert.
 | 1 | Le paquet `mcp-client` : lancer un serveur stdio sous la garde, `initialize`, `tools/list`, `tools/call`, annulation, délai ; aucun processus survivant, `SIGKILL` du daemon compris ; éprouvé contre un faux serveur MCP de test | **fait** — 15 tests, vus échouer sans la garde et sans le groupe ; verts en CI sur trois plateformes |
 | 2 | La déclaration : migration (serveurs, outils cochés et leurs empreintes), `harness mcp add/list/test/allow/remove`, routes `/api/mcp`, « Tester la connexion » qui lit vraiment le catalogue | **fait** — migration 11, `PROTOCOL_VERSION` 14 ; deux défauts trouvés par la vraie CLI, réglés ; verte en CI sur trois plateformes |
 | 3 | Les outils MCP derrière `ToolContext.mcp` : noms préfixés, liste blanche à empreinte, approbation sur arguments exacts, encadrement, plafond, expurgation ; `mcp_servers` sur un profil ; `PROTOCOL_VERSION` | **fait** — migration 12, `PROTOCOL_VERSION` 15 ; un agent réel du daemon appelle un serveur MCP, vu échouer sur deux défauts introduits ; verte en CI sur trois plateformes |
-| 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | à faire |
+| 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | **fait** — migration 13, budget d'arbre ; trois défauts introduits vus échouer, un trou trouvé en écrivant ; CI à constater |
 | 5 | Le dashboard : page « Serveurs MCP » (déclarer, tester, cocher), serveurs d'un profil, appels MCP dans le fil, agents créés et leur consigne dans l'arbre | à faire |
 | 6 | Preuves : `test:orchestrator` (création, délégation parallèle, outil MCP), `test:security` (outil non coché refusé sans atteindre le serveur, empreinte changée → plus libre, agent créé qui tente de dépasser son type, rien de non expurgé en base, aucun serveur vivant après `SIGKILL`), CI sur trois plateformes | à faire |
 | 7 | L'essai réel : un orchestrateur sur Venice crée deux agents de reverse sur REA et un Developer, analyse un binaire, rend une synthèse ; coût relevé | à faire |
@@ -350,4 +357,58 @@ scénarios MCP sous macOS, Linux et Windows.
 dizaines d'outils relu à chaque appel de modèle (REA propose un profil de
 schémas compact, `REA_MCP_INPUT_SCHEMA_PROFILE=compact`, à déclarer en `--env`),
 et le délai d'un premier appel Ghidra face au `timeout_s` du profil.
+
+### Étape 4 — l'orchestrateur crée ses agents (2026-11-05)
+
+Deux décisions prises avec l'auteur avant d'écrire : **un budget d'arbre**, et
+**pas d'approbation** à la création — bornée, visible.
+
+L'outil `create_agent` (orchestrateur seulement) demande un nom, un profil de
+base (`researcher`, `developer`, `navigator`), un rôle, et facultativement un
+fournisseur, un modèle, des serveurs MCP et des limites. Le gérant
+(`TaskManager.createAgent`) l'enregistre dans `created_agents` (migration 13),
+rattaché à la tâche orchestrateur, et l'écrit au journal de celle-ci
+(`agent.created`, avec le rôle) ; l'orchestrateur reçoit un `agent_id` qu'il
+passe à `delegate_task`. `TaskManager.agentFor` résout un agent créé à partir
+de son profil de base (`resolveCreatedAgent`) : **mêmes outils, consigne du
+profil puis le rôle** sous un titre qui dit qu'il ne la remplace pas.
+
+Ce qui a été tranché en écrivant :
+
+- **Un dépassement est refusé avec son motif, jamais réduit en silence** :
+  limites au-dessus du profil, serveur MCP que le profil n'a pas, fournisseur
+  inconnu, modèle non offert, modèle sans tarif. `tightenLimits` aurait réduit
+  sans le dire ; l'orchestrateur doit savoir ce qu'il a obtenu.
+- **Les serveurs MCP d'un agent créé sont un sous-ensemble de ceux du profil
+  de base** (décision 13, précisée) : c'est déjà ce que l'humain ouvre.
+- **Un modèle doit être offert et tarifé** : offert, constaté au dernier test
+  de connexion du fournisseur ; tarifé, dans la table en vigueur. Un coût
+  inconnu n'entre pas dans le budget de l'arbre — il y échapperait.
+- **Un agent créé n'existe que dans son arbre** : un autre orchestrateur, une
+  tâche de Claude ou du dashboard reçoivent « profil inconnu », la même
+  réponse qu'un identifiant qui n'existe pas. Il n'est pas un profil : absent
+  de `GET /api/agents`, invisible de Claude. Huit au plus par tâche.
+- **Le budget de l'arbre** (`TaskManager.treeBudget`) : chaque tâche de l'arbre
+  voit ce qu'ont dépensé les **autres**, et la boucle s'arrête en
+  `budget_exceeded` quand sa dépense plus la leur atteint le `max_cost_usd` de
+  l'orchestrateur ; une délégation est refusée une fois le budget dépensé.
+- **Le plafond de sous-tâches actives** : 4 par défaut,
+  `MIDGAARD_MAX_ACTIVE_SUBTASKS`, vérifié avant de créer la sous-tâche.
+
+**Un trou trouvé en écrivant** : le premier jet du contrôle d'arbre ne
+s'appliquait qu'à une tâche dont le coût propre était connu — donc **pas
+avant son premier appel**. Une sous-tâche née dans un arbre déjà à court
+pouvait faire un appel payant. Le coût propre inconnu compte désormais pour
+zéro, sans dispenser du contrôle.
+
+**Les preuves.** `tests/unit/created-agents.test.ts` (gérant réel, moteurs
+pilotables, dépense écrite par le bus et lue en base) : dérivation du profil,
+refus motivés, cloisonnement à l'arbre, plafond de sous-tâches actives, budget
+commun. Trois défauts introduits exprès l'ont fait échouer : des limites trop
+hautes réduites en silence, un agent créé utilisable hors de son arbre, le
+contrôle d'arbre sauté au premier appel. Et dans `tests/unit/mcp-agents.test.ts`,
+le **vrai moteur de l'orchestrateur** face au faux fournisseur : il crée un
+agent avec le serveur MCP du Researcher, lui délègue, et l'agent reçoit la
+consigne du profil, puis le rôle, puis les outils du serveur.
+`test:orchestrator`, `test:security` et `test:developer` restent verts.
 

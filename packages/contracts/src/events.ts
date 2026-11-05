@@ -112,6 +112,7 @@ export const EVENT_TYPES = [
   'exec.output',
   'browser.opened',
   'browser.closed',
+  'agent.created',
 ] as const
 export type EventType = (typeof EVENT_TYPES)[number]
 

@@ -262,6 +262,20 @@ L'agent n'a pas conclu à temps. Une tâche ne se termine que par
 l'objectif** : un objectif qui appelle une réponse longue fait couper la sortie
 du modèle avant qu'il ait pu conclure. Une tâche qui échoue a déjà dépensé.
 
+### `budget_exceeded` : « budget de l'arbre de tâches, … $, atteint »
+
+Le budget de l'orchestrateur couvre **tout son arbre** : ses appels et ceux de
+chaque sous-tâche (Slice 8). Une sous-tâche s'arrête dès que sa dépense plus
+celle des autres l'atteint, et l'orchestrateur ne peut plus déléguer. Pour un
+arbre plus large, relève le `max_cost_usd` du profil `orchestrator`.
+
+### « … subtask(s) are already running, the maximum at the same time »
+
+L'orchestrateur a déjà autant de sous-tâches actives que le plafond le
+permet ; il doit en attendre ou en annuler une. Le plafond se règle par
+`MIDGAARD_MAX_ACTIVE_SUBTASKS` (4 par défaut), dans l'environnement du daemon,
+puis `npm run harness -- stop`.
+
 ### « tarif inconnu pour « … » : le budget en dollars ne peut pas être appliqué »
 
 Sans tarif, seul le nombre d'étapes borne la tâche, et le coût s'affiche
@@ -489,4 +503,5 @@ changée sous un daemon déjà lancé n'a d'effet qu'après `npm run harness -- 
 | `MIDGAARD_HTTP_POLICY` | `http_fetch` : `open`, `approval` ou `allowlist` — les adresses privées restent refusées dans tous les cas | `open` |
 | `MIDGAARD_HTTP_ALLOW` | Hôtes toujours admis, séparés par des virgules (`exemple.org`, `*.exemple.org`) | aucun |
 | `MIDGAARD_EXEC_ALLOW` | Commandes exactes lancées sans approbation, séparées par `;` | aucune |
+| `MIDGAARD_MAX_ACTIVE_SUBTASKS` | Sous-tâches actives d'un orchestrateur en même temps | `4` |
 | `MIDGAARD_DASHBOARD_DIR` | Dossier du dashboard compilé | celui du paquet |

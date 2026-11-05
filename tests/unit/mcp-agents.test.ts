@@ -131,6 +131,53 @@ describe('les serveurs MCP d\'un profil', () => {
   })
 })
 
+describe('un agent créé par l\'orchestrateur', () => {
+  it('reçoit le rôle après la consigne du profil, et les outils MCP qu\'on lui a donnés', async () => {
+    // Le vrai moteur de l'orchestrateur, face au faux fournisseur : il crée un
+    // exécutant à partir du Researcher, avec le serveur MCP de celui-ci, puis
+    // lui délègue (Slice 8, étape 4).
+    assert.equal((await api('/api/mcp/fake/test', 'POST')).status, 200)
+    const tag = '[orchestre-cree]'
+    const child = '[enfant-cree]'
+    provider.scripts.set(tag, [
+      [{ tool: 'create_agent', args: { name: 'Lecteur MCP', base: 'researcher', role: 'Speak only through the fake server.', mcp_servers: ['fake'] } }],
+      [{ tool: 'delegate_task', args: { agent_id: '{{agent_id}}', objective: `${child} appelle echo` } }],
+      [{ tool: 'wait_for_task', args: { task_id: '{{task_id}}' } }],
+      [{ tool: 'submit_result', args: { summary: 'délégué à un agent créé' } }],
+    ])
+    provider.scripts.set(child, [
+      [{ tool: 'fake__echo', args: { text: 'depuis l\'agent créé' } }],
+      [{ tool: 'submit_result', args: { summary: 'écho fait' } }],
+    ])
+    const created = await api<{ task: Task }>('/api/tasks', 'POST', { agent_id: 'orchestrator', objective: `${tag} délègue`, project_dir: repo })
+    assert.equal(created.status, 201, JSON.stringify(created.body))
+    const orchestratorId = created.body.task.id
+    // `echo` n'est pas encore coché à ce stade : l'appel attend une approbation.
+    let pending = undefined
+    for (let i = 0; i < 300 && !pending; i++) {
+      pending = daemon.store.pendingApprovals().find((a) => daemon.store.getTask(a.task_id)?.parent_task_id === orchestratorId)
+      if (!pending) await sleep(50)
+    }
+    assert.ok(pending, `aucune approbation : ${daemon.store.getTask(orchestratorId)?.status} ${daemon.store.getTask(orchestratorId)?.error ?? ''}`)
+    assert.equal((await api(`/api/approvals/${pending.id}/approve`, 'POST', { by: 'test' })).status, 200)
+    const done = (await daemon.tasks.wait(orchestratorId, 20_000, 0))!.task
+    for (let i = 0; i < 300 && daemon.store.getTask(orchestratorId)?.status !== 'completed'; i++) await sleep(50)
+    const final = daemon.store.getTask(orchestratorId)!
+    assert.equal(final.status, 'completed', `${done.status} ${final.error ?? ''}`)
+
+    const [agent] = daemon.store.createdAgentsOf(orchestratorId)
+    assert.ok(agent, 'l\'agent créé est en base, rattaché à son arbre')
+    const [sub] = daemon.store.childTasks(orchestratorId)
+    assert.equal(sub?.agent_id, agent.id)
+    assert.equal(sub?.status, 'completed')
+    const system = provider.systems.get(child) ?? ''
+    assert.ok(system.indexOf('You are a Researcher') < system.indexOf('Speak only through the fake server.'), 'la consigne du profil, puis le rôle')
+    assert.ok((provider.tools.get(child) ?? []).includes('fake__echo'), 'les outils du serveur donné')
+    assert.equal(daemon.store.getAgent(agent.id), null, 'ce n\'est pas un profil')
+    assert.deepEqual(await noServerAlive(), [])
+  })
+})
+
 describe('un agent qui se sert d\'un serveur MCP', () => {
   it('appelle un outil coché sans approbation, un autre sous approbation, et rend un résultat non fiable', async () => {
     assert.equal((await api('/api/mcp/fake/test', 'POST')).status, 200)

@@ -176,6 +176,12 @@ export interface LoopHooks {
   finishBlocked?(): string | null
   /** Vrai si une annulation a été demandée depuis le dernier point de contrôle. */
   isCancelled(): boolean
+  /**
+   * Le budget de l'arbre de la tâche (Slice 8), lu avant chaque appel de
+   * modèle : les autres tâches de l'arbre dépensent pendant que celle-ci
+   * travaille. Absent ou `null` : la tâche n'appartient à aucun arbre.
+   */
+  treeBudget?(): { limit: number; others: number } | null
 }
 
 /** Ce qu'il faut pour lancer une boucle. */
@@ -335,7 +341,9 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
   let tainted = false
 
   while (true) {
-    const stop = checkLimits({ usage, step, limits, deadline, cancelled: input.hooks.isCancelled(), now: now() })
+    const stop = checkLimits({
+      usage, step, limits, deadline, cancelled: input.hooks.isCancelled(), now: now(), tree: input.hooks.treeBudget?.(),
+    })
     if (stop) {
       return {
         status: STOP_STATUS[stop.kind],

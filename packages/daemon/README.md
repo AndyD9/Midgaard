@@ -86,6 +86,23 @@ Une tâche `orchestrator` délègue par le port que lui remet
 Prouvé par `tests/unit/delegation.test.ts`, qui compte les tâches actives
 **en base** après l'arrêt du parent.
 
+## Agents créés et budget de l'arbre (Slice 8)
+
+Un orchestrateur crée ses exécutants par `create_agent`
+(`TaskManager.createAgent`). Un agent créé est une ligne de `created_agents`,
+rattachée à **sa** tâche : `agentFor` le résout à partir de son profil de base
+— mêmes outils, consigne du profil **puis** le rôle —, et `create` le refuse
+hors de son arbre, avec la réponse d'un profil inconnu. Tout ce qui dépasserait
+le profil de base est **refusé avec le motif** : limites, serveurs MCP que le
+profil n'a pas, fournisseur inconnu, modèle non offert ou sans tarif connu.
+
+Le `max_cost_usd` de l'orchestrateur couvre **tout son arbre**
+(`treeBudget`) : la boucle de chaque tâche le lit avant chaque appel de
+modèle, et s'arrête en `budget_exceeded` quand sa dépense plus celle des
+autres l'atteint — dès le premier appel. `delegate` refuse une sous-tâche une
+fois le budget dépensé, ou quand `maxActiveSubtasks` sont déjà actives
+(`MIDGAARD_MAX_ACTIVE_SUBTASKS`, 4 par défaut).
+
 ## Conversations (Slice 6)
 
 Une tâche peut attendre un **message** : `waiting_input`, avec ce qu'elle
@@ -302,4 +319,5 @@ Lues **uniquement** par `main.ts`, via `loadConfig`.
 | `MIDGAARD_IDLE_SHUTDOWN_S` | `1800` | Inactivité avant arrêt ; `0` désactive |
 | `MIDGAARD_APPROVAL_TTL_S` | `600` | Délai de décision humaine ; au-delà la tâche passe en `timed_out` |
 | `MIDGAARD_INPUT_TTL_S` | `7200` | Attente maximale d'une réponse de l'utilisateur dans une conversation ; au-delà, `timed_out` |
+| `MIDGAARD_MAX_ACTIVE_SUBTASKS` | `4` | Sous-tâches actives d'un orchestrateur en même temps (Slice 8) |
 | `MIDGAARD_DASHBOARD_DIR` | `apps/dashboard/dist` | Fichiers compilés du dashboard |

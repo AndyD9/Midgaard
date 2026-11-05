@@ -235,6 +235,41 @@ export const updateAgentRequestSchema = z
 export type UpdateAgentRequest = z.infer<typeof updateAgentRequestSchema>
 
 /**
+ * Types de base qu'un orchestrateur peut donner à un agent qu'il crée (Slice 8,
+ * décision 12). Jamais `orchestrator` (profondeur 1), jamais `simulated`.
+ */
+export const CREATABLE_BASES = ['researcher', 'developer', 'navigator'] as const
+export type CreatableBase = (typeof CREATABLE_BASES)[number]
+
+/**
+ * Un agent créé à la volée par un orchestrateur (Slice 8, étape 4).
+ *
+ * Il n'est pas un profil : il appartient à **un** arbre de tâches (`task_id`,
+ * l'orchestrateur qui l'a créé), et n'apparaît ni dans `GET /api/agents` ni à
+ * Claude. Il **dérive** d'un profil livré (`base_agent_id`), dont il garde les
+ * outils et la consigne ; ce qu'il change ne fait que restreindre ou préciser
+ * (décision 13) : un modèle d'un fournisseur configuré, une consigne de rôle
+ * **ajoutée** à celle du profil, des limites abaissées, un sous-ensemble des
+ * serveurs MCP du profil.
+ */
+export const createdAgentSchema = z.object({
+  id: z.string().min(1).max(64),
+  /** La tâche orchestrateur qui l'a créé : il ne sert que dans son arbre. */
+  task_id: z.string(),
+  name: z.string().min(1).max(60),
+  base_agent_id: z.enum(CREATABLE_BASES),
+  provider_id: z.string(),
+  /** `null` : celui par défaut du fournisseur. */
+  model: z.string().nullable(),
+  /** Consigne de rôle, écrite par l'orchestrateur, **ajoutée** à celle du profil. */
+  role: z.string(),
+  mcp_servers: z.array(z.string()),
+  limits: agentLimitsSchema,
+  created_at: z.iso.datetime(),
+})
+export type CreatedAgent = z.infer<typeof createdAgentSchema>
+
+/**
  * Corps de `PUT /api/agents/:id/mcp` : la liste **complète** des serveurs MCP
  * d'un profil (Slice 8). Une route à part du `PATCH` : celui-ci porte sur le
  * modèle, et ses règles (un fournisseur est requis) n'ont rien à voir avec

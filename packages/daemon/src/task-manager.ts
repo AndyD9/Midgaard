@@ -23,8 +23,10 @@
  */
 import type {
   Agent,
+  AgentLimits,
   Approval,
   HarnessConfig,
+  PricingTable,
   InputRequest,
   RequestedLimits,
   Task,
@@ -40,7 +42,11 @@ import {
   tightenLimits,
 } from '@midgaard/contracts'
 import type { HarnessStore } from '@midgaard/persistence'
+import { randomBytes } from 'node:crypto'
+import { priceFor } from '@midgaard/providers'
 import type {
+  CreateAgentRequest,
+  CreatedAgentInfo,
   DelegableAgent,
   DelegationPort,
   DelegationRefusal,
@@ -53,6 +59,7 @@ import type { EventBus } from './bus.ts'
 import { SimulatedEngine, STEPS_TOTAL } from './engines/simulated.ts'
 import type { EngineContext, TaskEngine, VisionVerdict } from './engines/types.ts'
 import { navigatorBlindError } from './engines/agent.ts'
+import { resolveCreatedAgent } from './agents.ts'
 
 /** Délai maximal d'un constat de vision attendu par une requête : le catalogue ne doit pas bloquer l'API. */
 const VISION_PROBE_WAIT_MS = 5_000
@@ -96,6 +103,12 @@ export class TaskManager {
    * eux, et tombe de lui-même quand le profil change de modèle. En mémoire
    * seulement — il se refait au démarrage.
    */
+  /**
+   * Tarifs en vigueur, posés par le daemon une fois lus (`usePricing`). Ils
+   * servent à refuser à un agent créé un modèle sans tarif connu : son coût
+   * échapperait au budget de l'arbre (Slice 8).
+   */
+  private pricing: () => PricingTable | null = () => null
   private readonly vision = new Map<string, { providerId: string; model: string; verdict: VisionVerdict }>()
 
   constructor(config: HarnessConfig, store: HarnessStore, bus: EventBus, log: (...a: unknown[]) => void) {
@@ -116,6 +129,47 @@ export class TaskManager {
       // le désordre, et un dashboard qui retient le dernier vu le perdrait.
       queueMicrotask(() => this.cancelChildren(task.id, task.status))
     })
+  }
+
+  /**
+   * Le profil d'une tâche : un profil déclaré, ou un agent créé par un
+   * orchestrateur (Slice 8), résolu à partir de son profil de base.
+   *
+   * @returns `null` si l'identifiant ne désigne ni l'un ni l'autre
+   */
+  agentFor(id: string): Agent | null {
+    const profile = this.store.getAgent(id)
+    if (profile) return profile
+    const created = this.store.getCreatedAgent(id)
+    return created ? resolveCreatedAgent(this.store, created) : null
+  }
+
+  /** Pose la source des tarifs en vigueur ; le daemon l'appelle une fois les tarifs lus. */
+  usePricing(source: () => PricingTable): void {
+    this.pricing = source
+  }
+
+  /**
+   * Le budget de l'arbre d'une tâche (Slice 8, décision prise avec l'auteur) :
+   * le plafond de coût de l'orchestrateur couvre **tout** son arbre — ses
+   * propres appels et ceux de chaque sous-tâche.
+   *
+   * Seuls les montants connus comptent : une tâche dont le coût est inconnu
+   * (`cost_source: unknown`) n'entre pas dans la somme. C'est pourquoi un agent
+   * créé ne peut pas recevoir un modèle sans tarif connu.
+   *
+   * @returns le plafond et ce qu'ont dépensé les **autres** tâches de l'arbre,
+   *          ou `null` pour une tâche qui n'appartient à aucun arbre
+   */
+  treeBudget(taskId: string): { limit: number; others: number } | null {
+    const task = this.store.getTask(taskId)
+    if (!task) return null
+    const root = task.parent_task_id ? this.store.getTask(task.parent_task_id) : task
+    if (!root || this.agentFor(root.agent_id)?.kind !== 'orchestrator') return null
+    const others = [root, ...this.store.childTasks(root.id)]
+      .filter((t) => t.id !== taskId && t.usage.cost_source !== 'unknown')
+      .reduce((sum, t) => sum + t.usage.cost_usd, 0)
+    return { limit: root.limits.max_cost_usd, others }
   }
 
   /**
@@ -149,6 +203,7 @@ export class TaskManager {
       },
       requestInput: (taskId, request, text, step, extra) => this.openInput(taskId, request, text, step, extra),
       delegationFor: (parentTaskId, redact) => this.delegationFor(parentTaskId, redact),
+      treeBudget: (taskId) => this.treeBudget(taskId),
       noteVision: (agentId, providerId, model, verdict) => {
         this.vision.set(agentId, { providerId, model, verdict })
       },
@@ -304,8 +359,13 @@ export class TaskManager {
      */
     conversation?: boolean | undefined
   }): { task: Task } | Refusal {
-    const agent = this.store.getAgent(input.agentId)
-    if (!agent) {
+    const agent = this.agentFor(input.agentId)
+    // Un agent créé ne sert qu'aux sous-tâches de l'orchestrateur qui l'a créé
+    // (Slice 8, décision 15). Ailleurs — un autre arbre, une tâche lancée par
+    // Claude ou du dashboard —, il n'existe pas : même réponse qu'un inconnu,
+    // pour qu'un client n'apprenne rien des autres arbres.
+    const created = agent ? this.store.getCreatedAgent(agent.id) : null
+    if (!agent || (created && created.task_id !== input.parentTaskId)) {
       return {
         error: 'agent_not_found',
         status: 404,
@@ -332,7 +392,7 @@ export class TaskManager {
       if (isTerminal(parent.status) || parent.status === 'cancel_requested') {
         return { error: 'parent_not_active', status: 409, detail: { parent_task_id: parent.id, status: parent.status } }
       }
-      if (this.store.getAgent(parent.agent_id)?.kind !== 'orchestrator') {
+      if (this.agentFor(parent.agent_id)?.kind !== 'orchestrator') {
         return { error: 'parent_cannot_delegate', status: 409, detail: { parent_task_id: parent.id } }
       }
       if (agent.kind === 'orchestrator') {
@@ -487,7 +547,7 @@ export class TaskManager {
     }
     const text = input.conclude ? concludeText(input.text) : input.text
     if (!text.trim()) return { error: 'empty_message', status: 400 }
-    const agent = this.store.getAgent(task.agent_id)
+    const agent = this.agentFor(task.agent_id)
     const engine = agent ? this.engines.get(agent.kind) : undefined
     const resumed = engine?.deliver?.(task, text, 'message.user', { by: input.by, conclude: input.conclude })
     // L'attente n'est plus en vol dans ce processus : la tâche a été conclue
@@ -527,7 +587,7 @@ export class TaskManager {
       { needs_approval: false },
     )!
     this.log(`approbation ${approvalId} accordée par ${by}, tâche ${short(task.id)} relancée`)
-    const agent = this.store.getAgent(done.task.agent_id)
+    const agent = this.agentFor(done.task.agent_id)
     const engine = agent ? this.engines.get(agent.kind) : undefined
     if (agent && engine) engine.resume(done.task, agent)
     return this.view(done.task)
@@ -552,7 +612,7 @@ export class TaskManager {
       { needs_approval: false, error: reason ? `approbation refusée : ${reason}` : 'approbation refusée' },
     )!
     this.log(`approbation ${approvalId} refusée par ${by}`)
-    const agent = this.store.getAgent(done.task.agent_id)
+    const agent = this.agentFor(done.task.agent_id)
     const engine = agent ? this.engines.get(agent.kind) : undefined
     engine?.cancel(done.task)
     return this.view(done.task)
@@ -581,7 +641,7 @@ export class TaskManager {
       if (resolved) this.bus.emitApproval(resolved)
     }
 
-    const agent = this.store.getAgent(task.agent_id)
+    const agent = this.agentFor(task.agent_id)
     const engine = agent ? this.engines.get(agent.kind) : undefined
 
     if (task.status === 'waiting_approval') {
@@ -641,7 +701,7 @@ export class TaskManager {
       this.bus.emitApproval(resolved)
       const task = this.store.getTask(due.task_id)
       if (!task || task.status !== 'waiting_approval') continue
-      const agent = this.store.getAgent(task.agent_id)
+      const agent = this.agentFor(task.agent_id)
       if (agent) this.engines.get(agent.kind)?.cancel(task, 'expired')
       this.bus.record(
         task.id,
@@ -666,7 +726,7 @@ export class TaskManager {
     for (const task of this.store.listTasks({ status: 'waiting_input' })) {
       if (task.awaiting_input !== 'chat') continue
       if (now - Date.parse(task.updated_at) < this.config.inputTtlMs) continue
-      const agent = this.store.getAgent(task.agent_id)
+      const agent = this.agentFor(task.agent_id)
       const error = `aucune réponse de l'utilisateur en ${humanDelay(this.config.inputTtlMs)}`
       this.bus.record(task.id, 'timed_out', { type: 'task.timed_out', payload: { reason: error } }, { error })
       // Après l'écriture : la boucle réveillée trouvera une tâche finie, et son
@@ -700,25 +760,55 @@ export class TaskManager {
       return task
     }
 
+    const delegable = (a: Agent, created = false): DelegableAgent => ({
+      id: a.id,
+      name: a.name,
+      kind: a.kind,
+      description: a.description,
+      enabled: a.enabled && !this.blindReason(a),
+      disabled_reason: !a.enabled ? this.whyDisabledForModel(a) : this.blindReason(a)?.model ?? null,
+      limits: a.limits,
+      mcp_servers: a.mcp_servers.map((id) => ({ id, name: this.store.getMcpServer(id)?.name ?? id })),
+      ...(created ? { created: true } : {}),
+    })
+
     return {
-      listAgents: () =>
-        this.store
+      // Les profils, puis les agents que **cette** tâche a créés (Slice 8) :
+      // ceux d'un autre arbre n'existent pas pour elle.
+      listAgents: () => [
+        ...this.store
           .listAgents()
           .filter((a) => a.kind !== 'orchestrator')
-          .map(
-            (a): DelegableAgent => ({
-              id: a.id,
-              name: a.name,
-              kind: a.kind,
-              description: a.description,
-              enabled: a.enabled && !this.blindReason(a),
-              disabled_reason: !a.enabled ? this.whyDisabledForModel(a) : this.blindReason(a)?.model ?? null,
-              limits: a.limits,
-              mcp_servers: a.mcp_servers.map((id) => ({ id, name: this.store.getMcpServer(id)?.name ?? id })),
-            }),
-          ),
+          .map((a) => delegable(a)),
+        ...this.store
+          .createdAgentsOf(parentId)
+          .map((c) => resolveCreatedAgent(this.store, c))
+          .filter((a): a is Agent => a !== null)
+          .map((a) => delegable(a, true)),
+      ],
+
+      createAgent: (request) => this.createAgent(parentId, request, redact),
 
       delegate: (request) => {
+        // Les deux plafonds de l'arbre (Slice 8), vérifiés **avant** de créer
+        // la sous-tâche, comme toute limite : une limite constatée après coup
+        // a déjà été payée.
+        const active = this.store.childTasks(parentId, { active: true }).length
+        if (active >= this.config.maxActiveSubtasks) {
+          return {
+            refused:
+              `${active} subtask(s) are already running, the maximum at the same time: ` +
+              'wait for one with wait_for_task, or cancel one, before delegating again',
+          }
+        }
+        const tree = this.treeBudget(parentId)
+        if (tree) {
+          const parent = this.store.getTask(parentId)
+          const spent = tree.others + (parent && parent.usage.cost_source !== 'unknown' ? parent.usage.cost_usd : 0)
+          if (spent >= tree.limit) {
+            return { refused: `the budget of this task ($${tree.limit}) is spent across its subtasks: no new subtask can start` }
+          }
+        }
         const created = this.create({
           objective: redact(request.objective.trim()),
           agentId: request.agent_id,
@@ -805,9 +895,117 @@ export class TaskManager {
     }
   }
 
+  /**
+   * Crée un agent pour l'arbre d'un orchestrateur (Slice 8, décisions 12 à 16).
+   *
+   * Rien de ce qui est créé ne dépasse le profil de base, et tout dépassement
+   * est **refusé avec son motif**, jamais réduit en silence : l'orchestrateur
+   * doit savoir ce qu'il a obtenu. Le rôle est écrit par un modèle : il passe
+   * par l'expurgation avant d'être persisté, comme un objectif délégué.
+   */
+  private createAgent(
+    parentId: string,
+    request: CreateAgentRequest,
+    redact: (text: string) => string,
+  ): CreatedAgentInfo | DelegationRefusal {
+    const parent = this.store.getTask(parentId)
+    if (!parent || isTerminal(parent.status) || parent.status === 'cancel_requested') {
+      return { refused: 'your task is stopping: no new executor can be created' }
+    }
+    if (this.store.createdAgentsOf(parentId).length >= MAX_CREATED_AGENTS) {
+      return { refused: `you already created ${MAX_CREATED_AGENTS} executors in this task: reuse one of them (list_agents)` }
+    }
+    const base = this.store.getAgent(request.base)
+    if (!base) return { refused: `unknown base profile "${request.base}"` }
+    if (!base.enabled) return { refused: `the base profile "${base.id}" is disabled: ${this.whyDisabledForModel(base)}` }
+
+    // Le fournisseur : déclaré.
+    const providerId = request.provider_id ?? base.provider_id
+    const provider = providerId ? this.store.getProvider(providerId) : null
+    if (!providerId || !provider) {
+      const known = this.store.listProviders().map((p) => p.id)
+      return { refused: `unknown model provider "${providerId ?? ''}"; configured: ${known.join(', ') || 'none'}` }
+    }
+    // Le modèle : celui du profil de base par défaut. Un autre doit être
+    // offert par le fournisseur (constaté au dernier test de connexion) **et**
+    // avoir un tarif connu : sinon son coût échapperait au budget de l'arbre.
+    const baseModel = providerId === base.provider_id ? base.model : null
+    const model = request.model ?? baseModel
+    const effective = model ?? provider.default_model
+    const baseEffective = base.provider_id === providerId ? (base.model ?? provider.default_model) : null
+    if (effective !== baseEffective) {
+      const offered = provider.last_test?.models ?? []
+      if (model && model !== provider.default_model && !offered.includes(model)) {
+        return {
+          refused: offered.length
+            ? `model "${model}" is not offered by provider "${providerId}"`
+            : `the models of provider "${providerId}" are unknown: use its default model or the base profile's`,
+        }
+      }
+      const table = this.pricing()
+      if (!table || !priceFor(table, provider.preset, effective)) {
+        return { refused: `model "${effective}" has no known price: its cost could not be bounded by your task budget` }
+      }
+    }
+    // Les serveurs MCP : un sous-ensemble de ceux du profil de base.
+    const servers = [...new Set(request.mcp_servers ?? [])]
+    const foreign = servers.filter((s) => !base.mcp_servers.includes(s))
+    if (foreign.length) {
+      return {
+        refused:
+          `MCP server(s) ${foreign.join(', ')} not available to the base profile "${base.id}" ` +
+          `(it has: ${base.mcp_servers.join(', ') || 'none'})`,
+      }
+    }
+    // Les limites : au plus celles du profil de base.
+    const asked = request.limits ?? {}
+    const above = (Object.keys(asked) as (keyof AgentLimits)[]).filter((k) => asked[k] !== undefined && asked[k]! > base.limits[k])
+    if (above.length) {
+      return {
+        refused: `limits above the base profile: ${above.map((k) => `${k} ${asked[k]} > ${base.limits[k]}`).join(', ')}`,
+      }
+    }
+
+    const name = redact(request.name.trim()).slice(0, 60)
+    const created = this.store.createCreatedAgent({
+      id: createdAgentId(name),
+      task_id: parentId,
+      name,
+      base_agent_id: request.base,
+      provider_id: providerId,
+      model,
+      role: redact(request.role.trim()),
+      mcp_servers: servers,
+      limits: tightenLimits(base.limits, asked),
+    })
+    // Écrit dans le journal de l'orchestrateur : l'humain voit dans l'arbre
+    // qui a été créé, à partir de quoi, et avec quel rôle (décision 14).
+    this.bus.record(parentId, null, {
+      type: 'agent.created',
+      payload: {
+        agent_id: created.id,
+        name: created.name,
+        base_agent_id: created.base_agent_id,
+        provider_id: created.provider_id,
+        model: created.model,
+        mcp_servers: created.mcp_servers,
+        role: created.role,
+      },
+    })
+    return {
+      agent_id: created.id,
+      name: created.name,
+      base: created.base_agent_id,
+      provider_id: created.provider_id,
+      model: created.model,
+      mcp_servers: created.mcp_servers,
+      limits: created.limits,
+    }
+  }
+
   /** Le moteur du profil d'une tâche, s'il est enregistré. */
   private engineFor(task: Task): TaskEngine | undefined {
-    const agent = this.store.getAgent(task.agent_id)
+    const agent = this.agentFor(task.agent_id)
     return agent ? this.engines.get(agent.kind) : undefined
   }
 
@@ -925,7 +1123,7 @@ export class TaskManager {
       case 'agent_not_found':
         return `unknown profile "${String(d.agent_id)}": call list_agents to see the available ones`
       case 'agent_disabled': {
-        const agent = this.store.getAgent(String(d.agent_id))
+        const agent = this.agentFor(String(d.agent_id))
         const why = !agent ? 'unknown reason' : agent.enabled ? this.blindReason(agent)?.model ?? 'the profile is disabled' : this.whyDisabledForModel(agent)
         return `profile "${String(d.agent_id)}" is disabled: ${why}`
       }
@@ -1069,3 +1267,22 @@ function concludeText(userText: string): string {
 function short(id: string): string {
   return id.slice(0, 8)
 }
+
+/** Agents qu'un orchestrateur peut créer dans une tâche : de quoi spécialiser, pas de quoi submerger. */
+export const MAX_CREATED_AGENTS = 8
+
+/**
+ * Identifiant d'un agent créé : son nom en minuscules, puis six caractères
+ * aléatoires — lisible dans l'arbre, unique, et dans l'alphabet des profils.
+ */
+function createdAgentId(name: string): string {
+  const slug = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+  return `${slug || 'agent'}-${randomBytes(3).toString('hex')}`
+}
+

@@ -123,6 +123,13 @@ export interface HarnessConfig {
    * Le daemon rappelle cette conséquence dans son journal au démarrage.
    */
   execAllow: string[][]
+  /**
+   * Sous-tâches actives qu'un orchestrateur peut avoir en même temps (Slice 8,
+   * décision 17). Créer des agents à la volée et les lancer en parallèle
+   * multiplie la dépense ; ce plafond se vérifie **avant** de créer une
+   * sous-tâche. 4 par défaut, réglable par `MIDGAARD_MAX_ACTIVE_SUBTASKS`.
+   */
+  maxActiveSubtasks: number
 }
 
 /** Valeurs lisibles depuis l'environnement. Tout le reste est dérivé. */
@@ -136,6 +143,7 @@ export interface ConfigEnv {
   MIDGAARD_HTTP_POLICY?: string | undefined
   MIDGAARD_HTTP_ALLOW?: string | undefined
   MIDGAARD_EXEC_ALLOW?: string | undefined
+  MIDGAARD_MAX_ACTIVE_SUBTASKS?: string | undefined
 }
 
 /** Port par défaut, repris du plan (`http://127.0.0.1:7777`). */
@@ -186,6 +194,7 @@ export function loadConfig(env: ConfigEnv = {}, overrides: Partial<HarnessConfig
   const idleS = Number(env.MIDGAARD_IDLE_SHUTDOWN_S ?? 1800)
   const ttlS = Number(env.MIDGAARD_APPROVAL_TTL_S ?? 600)
   const inputTtlS = Number(env.MIDGAARD_INPUT_TTL_S ?? 7200)
+  const maxActive = Number(env.MIDGAARD_MAX_ACTIVE_SUBTASKS ?? 4)
 
   const base: HarnessConfig = {
     home,
@@ -212,6 +221,8 @@ export function loadConfig(env: ConfigEnv = {}, overrides: Partial<HarnessConfig
       .map((h) => h.trim())
       .filter(Boolean),
     execAllow: parseExecAllow(env.MIDGAARD_EXEC_ALLOW),
+    // Un entier d'au moins 1 : zéro interdirait toute délégation sans le dire.
+    maxActiveSubtasks: Number.isInteger(maxActive) && maxActive >= 1 ? maxActive : 4,
   }
   // Les surcharges s'appliquent en dernier, mais les chemins dérivés de `home`
   // ont déjà été calculés : une surcharge de `home` seule doit donc les recalculer.

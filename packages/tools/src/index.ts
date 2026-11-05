@@ -17,6 +17,7 @@ import { execTool } from './exec.ts'
 import {
   acceptResultTool,
   cancelTaskTool,
+  createAgentTool,
   delegateTaskTool,
   listAgentsTool,
   sendMessageTool,
@@ -31,7 +32,7 @@ import {
 
 export type {
   Tool, ToolContext, HttpPolicy, PreparedOperation,
-  DelegableAgent, DelegateRequest, DelegationPort, DelegationRefusal, SubtaskAwaiting, SubtaskState, WaitStop,
+  CreateAgentRequest, CreatedAgentInfo, DelegableAgent, DelegateRequest, DelegationPort, DelegationRefusal, SubtaskAwaiting, SubtaskState, WaitStop,
   BrowserCapture, BrowserNoSession, BrowserPageView, BrowserPlannedInput, BrowserPort, BrowserSessionInfo,
 } from './types.ts'
 export { ToolError, HTTP_POLICIES, MAX_TOOL_RESULT_BYTES, truncate } from './types.ts'
@@ -67,11 +68,12 @@ export type { BrowserKey } from './browser.ts'
 export const VISION_TOOLS: readonly string[] = ['read_image', ...BROWSER_TOOLS]
 
 /**
- * Outils de délégation : réservés au profil `orchestrator`. Les quatre premiers
- * datent de la Slice 5 ; `send_message` et `accept_result`, de la Slice 6.
+ * Outils de délégation : réservés au profil `orchestrator`. `list_agents`,
+ * `delegate_task`, `wait_for_task` et `cancel_task` datent de la Slice 5 ;
+ * `send_message` et `accept_result`, de la Slice 6 ; `create_agent`, de la Slice 8.
  */
 export const DELEGATION_TOOLS = [
-  'list_agents', 'delegate_task', 'wait_for_task', 'cancel_task', 'send_message', 'accept_result',
+  'list_agents', 'create_agent', 'delegate_task', 'wait_for_task', 'cancel_task', 'send_message', 'accept_result',
 ] as const
 
 /** Nom de l'outil terminal, que la boucle intercepte. */
@@ -97,6 +99,7 @@ export const TOOLBOX: Readonly<Record<string, Tool<never>>> = Object.freeze({
   git_diff: gitDiffTool as Tool<never>,
   exec: execTool as Tool<never>,
   list_agents: listAgentsTool as Tool<never>,
+  create_agent: createAgentTool as Tool<never>,
   delegate_task: delegateTaskTool as Tool<never>,
   wait_for_task: waitForTaskTool as Tool<never>,
   cancel_task: cancelTaskTool as Tool<never>,
