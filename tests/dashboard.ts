@@ -860,6 +860,15 @@ await scenario(outcomes, 'D7 la perte de la WebSocket se voit, et le retour auss
   if (!(await connection('déconnecté'))) {
     return { verdict: 'FAIL', detail: 'le daemon est mort, le dashboard affiche toujours « en direct »' }
   }
+  // Et il le **reste** : après plusieurs tentatives ratées (300, 700, 1500 ms),
+  // le bandeau doit redire « déconnecté ». Une tentative qui échouait dès le
+  // bootstrap le laissait sur « connexion… » pour toujours — vu en CI dès que
+  // D14 a rechargé la page juste avant ce scénario (Slice 7, étape 6) ; le
+  // premier contrôle ne le voyait que s'il regardait avant la tentative.
+  await sleep(3000)
+  if (!(await connection('déconnecté', 12_000))) {
+    return { verdict: 'FAIL', detail: 'après des tentatives ratées, le bandeau reste sur « connexion… » : la panne ne se voit plus' }
+  }
 
   // Et le retour. C'est la seconde moitié qui compte : le jeton est régénéré à
   // chaque démarrage du daemon, et la page en garde un périmé. Tant qu'elle ne

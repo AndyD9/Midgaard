@@ -247,3 +247,52 @@ describe('le Navigator dans un vrai daemon', () => {
     }
   })
 })
+
+describe('un daemon fermé en pleine tâche', () => {
+  it('ne tue pas le processus qui l\'héberge : la tâche finit après la base, sans erreur non rattrapée', async () => {
+    // Constaté en CI sous Windows (Slice 7, étape 6) : le test fermait son
+    // daemon pendant qu'une tâche attendait une approbation, la boucle finissait
+    // après la fermeture de la base, et « database is not open » tuait le
+    // processus. On compte ici les rejets non rattrapés pendant la fermeture.
+    const home = mkdtempSync(join(tmpdir(), 'midgaard-arret-'))
+    const repo = realpathSync.native(mkdtempSync(join(tmpdir(), 'midgaard-arret-depot-')))
+    const provider = await startFakeProvider()
+    const unhandled: unknown[] = []
+    const onUnhandled = (e: unknown) => void unhandled.push(e)
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      const config = loadConfig({ MIDGAARD_HOME: home, MIDGAARD_PORT: '0' })
+      const daemon = (await startDaemon(config, {
+        log: () => {},
+        env: { MIDGAARD_VAULT: 'file', MIDGAARD_PROVIDER_API_KEY: 'sk-faux-arret' },
+      }))!
+      daemon.store.upsertProvider({
+        id: 'faux', name: 'faux', kind: 'openai-compatible', preset: 'custom', baseUrl: provider.url,
+        defaultModel: 'faux-1', secretRef: null, webSearch: 'off',
+      })
+      reconcileAgents(daemon.store)
+      daemon.store.setAgentModel(NAVIGATOR_AGENT_ID, 'faux', null, true)
+      provider.scripts.set('[arret]', [
+        [{ tool: 'browser_open', args: { objective: 'o', url: 'https://example.org/' } }],
+      ])
+      const created = daemon.tasks.create({
+        objective: '[arret] attends', agentId: NAVIGATOR_AGENT_ID, context: null, projectDir: repo,
+        durationS: 20, needsApproval: false,
+      })
+      assert.ok(!('error' in created), JSON.stringify(created))
+      for (let i = 0; i < 100 && daemon.store.getTask(created.task.id)?.status !== 'waiting_approval'; i++) await sleep(50)
+      assert.equal(daemon.store.getTask(created.task.id)?.status, 'waiting_approval')
+
+      daemon.close('fermé en pleine tâche')
+      await daemon.stopped
+      // Laisse la boucle interrompue finir, après la base.
+      await sleep(500)
+      assert.deepEqual(unhandled.map((e) => String(e)), [], 'aucun rejet non rattrapé')
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+      provider.server.close()
+      rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+      rmSync(repo, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+    }
+  })
+})

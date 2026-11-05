@@ -162,6 +162,11 @@ export function useHarness() {
       try {
         if (!currentToken()) await bootstrap()
       } catch (e) {
+        // Retour à `closed` : sans lui, une tentative qui échouait ici laissait
+        // le bandeau sur « connexion… » pour toujours, daemon mort compris —
+        // la page ne disait plus jamais « déconnecté ». Vu par D7 dès qu'un
+        // rechargement le précédait (Slice 7, étape 6).
+        dispatch({ kind: 'status', status: 'closed' })
         dispatch({ kind: 'error', error: `daemon injoignable : ${(e as Error).message}` })
         return scheduleRetry()
       }

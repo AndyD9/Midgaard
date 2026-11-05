@@ -169,6 +169,8 @@ export class AgentEngine implements TaskEngine {
   readonly kind: AgentKind
   private readonly deps: AgentEngineDeps
   private readonly running = new Map<string, Running>()
+  /** Vrai après {@link AgentEngine.stop} : la base va se fermer, ou l'est déjà. */
+  private stopped = false
 
   constructor(deps: AgentEngineDeps) {
     this.deps = deps
@@ -177,8 +179,15 @@ export class AgentEngine implements TaskEngine {
 
   start(task: Task, agent: Agent): void {
     // Volontairement non attendu : un moteur qui bloque bloquerait le daemon
-    // entier, long-polls compris. Les erreurs sont traitées dans `execute`.
-    void this.execute(task, agent)
+    // entier, long-polls compris. Les erreurs sont traitées dans `execute` —
+    // sauf une, après l'arrêt : la boucle interrompue finit **après** la
+    // fermeture de la base, et sa conclusion lève « database is not open ».
+    // Non rattrapée, elle tuait le processus qui héberge le daemon : constaté
+    // en CI sous Windows (Slice 7, étape 6), un daemon fermé en pleine tâche.
+    // La tâche sera `interrupted` au prochain démarrage, comme toute autre.
+    void this.execute(task, agent).catch((e: unknown) => {
+      if (!this.stopped) this.deps.ctx.log(`tâche ${task.id.slice(0, 8)} : fin impossible`, e)
+    })
   }
 
   /** Une approbation accordée débloque l'attente de la boucle, là où elle en était. */
@@ -246,6 +255,7 @@ export class AgentEngine implements TaskEngine {
   }
 
   stop(): void {
+    this.stopped = true
     for (const state of this.running.values()) {
       state.cancelled = true
       state.decide?.('rejected')

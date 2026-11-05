@@ -545,3 +545,27 @@ un Navigator aveugle, qui a un fournisseur et à qui il faut un modèle.
 la capture sous le pli, et il faut défiler pour la voir entière. À reprendre
 si l'essai réel le confirme gênant.
 
+**Ce que la CI a trouvé** (passage `41703895792`, sur `89c713e`) : « Bout en
+bout » rouge sur les trois plateformes, deux défauts réels, et aucun dans le
+navigateur.
+
+1. **Le dashboard ne disait plus jamais « déconnecté »** (macOS, Linux). Une
+   tentative de reconnexion qui échouait dès le bootstrap laissait le bandeau
+   sur « connexion… » pour toujours, daemon mort compris. D7 ne le voyait pas
+   tant qu'il regardait le bandeau avant la première nouvelle tentative. D14,
+   qui recharge la page juste avant lui, a déplacé ce moment : l'échec est
+   devenu intermittent en local, constant en CI. Le correctif repasse à
+   `closed` sur cet échec (`useHarness.ts`). D7 exige désormais de revoir
+   « déconnecté » **après** plusieurs tentatives ratées. Sans le correctif, il
+   échoue à chaque fois, et un autre scénario avec lui ; avec, les 14 passent.
+2. **Un daemon fermé en pleine tâche tuait le processus qui l'héberge**
+   (Windows). D14 a attendu un élément, échoué, puis fermé son daemon pendant
+   que la tâche tournait encore. La boucle interrompue a fini après la
+   fermeture de la base, et « database is not open », non rattrapée, a tué le
+   processus. Le moteur rattrape désormais cette erreur une fois arrêté ; la
+   tâche sera `interrupted` au démarrage suivant, comme toute autre. Prouvé
+   par `navigator.test.ts` (« un daemon fermé en pleine tâche »), qui compte
+   les rejets non rattrapés. **Pourquoi D14 attendait sous Windows reste à
+   lire** : le plantage a empêché d'en écrire le motif, et la prochaine CI le
+   dira.
+
