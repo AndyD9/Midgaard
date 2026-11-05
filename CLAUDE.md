@@ -310,7 +310,8 @@ redéclarer efface le catalogue, et un outil annoncé autrement devient
 (`mcp.<empreinte>.<serveur>.<nom>`). La CLI résout le programme **et rend
 absolus les arguments-fichiers** : la vraie CLI a montré que `node
 tests/fake-mcp-server.ts`, déclaré tel quel, ne trouvait pas son script.
-Étape 3 faite : un profil porte `mcp_servers` (migration 12,
+Étape 3 faite, verte en CI sur trois plateformes (passage `42011901280`) :
+un profil porte `mcp_servers` (migration 12,
 `PUT /api/agents/:id/mcp`, `PROTOCOL_VERSION` 15 ; jamais l'orchestrateur).
 Les outils `<serveur>__<outil>` sont **construits pour chaque tâche**
 (`tools/src/mcp.ts`, `LoopInput.extraTools`) ; ses serveurs démarrent **au

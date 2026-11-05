@@ -9,7 +9,8 @@ agents à la volée** au lieu de piocher dans cinq profils figés.
 **État : en cours.** Décisions acceptées par l'auteur le 2026-11-05 ; étape 1
 faite le même jour, verte en CI sur macOS, Linux et Windows (passage
 `42002800496`) ; étape 2 faite le même jour, verte en CI sur les trois plateformes (passage
-`42007433791`) ; étape 3 faite le même jour, verte sous macOS.
+`42007433791`) ; étape 3 faite le même jour, verte en CI sur les trois plateformes (passage
+`42011901280`).
 
 ---
 
@@ -157,7 +158,7 @@ ouvert.
 |---|---|---|
 | 1 | Le paquet `mcp-client` : lancer un serveur stdio sous la garde, `initialize`, `tools/list`, `tools/call`, annulation, délai ; aucun processus survivant, `SIGKILL` du daemon compris ; éprouvé contre un faux serveur MCP de test | **fait** — 15 tests, vus échouer sans la garde et sans le groupe ; verts en CI sur trois plateformes |
 | 2 | La déclaration : migration (serveurs, outils cochés et leurs empreintes), `harness mcp add/list/test/allow/remove`, routes `/api/mcp`, « Tester la connexion » qui lit vraiment le catalogue | **fait** — migration 11, `PROTOCOL_VERSION` 14 ; deux défauts trouvés par la vraie CLI, réglés ; verte en CI sur trois plateformes |
-| 3 | Les outils MCP derrière `ToolContext.mcp` : noms préfixés, liste blanche à empreinte, approbation sur arguments exacts, encadrement, plafond, expurgation ; `mcp_servers` sur un profil ; `PROTOCOL_VERSION` | **fait** — migration 12, `PROTOCOL_VERSION` 15 ; un agent réel du daemon appelle un serveur MCP, vu échouer sur deux défauts introduits ; CI à constater |
+| 3 | Les outils MCP derrière `ToolContext.mcp` : noms préfixés, liste blanche à empreinte, approbation sur arguments exacts, encadrement, plafond, expurgation ; `mcp_servers` sur un profil ; `PROTOCOL_VERSION` | **fait** — migration 12, `PROTOCOL_VERSION` 15 ; un agent réel du daemon appelle un serveur MCP, vu échouer sur deux défauts introduits ; verte en CI sur trois plateformes |
 | 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | à faire |
 | 5 | Le dashboard : page « Serveurs MCP » (déclarer, tester, cocher), serveurs d'un profil, appels MCP dans le fil, agents créés et leur consigne dans l'arbre | à faire |
 | 6 | Preuves : `test:orchestrator` (création, délégation parallèle, outil MCP), `test:security` (outil non coché refusé sans atteindre le serveur, empreinte changée → plus libre, agent créé qui tente de dépasser son type, rien de non expurgé en base, aucun serveur vivant après `SIGKILL`), CI sur trois plateformes | à faire |
@@ -342,7 +343,8 @@ défauts introduits exprès l'ont fait échouer :
    dans un fichier, changé après le test de connexion.
 
 `test:security`, `test:orchestrator`, `test:developer` et `test:restart`
-restent verts au protocole 15.
+restent verts au protocole 15, et la CI (passage `42011901280`) passe les
+scénarios MCP sous macOS, Linux et Windows.
 
 **Ce qui reste à voir à l'essai réel** : le coût d'un catalogue de plusieurs
 dizaines d'outils relu à chaque appel de modèle (REA propose un profil de
