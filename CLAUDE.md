@@ -55,7 +55,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer, arbre d'un orchestrateur, atelier (conversation, éditeur, terminal), onglet « Navigateur », rechargement d'une page plus vieille que son daemon, serveurs MCP aux Profils et agents créés compris (`npx playwright install chromium` au préalable) |
 | `npm run test:developer` | ~35 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris |
 | `npm run test:orchestrator` | ~10 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL`, conversation qui pilote une revue, `SIGKILL` pendant une attente |
-| `npm run test:security` | ~10 s — PLAN §8.4 de bout en bout : base et journal lus octet pour octet (conversation, questions, propositions et sortie en direct comprises), refus tracés, API sur la seule boucle locale ; le navigateur : saisie sans approbation, adresses privées, aucun Chromium après `SIGKILL`, aucune capture en base (`npx playwright install chromium` au préalable) |
+| `npm run test:security` | ~1 min — PLAN §8.4 de bout en bout : base et journal lus octet pour octet (conversation, questions, propositions et sortie en direct comprises), refus tracés, API sur la seule boucle locale ; le navigateur : saisie sans approbation, adresses privées, aucun Chromium après `SIGKILL`, aucune capture en base ; les serveurs MCP : outil non coché ou changé jamais reçu par le serveur, secret d'un serveur jamais persisté, exécutant créé borné, aucun serveur après `SIGKILL` (`npx playwright install chromium` au préalable) |
 | `npm run test:live-vision` | Payant, opt-in — une image envoyée à un modèle Venice qui la lit, coût relevé |
 | `npm run test:wait` | ~3 min — 13 scénarios de bout en bout MCP |
 
@@ -341,7 +341,12 @@ et une case par serveur pour chaque profil qui peut en recevoir ; la carte
 « Sous-tâches » montre le budget de l'arbre et les agents créés **avec leur
 rôle**. **La déclaration d'un serveur reste à la CLI** : elle seule résout le
 programme et saisit un secret sans écho. D16 et D17 dans `test:ui`, verts en CI sur trois
-plateformes (passage `42056152169`).
+plateformes (passage `42056152169`). Étape 6 faite : X10 à X13 dans
+`test:security` — le faux serveur **note chaque appel reçu**, et un outil non
+coché ou changé depuis ne lui arrive jamais ; secret d'un serveur jamais
+persisté ; exécutant créé borné et hors de tout autre arbre ; aucun serveur
+après `SIGKILL` du daemon, serveur figé avant. Chacun vu échouer sur la
+protection qu'il garde.
 
 ## Slice 7 terminée — les agents voient
 

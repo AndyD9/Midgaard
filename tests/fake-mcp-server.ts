@@ -28,10 +28,13 @@
  * Le dossier `FAKE_MCP_MARKS`, s'il est déclaré dans son environnement, reçoit
  * un fichier par événement que le test doit constater sans le lui demander
  * (`cancelled` : une annulation reçue ; `server-<pid>` : un processus serveur
- * lancé, pour compter ceux qui survivraient).
+ * lancé, `sleeper-<pid>` : un fils lancé par `spawn_sleeper`, pour compter
+ * ceux qui survivraient). Il reçoit aussi `calls.log`, une ligne par appel
+ * d'outil **reçu** : c'est ce qui prouve qu'un appel refusé n'est jamais
+ * arrivé au serveur (`test:security`, X10).
  */
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -43,6 +46,11 @@ const marks = process.env.FAKE_MCP_MARKS
 /** Laisse une trace que le test lira : le serveur n'a pas d'autre moyen de lui parler hors protocole. */
 function mark(name: string, content = ''): void {
   if (marks) writeFileSync(join(marks, name), content)
+}
+
+/** Note qu'un appel est arrivé jusqu'ici, avant d'y répondre. */
+function called(tool: string): void {
+  if (marks) appendFileSync(join(marks, 'calls.log'), `${tool}\n`)
 }
 
 if (mode === '--fail-with-env') {
@@ -70,17 +78,32 @@ if (mode === '--fail-with-env') {
       inputSchema: { text: z.string() },
       annotations: { readOnlyHint: true },
     },
-    async ({ text }) => ({ content: [{ type: 'text', text }] }),
+    async ({ text }) => {
+      called('echo')
+      return { content: [{ type: 'text', text }] }
+    },
   )
 
-  server.registerTool('env', { description: 'List the names of the environment variables it received.' }, async () => ({
-    content: [{ type: 'text', text: JSON.stringify(Object.keys(process.env).sort()) }],
-  }))
+  server.registerTool(
+    'env',
+    {
+      description: 'List the names of the environment variables it received, or return the value of one.',
+      inputSchema: { name: z.string().optional() },
+    },
+    async ({ name }) => {
+      called('env')
+      // Rendre une valeur : c'est ainsi qu'un serveur répète un jeton qu'on lui
+      // a confié, et que la suite de sécurité vérifie qu'il est expurgé.
+      const text = name ? (process.env[name] ?? '(absent)') : JSON.stringify(Object.keys(process.env).sort())
+      return { content: [{ type: 'text', text }] }
+    },
+  )
 
   server.registerTool(
     'slow',
     { description: 'Wait, announcing progress, unless cancelled.', inputSchema: { ms: z.number() } },
     async ({ ms }, extra) => {
+      called('slow')
       const started = Date.now()
       let step = 0
       while (Date.now() - started < ms) {
@@ -104,7 +127,9 @@ if (mode === '--fail-with-env') {
     // Un fils **non détaché** : il reste dans le groupe du serveur, comme
     // Ghidra lancé par REA. Il ne lit pas son entrée, donc il ne mourra pas
     // de lui-même avec son parent : seul un signal au groupe le tue.
+    called('spawn_sleeper')
     const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
+    mark(`sleeper-${child.pid}`, String(child.pid))
     return { content: [{ type: 'text', text: String(child.pid) }] }
   })
 

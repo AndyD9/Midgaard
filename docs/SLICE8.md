@@ -12,7 +12,7 @@ faite le même jour, verte en CI sur macOS, Linux et Windows (passage
 `42007433791`) ; étape 3 faite le même jour, verte en CI sur les trois plateformes (passage
 `42011901280`) ; étape 4 faite le même jour, verte en CI sur les trois plateformes (passage
 `42016819429`) ; étape 5 faite le même jour, verte en CI sur les trois plateformes (passage
-`42056152169`).
+`42056152169`) ; étape 6 faite le même jour, verte sous macOS.
 
 ---
 
@@ -170,7 +170,7 @@ ouvert.
 | 3 | Les outils MCP derrière `ToolContext.mcp` : noms préfixés, liste blanche à empreinte, approbation sur arguments exacts, encadrement, plafond, expurgation ; `mcp_servers` sur un profil ; `PROTOCOL_VERSION` | **fait** — migration 12, `PROTOCOL_VERSION` 15 ; un agent réel du daemon appelle un serveur MCP, vu échouer sur deux défauts introduits ; verte en CI sur trois plateformes |
 | 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | **fait** — migration 13, budget d'arbre ; trois défauts introduits vus échouer, un trou trouvé en écrivant ; verte en CI sur trois plateformes |
 | 5 | Le dashboard : page « Serveurs MCP » (déclarer, tester, cocher), serveurs d'un profil, appels MCP dans le fil, agents créés et leur consigne dans l'arbre | **fait** — la déclaration reste à la CLI ; D16 et D17 dans `test:ui` ; vu dans le navigateur ; verte en CI sur trois plateformes |
-| 6 | Preuves : `test:orchestrator` (création, délégation parallèle, outil MCP), `test:security` (outil non coché refusé sans atteindre le serveur, empreinte changée → plus libre, agent créé qui tente de dépasser son type, rien de non expurgé en base, aucun serveur vivant après `SIGKILL`), CI sur trois plateformes | à faire |
+| 6 | Preuves : `test:orchestrator` (création, délégation parallèle, outil MCP), `test:security` (outil non coché refusé sans atteindre le serveur, empreinte changée → plus libre, agent créé qui tente de dépasser son type, rien de non expurgé en base, aucun serveur vivant après `SIGKILL`), CI sur trois plateformes | **fait** — X10 à X13 dans `test:security`, chacun vu échouer sur la protection qu'il garde ; CI à constater |
 | 7 | L'essai réel : un orchestrateur sur Venice crée deux agents de reverse sur REA et un Developer, analyse un binaire, rend une synthèse ; coût relevé | à faire |
 
 ### Ce que chaque étape doit surveiller
@@ -450,4 +450,38 @@ premier jet de D16 lisait la case juste après la base, avant la réponse de
 l'API : une course du test, pas du dashboard. Vu enfin dans le navigateur
 intégré, sur un daemon jetable : carte, catalogue, case du Researcher. En CI
 (passage `42056152169`), D16 et D17 passent sous macOS, Linux et Windows.
+
+### Étape 6 — les preuves de bout en bout (2026-11-05)
+
+Quatre scénarios de plus dans `test:security`, sur un vrai daemon, le faux
+fournisseur et le faux serveur MCP — qui note désormais chaque appel **reçu**
+(`calls.log`) et chaque fils lancé :
+
+- **X10** — un outil non coché, refusé par l'humain, et un outil coché puis
+  décrit autrement par un serveur mis à jour sur place, refusé lui aussi,
+  **n'atteignent jamais le serveur** : il n'a reçu que l'appel témoin coché.
+  C'est le serveur qui le dit, pas le journal du harness.
+- **X11** — le jeton d'un serveur, rendu par lui dans un résultat puis recopié
+  par l'agent dans un appel et dans sa conclusion, est expurgé avant le modèle
+  et absent de la base, du WAL et des journaux, lus octet pour octet.
+- **X12** — un vrai orchestrateur demande un exécutant aux limites trop
+  hautes, puis un autre avec un serveur MCP que son profil n'a pas : refus
+  motivés, au journal. L'exécutant légitime est créé et délégué, absent des
+  profils, refusé hors de son arbre ; son rôle, qui portait une clé tierce, est
+  expurgé.
+- **X13** — sur un daemon à part, le serveur MCP d'une tâche et le fils qu'il a
+  lancé, vivants pendant une pause d'approbation, meurent après un `SIGKILL` du
+  daemon ; le serveur est **figé** avant (leçon de X9 : un serveur stdio
+  quitte souvent seul quand son entrée se ferme).
+
+**Chacun vu échouer** sur la protection qu'il garde, et seulement elle :
+tout outil MCP libre (X10 et X13 échouent — X13 ne trouve plus de pause),
+secrets du serveur hors de l'expurgation de la tâche (X11), rôle d'un agent
+créé non expurgé (X12), serveur jamais confié à la garde (X13 : deux
+processus vivants dix secondes après la mort du daemon).
+
+**Le premier jet de X11 échouait à tort** : il cherchait le jeton dans toute
+la conversation relevée par le faux fournisseur, qui contient aussi les appels
+écrits par le modèle scénarisé — lequel recopie le jeton lui-même. Seuls les
+résultats d'outils, ce que le harness rend au modèle, comptent.
 
