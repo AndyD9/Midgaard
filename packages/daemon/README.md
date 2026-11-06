@@ -19,6 +19,7 @@ soit le nombre de sessions Claude Code ouvertes.
 | `agents.ts` | Profils livrés, rattachement à un fournisseur, choix du fournisseur et du modèle (`PATCH /api/agents/:id`) |
 | `mcp-servers.ts` | Serveurs MCP déclarés (Slice 8) : coffre d'abord, test qui lit le vrai catalogue, outils cochés avec leur empreinte |
 | `mcp-sessions.ts` | Les serveurs MCP des tâches : lancés au départ, fermés à la fin, tous fermés à l'arrêt |
+| `playbooks.ts` | Playbooks (Slice 9) : lister le dossier, attacher à un profil, lire au départ d'une tâche et composer la consigne |
 | `http.ts` | Routeur de l'API locale |
 | `ws.ts` | Diffusion temps réel et **reprise sans trou** après coupure |
 | `security.ts` | `Host` exact, `Origin` en liste blanche, `Sec-Fetch-Site`, jeton porteur |
@@ -245,6 +246,19 @@ page. La garde réseau est celle
 d'`http_fetch`, plus la liste blanche quand la politique HTTP est `allowlist`
 (`defaultBrowserGuard`). Playwright n'est chargé qu'à la première session.
 
+## Les playbooks (Slice 9)
+
+`playbooks.ts` lit le dossier `playbooks/` du clone (ou
+`MIDGAARD_PLAYBOOKS_DIR`). Un profil porte la liste ordonnée de ses
+playbooks (`agents.playbooks_json`, migration 14), que seul l'humain règle
+(`PUT /api/agents/:id/playbooks`). Au départ de chaque tâche, en
+`preparing`, le moteur les **relit** (`loadPlaybooks`, tout ou rien, bornes
+revérifiées), les ajoute à la consigne **après** les règles du profil et
+**avant** le rôle d'un agent créé (`composeSystemPrompt`), et inscrit à la
+timeline chaque playbook lu avec son SHA-256. Un playbook absent ou invalide
+fait échouer la tâche avant tout appel de modèle. Un agent créé hérite de
+ceux de son profil de base, puisque `resolveCreatedAgent` part du profil.
+
 ## Les serveurs MCP déclarés (Slice 8)
 
 `mcp-servers.ts` suit le chemin des fournisseurs : **le coffre d'abord, la
@@ -321,3 +335,4 @@ Lues **uniquement** par `main.ts`, via `loadConfig`.
 | `MIDGAARD_INPUT_TTL_S` | `7200` | Attente maximale d'une réponse de l'utilisateur dans une conversation ; au-delà, `timed_out` |
 | `MIDGAARD_MAX_ACTIVE_SUBTASKS` | `4` | Sous-tâches actives d'un orchestrateur en même temps (Slice 8) |
 | `MIDGAARD_DASHBOARD_DIR` | `apps/dashboard/dist` | Fichiers compilés du dashboard |
+| `MIDGAARD_PLAYBOOKS_DIR` | `playbooks/` | Playbooks ajoutés aux consignes (Slice 9) |

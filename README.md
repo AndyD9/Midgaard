@@ -154,6 +154,7 @@ Depuis la racine du dépôt :
 | `npm run harness -- workspaces` | Worktrees des tâches Developer ; `remove`, `clean` (la branche reste toujours) |
 | `npm run harness -- exec` | Commandes sans approbation dans ce dépôt ; `allow`, `revoke` |
 | `npm run harness -- mcp` | Serveurs MCP déclarés ; `add`, `test`, `tools`, `allow`, `revoke`, `remove`, `attach`, `detach` |
+| `npm run harness -- playbooks` | Playbooks du clone (savoir métier ajouté à la consigne d'un profil) ; `attach`, `detach` |
 | `npm run dashboard:dev` | Dashboard avec rechargement à chaud (lance `harness start` avant) |
 | `npm test` | Les six suites gratuites, environ 4 minutes |
 | `npm run test:ui` | Le dashboard dans un vrai navigateur (voir le prérequis plus bas) |

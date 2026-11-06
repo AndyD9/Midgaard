@@ -138,8 +138,9 @@ export const listAgentsTool: Tool<z.infer<typeof listAgentsSchema>> = {
   name: 'list_agents',
   description:
     'List the executor profiles you can delegate to: what each one does, its limits, and whether it is ' +
-    'enabled (with the reason when it is not). Call it before delegating. Orchestrator profiles are not ' +
-    'listed: you cannot delegate to another orchestrator.',
+    'enabled (with the reason when it is not). Call it before delegating. A profile\'s playbooks are domain ' +
+    'notes already in its instructions: prefer the profile that has the ones your subtask needs. Orchestrator ' +
+    'profiles are not listed: you cannot delegate to another orchestrator.',
   schema: listAgentsSchema,
   policy: (_args, ctx) => delegationPolicy(ctx),
 
@@ -155,6 +156,7 @@ export const listAgentsTool: Tool<z.infer<typeof listAgentsSchema>> = {
         limits: a.limits,
         // Seulement s'il y en a : un profil sans serveur MCP n'a rien à en dire.
         ...(a.mcp_servers.length ? { mcp_servers: a.mcp_servers } : {}),
+        ...(a.playbooks?.length ? { playbooks: a.playbooks } : {}),
         ...(a.created ? { created_by_you: true } : {}),
       })),
       null,

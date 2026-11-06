@@ -162,6 +162,13 @@ export const agentSchema = z.object({
    */
   mcp_servers: z.array(z.string()),
   /**
+   * Playbooks ajoutés à la consigne des agents de ce profil (Slice 9), par
+   * identifiant. Attachés par l'humain (`PUT /api/agents/:id/playbooks`),
+   * jamais par un agent ; lus au départ de chaque tâche, et un agent créé
+   * hérite de ceux de son profil de base (docs/SLICE9.md, décisions 1 à 5).
+   */
+  playbooks: z.array(z.string()),
+  /**
    * Pourquoi le profil ne peut pas recevoir de tâche, calculé par le daemon à
    * la lecture (Slice 7) ; `null` s'il le peut. Absent d'un profil lu en base :
    * ce n'est pas une colonne. Un profil peut être activé et refusé quand même —

@@ -283,7 +283,7 @@ describe('dans la boucle réelle', () => {
     const agent: Agent = {
       id: 'orchestrator', name: 'Orchestrator', kind: 'orchestrator', description: '', provider_id: 'faux',
       model: null, system_prompt: 'You orchestrate.', tools: ['wait_for_task', 'submit_result'],
-      limits: DEFAULT_RESEARCHER_LIMITS, enabled: true, vision: null, mcp_servers: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      limits: DEFAULT_RESEARCHER_LIMITS, enabled: true, vision: null, mcp_servers: [], playbooks: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }
     const root = mkdtempSync(join(tmpdir(), 'midgaard-deleg-'))
     try {

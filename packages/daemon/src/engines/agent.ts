@@ -40,6 +40,7 @@ import { ASK_PARENT, BROWSER_TOOLS, VISION_TOOLS, type Tool, type ToolContext } 
 import type { BrowserSessions } from '../browsers.ts'
 import { MCP_CAPABLE_KINDS } from '../agents.ts'
 import type { McpSessions } from '../mcp-sessions.ts'
+import { composeSystemPrompt, loadPlaybooks, playbooksDirOf } from '../playbooks.ts'
 
 /** Un profil qui a l'un de ces outils reçoit le navigateur de sa tâche (Slice 7). */
 const hasBrowser = (tools: readonly string[]): boolean => tools.some((t) => (BROWSER_TOOLS as readonly string[]).includes(t))
@@ -314,6 +315,32 @@ export class AgentEngine implements TaskEngine {
         },
       })
 
+      // Les playbooks du profil (Slice 9) se lisent **ici**, au départ, et
+      // pas à l'attache : corriger un fichier vaut pour la tâche suivante. Un
+      // playbook absent arrête la tâche avant tout appel de modèle, et ce qui
+      // a été lu est journalisé avec son empreinte — la tâche dit quel savoir
+      // elle a reçu, même si le fichier change après elle (docs/SLICE9.md).
+      let systemPrompt = agent.system_prompt
+      if (agent.playbooks.length > 0) {
+        const dir = playbooksDirOf(ctx.config)
+        const read = await loadPlaybooks(dir, agent.playbooks)
+        if (cancelledNow()) return
+        if ('error' in read) {
+          this.conclude(task.id, { status: 'failed', error: read.error, usage: emptyish() })
+          return
+        }
+        systemPrompt = composeSystemPrompt(agent.system_prompt, read.playbooks)
+        ctx.bus.record(task.id, null, {
+          type: 'agent.message',
+          payload: {
+            message:
+              `playbooks lus : ` +
+              read.playbooks.map((p) => `${p.id} (${p.bytes} octets, sha256 ${p.sha256})`).join(', '),
+            note: true,
+          },
+        })
+      }
+
       // Le worktree se crée **en `preparing`** : c'est un checkout complet, qui
       // peut durer, et une tâche qui afficherait `running` sans avoir commencé
       // mentirait sur ce qui la retient.
@@ -415,6 +442,7 @@ export class AgentEngine implements TaskEngine {
         // qui n'a personne à qui demander, ne le voie jamais.
         agent: {
           ...agent,
+          system_prompt: systemPrompt,
           limits: task.limits,
           tools,
         },

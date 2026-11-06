@@ -308,7 +308,7 @@ describe('les captures dans la conversation', () => {
     const agent: Agent = {
       id: 'navigator', name: 'N', kind: 'researcher', description: '', provider_id: 'faux', model: null,
       system_prompt: 'You browse.', tools: ['browser_open', 'browser_click', 'submit_result'],
-      limits: { ...DEFAULT_RESEARCHER_LIMITS }, enabled: true, vision: true, mcp_servers: [],
+      limits: { ...DEFAULT_RESEARCHER_LIMITS }, enabled: true, vision: true, mcp_servers: [], playbooks: [],
       created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }
     const outcome = await runAgent({

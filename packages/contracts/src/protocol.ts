@@ -74,9 +74,14 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *        daemon de protocole 14 rendrait des profils sans le champ ;
  *  - 16 : Slice 8 — `PUT /api/agents/:id/limits` règle les limites d'un
  *        profil. Un daemon de protocole 15 répondrait 404 à
- *        `harness agents limits` et au dashboard.
+ *        `harness agents limits` et au dashboard ;
+ *  - 17 : Slice 9, étape 1 — un profil porte `playbooks`, que le serveur MCP
+ *        et le dashboard valident, `PUT /api/agents/:id/playbooks` les règle
+ *        et `GET /api/playbooks` les liste. Un daemon de protocole 16
+ *        rendrait des profils sans le champ, et répondrait 404 à
+ *        `harness playbooks`.
  */
-export const PROTOCOL_VERSION = 16
+export const PROTOCOL_VERSION = 17
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({

@@ -35,6 +35,16 @@ export {
   NAVIGATOR_TOOLS,
   updateAgentModel,
 } from './agents.ts'
+export {
+  PLAYBOOKS_HEADING,
+  composeSystemPrompt,
+  defaultPlaybooksDir,
+  listPlaybooks,
+  loadPlaybooks,
+  playbooksDirOf,
+  setAgentPlaybooks,
+} from './playbooks.ts'
+export type { LoadedPlaybook } from './playbooks.ts'
 export { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'
 export { WS_PATH } from './ws.ts'
 export { checkProjectDir } from './project-dir.ts'

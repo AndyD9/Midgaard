@@ -42,6 +42,8 @@
  * | PATCH | `/api/agents/:id` | Fournisseur et modèle d'un profil | 200, 400, 404, 409 |
  * | PUT  | `/api/agents/:id/limits` | Limites d'un profil, journalisées (Slice 8) | 200, 400, 404, 409 |
  * | PUT  | `/api/agents/:id/mcp` | Serveurs MCP d'un profil, liste complète (Slice 8) | 200, 400, 404, 409 |
+ * | PUT  | `/api/agents/:id/playbooks` | Playbooks d'un profil, liste complète et ordonnée (Slice 9) | 200, 400, 404, 409 |
+ * | GET  | `/api/playbooks` | Playbooks du dossier, empreinte et motif d'un refus (Slice 9) | 200 |
  * | GET  | `/api/providers` | Fournisseurs **sans aucune clé** | 200 |
  * | POST | `/api/providers` | Déclare un fournisseur, dépose sa clé au coffre | 200, 400, 500 |
  * | DELETE | `/api/providers/:id` | Retire un fournisseur et sa clé | 200, 404 |
@@ -73,6 +75,7 @@ import {
   removeWorkspaceRequestSchema,
   setAgentLimitsRequestSchema,
   setAgentMcpRequestSchema,
+  setAgentPlaybooksRequestSchema,
   updateAgentRequestSchema,
   upsertMcpServerRequestSchema,
   upsertProviderRequestSchema,
@@ -105,6 +108,7 @@ import { checkEnvelope, checkToken, type SecurityContext } from './security.ts'
 import { execAllowFor, listWorkspaces, removeWorkspace, workspaceView } from './workspaces.ts'
 import { FileAccessError, taskFileContent, taskFileTree, taskImage } from './files.ts'
 import { setAgentLimits, setAgentMcpServers, updateAgentModel } from './agents.ts'
+import { listPlaybooks, playbooksDirOf, setAgentPlaybooks } from './playbooks.ts'
 import { checkProjectDir } from './project-dir.ts'
 
 /** Taille maximale d'un corps de requête, contre l'épuisement mémoire. */
@@ -232,6 +236,11 @@ export function createRequestHandler(deps: HttpDeps) {
       if (section === 'agents') return handleAgents(deps, res, method, id, action, req)
       if (section === 'providers') return handleProviders(deps, res, method, id, action, req)
       if (section === 'mcp') return handleMcp(deps, res, method, id, action, req)
+      if (section === 'playbooks' && !id) {
+        if (method !== 'GET') return send(res, 405, { error: 'method_not_allowed' })
+        const dir = playbooksDirOf(deps.config)
+        return send(res, 200, { dir, playbooks: await listPlaybooks(dir) })
+      }
       if (section === 'workspaces') return handleWorkspaces(deps, res, method, id, action, req)
       if (section === 'exec-allow') return handleExecAllow(deps, res, method, url, id, req)
       if (section === 'pricing' && method === 'GET') {
@@ -575,6 +584,14 @@ async function handleAgents(
     const parsed = setAgentMcpRequestSchema.safeParse(await readJson(req))
     if (!parsed.success) return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
     const outcome = setAgentMcpServers(deps.store, id, parsed.data.servers, deps.log)
+    if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
+    return send(res, 200, { agent: deps.tasks.agentView(outcome) })
+  }
+  if (id && action === 'playbooks') {
+    if (method !== 'PUT') return send(res, 405, { error: 'method_not_allowed' })
+    const parsed = setAgentPlaybooksRequestSchema.safeParse(await readJson(req))
+    if (!parsed.success) return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
+    const outcome = await setAgentPlaybooks(deps.store, playbooksDirOf(deps.config), id, parsed.data.playbooks, deps.log)
     if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
     return send(res, 200, { agent: deps.tasks.agentView(outcome) })
   }

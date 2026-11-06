@@ -47,6 +47,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés ; `agents limits <profil> --timeout 900` les règle (relèvement confirmé) |
 | `npm run harness -- workspaces` | Worktrees : `remove`, `clean` — la branche reste toujours |
 | `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme), `revoke` |
+| `npm run harness -- playbooks` | Playbooks du clone : `attach`, `detach` (à un profil) — savoir métier ajouté à la consigne, relu au départ de chaque tâche |
 | `npm run harness -- mcp` | Serveurs MCP : `add` (programme résolu, testé dans la foulée), `test`, `tools`, `allow` (avertit, confirme), `revoke`, `remove`, `attach`/`detach` (à un profil) |
 | `npm run test:unit` | ~15 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git), navigateur (vrai Chromium), client MCP (vrai serveur stdio, processus comptés) |
 | `npm run test:vault` | ~1 s — les coffres seuls, sur le coffre réel de la machine |
@@ -239,6 +240,13 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   au-delà. Ailleurs, il répond comme un profil inconnu. **Le budget de
   l'orchestrateur couvre tout son arbre**, contrôlé avant chaque appel de
   modèle de chaque tâche, premier compris.
+- **Un playbook est un texte d'humain, jamais d'agent** (Slice 9) : un
+  fichier de `playbooks/` du clone, attaché à un profil par l'humain seul
+  (`PUT /api/agents/:id/playbooks`), ajouté **après** les règles du profil —
+  sous un titre qui dit qu'il ne les remplace pas — et **avant** le rôle d'un
+  agent créé. Il se **relit au départ de chaque tâche**, tout ou rien, bornes
+  revérifiées, et la timeline cite le SHA-256 de ce qui a été lu. Il ne nomme
+  ni modèle ni client.
 - **Aucune sous-tâche ne survit à son parent.** Un parent en
   `cancel_requested` ou dans un statut final emporte ses sous-tâches actives ;
   le vérifier en **comptant les tâches actives en base**. Profondeur 1 : un
@@ -293,16 +301,23 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
 
-## Slice 9 décidée — des agents experts (Python, reverse, règles Windows)
+## Slice 9 en cours — des agents experts (Python, reverse, règles Windows)
 
-Décidée le 2026-11-06 avec l'auteur, **à ouvrir après l'essai réel REA**
-(étape 7 de la Slice 8), et avant les releases desktop : détection (Sigma,
-YARA), durcissement / GPO, scripts PowerShell, analyse de binaires PE ;
-vérification sous Windows par **une VM jointe en SSH** ; modèles
-*uncensored* de Venice (`deepseek-v4-1-flash-uncensored`, déjà tarifé).
-Constats, pistes et questions ouvertes (sécurité de la cible SSH, aucun
-échantillon exécuté, playbooks) : [docs/SLICE9.md](docs/SLICE9.md). Rien
-n'est encore écrit dans le code.
+Décidée le 2026-11-06 avec l'auteur et ouverte le même jour, avant de
+rejouer l'essai REA (seul le volet PE en dépend, il vient en dernier) ; les
+releases desktop passent après. Détection (Sigma, YARA), durcissement / GPO,
+scripts PowerShell, analyse de binaires PE ; **playbooks** versionnés dans
+`playbooks/` et attachés à un profil par l'humain ; **liste blanche `exec` à
+préfixes bornés** (jamais un interpréteur nu) ; **une VM Windows locale
+jointe en SSH**, chaque commande approuvée ; **aucun échantillon exécuté,
+jamais** ; modèles *uncensored* de Venice (`deepseek-v4-1-flash-uncensored`,
+déjà tarifé). Décisions et découpage en sept étapes :
+[docs/SLICE9.md](docs/SLICE9.md). Étape 1 faite : les playbooks
+(migration 14, `PROTOCOL_VERSION` 17, `GET /api/playbooks`,
+`PUT /api/agents/:id/playbooks`, `harness playbooks`, premier playbook
+`python`). Un agent créé en hérite ; `list_agents` les montre à
+l'orchestrateur ; un playbook absent arrête la tâche avant tout appel de
+modèle. Le dashboard les montrera à l'étape 6.
 
 ## Slice 8 en cours — des serveurs MCP pour les agents, des agents créés à la volée
 

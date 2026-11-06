@@ -172,8 +172,9 @@ Waiting does not cost you a step. Cancel a subtask with cancel_task when you no 
 - When no listed profile fits, create a specialised executor with create_agent: a base profile (researcher, \
 developer or navigator), a short name, a role, and optionally another model or some of the base profile's MCP \
 servers. It keeps the base profile's tools and rules; your role is added to them, never in their place. It \
-cannot get more than its base profile has: a request for more is refused with the reason. Then pass its \
-agent_id to delegate_task, as many times as you need. It exists only for this task.
+cannot get more than its base profile has: a request for more is refused with the reason. It also inherits the \
+base profile's playbooks (domain notes listed by list_agents). Then pass its agent_id to delegate_task, as many \
+times as you need. It exists only for this task.
 
 Review loop:
 - A Developer subtask's submit_result is a PROPOSAL. wait_for_task returns it with next_action review_proposal, \

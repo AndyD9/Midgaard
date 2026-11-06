@@ -456,6 +456,28 @@ Comme `exec allow` : un outil coché ne sera plus montré à un humain. La CLI
 demande confirmation, et refuse sans terminal. `--yes` passe outre, en
 connaissance de cause.
 
+### Une tâche échoue sur « playbook « … » introuvable dans … »
+
+Un playbook attaché au profil n'existe plus dans le dossier que lit le daemon
+(`playbooks/` du clone, ou `MIDGAARD_PLAYBOOKS_DIR`) : fichier renommé,
+supprimé, ou daemon lancé depuis un autre clone. La tâche s'est arrêtée avant
+tout appel de modèle — rien n'a été dépensé. `npm run harness -- playbooks`
+liste ce que voit le daemon ; retire le playbook du profil
+(`npm run harness -- playbooks detach sigma researcher`) ou remets le fichier.
+
+### Une tâche échoue sur « playbook « … » inutilisable » ou « playbooks trop gros ensemble »
+
+Le fichier a dépassé 32 Kio, n'est plus de l'UTF-8 valide, ou les playbooks
+du profil dépassent ensemble 96 Kio. Les bornes sont revérifiées au départ de
+chaque tâche : un fichier qui a grossi depuis l'attache est refusé. `npm run
+harness -- playbooks` dit lequel et pourquoi.
+
+### `npm run harness -- playbooks attach` : « playbook_not_found »
+
+Le daemon ne connaît pas ce playbook. La réponse liste ceux qu'il voit, et le
+dossier où il les cherche : c'est celui de **son** installation. Un daemon
+lancé depuis un autre clone lit les playbooks de cet autre clone.
+
 ---
 
 ## La fenêtre desktop
@@ -519,3 +541,4 @@ changée sous un daemon déjà lancé n'a d'effet qu'après `npm run harness -- 
 | `MIDGAARD_EXEC_ALLOW` | Commandes exactes lancées sans approbation, séparées par `;` | aucune |
 | `MIDGAARD_MAX_ACTIVE_SUBTASKS` | Sous-tâches actives d'un orchestrateur en même temps | `4` |
 | `MIDGAARD_DASHBOARD_DIR` | Dossier du dashboard compilé | celui du paquet |
+| `MIDGAARD_PLAYBOOKS_DIR` | Dossier des playbooks | `playbooks/` du clone |

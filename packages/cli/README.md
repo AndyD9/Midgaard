@@ -27,6 +27,9 @@ harness mcp revoke <id> <outil>…
 harness mcp remove <id>
 harness mcp attach <id> <profil>   # les agents du profil reçoivent ses outils
 harness mcp detach <id> <profil>
+harness playbooks             # playbooks du clone, leur taille, les profils qui les ont
+harness playbooks attach <playbook> <profil>   # ajouté à la consigne, tâche suivante
+harness playbooks detach <playbook> <profil>
 ```
 
 Midgaard ne s'installe que depuis un clone (la distribution npm a été

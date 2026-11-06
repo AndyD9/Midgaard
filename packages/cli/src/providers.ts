@@ -218,6 +218,10 @@ export async function agents(config: HarnessConfig): Promise<number> {
         `  ${dim(`limites : ${a.limits.max_steps} étapes, ${a.limits.max_cost_usd} $, ${a.limits.timeout_s} s`)}`,
       )
     }
+    // Hors des deux branches : un playbook reste attaché à un profil
+    // désactivé, et l'humain qui vient d'en attacher un doit le voir ici —
+    // constaté sur la vraie CLI, où il disparaissait sans fournisseur.
+    if (a.playbooks.length) console.log(`  ${dim(`playbooks : ${a.playbooks.join(', ')}`)}`)
   }
   return 0
 }

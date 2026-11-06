@@ -386,6 +386,17 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX created_agents_task_idx ON created_agents(task_id);
     `,
   },
+  {
+    version: 14,
+    label: 'Slice 9 — les playbooks d\'un profil',
+    sql: `
+      -- Playbooks ajoutés à la consigne des agents du profil, en JSON : des
+      -- identifiants de fichiers du dossier playbooks/, dans l'ordre. Pas leur
+      -- contenu : il se lit au départ de chaque tâche, et la timeline garde
+      -- l'empreinte de ce qui a été lu. '[]' pour les profils d'avant.
+      ALTER TABLE agents ADD COLUMN playbooks_json TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
 ]
 
 // Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',

@@ -917,6 +917,20 @@ export class HarnessStore {
     return info.changes === 1 ? this.getAgent(id) : null
   }
 
+  /**
+   * Règle les playbooks d'un profil (Slice 9), sans toucher au reste. Les
+   * règles — le playbook existe, il tient dans les bornes — sont celles de
+   * l'appelant (`daemon/src/agents.ts`), qui seul lit le dossier.
+   *
+   * @returns le profil après coup, ou `null` s'il n'existe pas
+   */
+  setAgentPlaybooks(id: string, playbooks: readonly string[]): Agent | null {
+    const info = this.db
+      .prepare('UPDATE agents SET playbooks_json = :p, updated_at = :now WHERE id = :id')
+      .run({ id, p: JSON.stringify(playbooks), now: new Date().toISOString() })
+    return info.changes === 1 ? this.getAgent(id) : null
+  }
+
   /** Profils qui ont un serveur MCP donné, pour le leur retirer quand il disparaît. */
   agentsUsingMcpServer(serverId: string): Agent[] {
     return this.listAgents().filter((a) => a.mcp_servers.includes(serverId))
@@ -1563,6 +1577,7 @@ interface AgentRow {
   enabled: number
   vision: number | null
   mcp_servers_json: string
+  playbooks_json: string
   created_at: string
   updated_at: string
 }
@@ -1581,6 +1596,7 @@ function toAgent(row: AgentRow): Agent {
     enabled: row.enabled === 1,
     vision: row.vision === null ? null : row.vision === 1,
     mcp_servers: JSON.parse(row.mcp_servers_json) as string[],
+    playbooks: JSON.parse(row.playbooks_json) as string[],
     created_at: row.created_at,
     updated_at: row.updated_at,
   }

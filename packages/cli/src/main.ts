@@ -14,6 +14,7 @@ import { decide, doctor, init, start, status, stop } from './commands.ts'
 import { agentLimits, agents, pricing, providers } from './providers.ts'
 import { exec, workspaces } from './workspaces.ts'
 import { mcp } from './mcp.ts'
+import { playbooks } from './playbooks.ts'
 import { desktop } from './desktop.ts'
 import { extractHome } from './args.ts'
 import { bold, dim, setAdviceHome } from './ui.ts'
@@ -57,6 +58,13 @@ ${bold('Serveurs MCP des agents')}
                         Donne les outils du serveur aux agents d'un profil (researcher, developer, navigator)
   mcp detach <id> <profil>
                         Les leur retire
+
+${bold('Playbooks (savoir métier ajouté à la consigne d\'un profil)')}
+  playbooks             Playbooks du clone, leur taille, et les profils qui les ont
+  playbooks attach <playbook> <profil>
+                        L'ajoute à la consigne des agents du profil, à partir de la tâche suivante
+  playbooks detach <playbook> <profil>
+                        Le leur retire
 
 ${bold('Worktrees et commandes des agents écrivants')}
   workspaces            Worktrees des tâches Developer, leur état sur le disque, les orphelins
@@ -133,6 +141,8 @@ export async function run(argv: string[]): Promise<number> {
       return providers(config, rest)
     case 'mcp':
       return mcp(config, rest)
+    case 'playbooks':
+      return playbooks(config, rest)
     case 'pricing':
       return pricing(config, rest)
     case 'workspaces':

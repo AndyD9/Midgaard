@@ -218,6 +218,13 @@ export interface DelegableAgent {
    * permet à l'orchestrateur de choisir à qui confier un travail qui en a besoin.
    */
   mcp_servers: { id: string; name: string }[]
+  /**
+   * Playbooks ajoutés à la consigne de ce profil (Slice 9), par identifiant :
+   * l'orchestrateur choisit ainsi le profil qui sait déjà le métier (Sigma,
+   * YARA…), et un agent créé en hérite. Facultatif pour les ports de test
+   * écrits avant la Slice 9.
+   */
+  playbooks?: string[] | undefined
   /** Vrai pour un agent que cette tâche a créé (Slice 8) ; absent pour un profil. */
   created?: boolean | undefined
 }

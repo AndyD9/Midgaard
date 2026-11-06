@@ -770,6 +770,7 @@ export class TaskManager {
       disabled_reason: !a.enabled ? this.whyDisabledForModel(a) : this.blindReason(a)?.model ?? null,
       limits: a.limits,
       mcp_servers: a.mcp_servers.map((id) => ({ id, name: this.store.getMcpServer(id)?.name ?? id })),
+      playbooks: a.playbooks,
       ...(created ? { created: true } : {}),
     })
 
