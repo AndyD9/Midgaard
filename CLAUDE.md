@@ -3,7 +3,8 @@
 Harness local qui laisse Claude Code déléguer des tâches à des agents exécutants,
 les observer et les soumettre à approbation humaine. **Lire d'abord** :
 [README.md](README.md) (état, commandes), [docs/PLAN.md](docs/PLAN.md) (décisions
-et slices), [docs/SLICE8.md](docs/SLICE8.md) (serveurs MCP et agents créés à la
+et slices), [docs/SLICE9.md](docs/SLICE9.md) (agents experts : Python, reverse,
+règles Windows ; décidée, après l'essai REA), [docs/SLICE8.md](docs/SLICE8.md) (serveurs MCP et agents créés à la
 volée, en cours), [docs/SLICE7.md](docs/SLICE7.md) (images et navigateur isolé, décidée),
 [docs/SLICE6.md](docs/SLICE6.md) (atelier façon VS Code, essais réels),
 [docs/SLICE5.md](docs/SLICE5.md) (orchestrateur intégré, essai réel), [docs/SLICE4.md](docs/SLICE4.md) (durcissement,
@@ -291,6 +292,17 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
+
+## Slice 9 décidée — des agents experts (Python, reverse, règles Windows)
+
+Décidée le 2026-11-06 avec l'auteur, **à ouvrir après l'essai réel REA**
+(étape 7 de la Slice 8), et avant les releases desktop : détection (Sigma,
+YARA), durcissement / GPO, scripts PowerShell, analyse de binaires PE ;
+vérification sous Windows par **une VM jointe en SSH** ; modèles
+*uncensored* de Venice (`deepseek-v4-1-flash-uncensored`, déjà tarifé).
+Constats, pistes et questions ouvertes (sécurité de la cible SSH, aucun
+échantillon exécuté, playbooks) : [docs/SLICE9.md](docs/SLICE9.md). Rien
+n'est encore écrit dans le code.
 
 ## Slice 8 en cours — des serveurs MCP pour les agents, des agents créés à la volée
 
