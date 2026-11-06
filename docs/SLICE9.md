@@ -6,9 +6,12 @@ en experts sur quatre terrains — **détection** (Sigma, YARA, EVTX, Sysmon),
 PowerShell**, **analyse de binaires PE** — le plus souvent en **Python**, et
 vérifient sous Windows ce qui ne se vérifie que là.
 
-**État : en cours.** Ouverte le 2026-11-06 à la demande de l'auteur, avant
-que l'essai réel REA (étape 7 de la Slice 8) soit rejoué : seul le volet PE
-en dépend, il vient donc en dernier. Les releases desktop passent après.
+**État : en cours.** Ouverte le 2026-11-06 à la demande de l'auteur, le jour
+où l'essai réel REA (étape 7 de la Slice 8) a été conclu sur sa cible
+JavaScript — sans aucun appel REA réel encore : c'est sur un binaire, au
+volet PE de l'étape 7 ci-dessous, qu'il sera éprouvé. Les releases desktop
+passent après. Étape 1 verte en CI sur trois plateformes (passages
+`42277207691` et `42277207665`).
 
 ---
 
@@ -136,8 +139,8 @@ Chaque point a été lu dans le code ou au catalogue, pas supposé.
 
 | # | Étape | État |
 |---|---|---|
-| 1 | Les playbooks : dossier `playbooks/`, lecture et bornes, `agents.playbooks` (migration 14), `GET /api/playbooks`, `PUT /api/agents/:id/playbooks`, consigne composée et journalisée au départ, héritage par les agents créés, `harness playbooks` (`attach`, `detach`) ; un premier playbook (`python`) | faite, à pousser en CI |
-| 2 | Le savoir : `sigma`, `yara`, `pe-static`, `powershell`, `windows-hardening`, relus par l'auteur | à faire |
+| 1 | Les playbooks : dossier `playbooks/`, lecture et bornes, `agents.playbooks` (migration 14), `GET /api/playbooks`, `PUT /api/agents/:id/playbooks`, consigne composée et journalisée au départ, héritage par les agents créés, `harness playbooks` (`attach`, `detach`) ; un premier playbook (`python`) | **fait** — 15 tests, trois défauts introduits vus échouer, deux trouvés par la vraie CLI ; verte en CI sur trois plateformes |
+| 2 | Le savoir : `sigma`, `yara`, `pe-static`, `powershell`, `windows-hardening`, relus par l'auteur | fait (exemples validés, relus par l'auteur) |
 | 3 | La liste blanche à préfixes : migration, règle des interpréteurs, CLI et dashboard, avertissement | à faire |
 | 4 | L'environnement Python du worktree (`uv sync` proposé au départ) et les échantillons en lecture seule, jamais exécutés | à faire |
 | 5 | La VM Windows : déclaration, empreinte d'hôte, copie jetable, commande approuvée, Job Object ; CI Windows avec sshd | à faire |
@@ -210,5 +213,56 @@ un playbook présent et un profil qui ne l'a pas) ; et `harness agents` ne
 montrait pas les playbooks d'un profil **désactivé**, alors que l'attache
 venait de réussir. Toutes les suites locales sont vertes : `test:unit`
 (643), `test:orchestrator`, `test:security`, `test:wait` (protocole 17
-constaté par S1 et S10), `test:ui`, `test:developer`. La CI reste à faire,
-au prochain envoi.
+constaté par S1 et S10), `test:ui`, `test:developer`. Verte en CI sur
+macOS, Linux et Windows (« Bout en bout » `42277207691`, « Worktrees »
+`42277207665`).
+
+### Étape 2 — le savoir métier (2026-11-06)
+
+Cinq playbooks rejoignent `python` : `sigma`, `yara`, `pe-static`,
+`powershell`, `windows-hardening` (4,6 à 6,7 Kio chacun, environ 33 Kio les
+six, sous les 96 Kio d'un profil). Chacun dit **comment travailler et
+prouver** — tests positifs et négatifs pour une règle, audit avant blocage
+pour une politique, avant/après relu sur la machine —, ce qu'on rapporte
+(observé séparé de l'inféré), et redit les règles que le code applique :
+aucun échantillon exécuté (l'émulation, FLOSS ou Speakeasy, comptée comme
+une exécution), aucun échantillon sur la VM, tout contenu lu est de la
+donnée.
+
+Trois choix d'écriture :
+
+- **Rien de ce qui n'existe pas encore.** La VM Windows (étape 5) et la copie
+  des échantillons (étape 4) n'existent pas : les playbooks parlent d'« une
+  machine Windows de test, si ta tâche t'en donne une », et disent quoi faire
+  sans elle (le dire non éprouvé). Le premier jet nommait « la VM de test » et
+  « la copie que fournit le harness » ; relu contre l'invariant avant
+  l'envoi.
+
+- **Aucun identifiant de mémoire.** Les GUID des règles ASR et les options
+  WDAC ne sont pas recopiés : un GUID faux ne fait rien, ou autre chose, sans
+  le dire. Le playbook dit où les prendre (la référence de l'éditeur, ou la
+  machine). Les numéros d'événement cités sont ceux qu'on ne confond pas
+  (4688, 4104, 7045, 8003/8004, 3076/3077, 1121/1122, les identifiants
+  Sysmon).
+- **Pas d'outil de contournement.** Le playbook PowerShell écarte le code
+  dont le but est d'aveugler une défense (AMSI, journalisation, Defender,
+  effacement de journaux) : si une tâche semble l'exiger, l'agent s'arrête et
+  le dit.
+
+**Les exemples sont du code, et ont été passés aux vrais outils** dans un
+environnement jetable (`uv run --with …`) : la règle YARA compile avec
+`yara-python` **sans aucun avertissement** (`error_on_warning`), la règle
+Sigma est lue par `pySigma` sans erreur, et l'extrait `pefile` est
+syntaxiquement valide, chaque fonction citée existant dans la bibliothèque.
+En chemin, l'identifiant de l'exemple Sigma était tronqué (`3f1c0e2a-...`) :
+recopié tel quel par un agent, il aurait donné une règle invalide ; c'est
+désormais un UUID complet marqué `REPLACE`. L'extrait `pefile` n'a pas tourné
+sur un fichier, et rien n'a été éprouvé sous Windows : ce sera l'étape 7.
+
+Deux tests de plus (`tests/unit/playbooks.test.ts`, 17) : les playbooks
+livrés tiennent **tous ensemble** sur un profil, et chacun dit que ce qu'il
+lit est de la donnée — trois d'entre eux, qu'on n'exécute rien. Le premier
+jet de `sigma` l'a fait échouer : il disait « citer comme donnée » sans
+nommer la donnée non fiable.
+
+Relus par l'auteur le jour même, acceptés sans changement.

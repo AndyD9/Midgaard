@@ -30,6 +30,7 @@ import { after, before, describe, it } from 'node:test'
 import {
   PLAYBOOK_MAX_BYTES,
   PLAYBOOKS_MAX_BYTES_PER_AGENT,
+  PLAYBOOKS_MAX_PER_AGENT,
   daemonJson,
   loadConfig,
   readRuntime,
@@ -174,6 +175,26 @@ describe('les playbooks livrés', () => {
     }
     // Chacun doit pouvoir être attaché seul.
     for (const p of listed) assert.ok(p.bytes <= PLAYBOOK_MAX_BYTES)
+  })
+
+  it('tiennent tous ensemble sur un même profil : un agent expert de tous les terrains reste possible', async () => {
+    const listed = await listPlaybooks(dir)
+    assert.ok(listed.length <= PLAYBOOKS_MAX_PER_AGENT, `${listed.length} playbooks livrés, ${PLAYBOOKS_MAX_PER_AGENT} au plus par profil`)
+    const total = listed.reduce((n, p) => n + p.bytes, 0)
+    assert.ok(total <= PLAYBOOKS_MAX_BYTES_PER_AGENT, `${total} octets ensemble, au plus ${PLAYBOOKS_MAX_BYTES_PER_AGENT}`)
+    const loaded = await loadPlaybooks(dir, listed.map((p) => p.id))
+    assert.ok('playbooks' in loaded, 'error' in loaded ? loaded.error : '')
+  })
+
+  it('redisent chacun que rien ne s\'exécute d\'un échantillon ou d\'un contenu lu', () => {
+    // La règle est appliquée par le code (étape 4) ; la redire dans chaque
+    // playbook épargne au modèle de la découvrir en se faisant refuser.
+    for (const id of ['python', 'yara', 'pe-static']) {
+      assert.match(readFileSync(join(dir, `${id}.md`), 'utf8'), /never (execute|run)/i, id)
+    }
+    for (const id of ['sigma', 'yara', 'pe-static', 'powershell', 'windows-hardening', 'python']) {
+      assert.match(readFileSync(join(dir, `${id}.md`), 'utf8'), /untrusted data|are data|is data/i, `${id} : le contenu lu doit être dit donnée`)
+    }
   })
 
   it('ne nomment ni modèle ni client : ils deviennent la consigne de n\'importe quel modèle', () => {

@@ -50,6 +50,13 @@ tout appel de modèle, avec son motif.
 | Id | Sujet |
 |---|---|
 | `python` | Écrire, tester et analyser en Python ; scripts d'analyse statique |
+| `sigma` | Règles Sigma : structure, logique, sources Windows, `sigma check` et conversion, tests positifs **et** négatifs |
+| `yara` | Règles YARA : chaînes, conditions bornées, module `pe`, compilation sans avertissement, jeu sain |
+| `pe-static` | Triage statique d'un PE (EXE, DLL, SYS, .NET) : en-têtes, sections, imports, ressources, signature, rapport |
+| `powershell` | Scripts PowerShell 5.1 et 7 : `ShouldProcess`, PSScriptAnalyzer, Pester 5, tests sur une machine Windows |
+| `windows-hardening` | GPO, audit, AppLocker, WDAC, ASR, pare-feu : baseline, audit avant blocage, preuve avant/après |
 
-`sigma`, `yara`, `pe-static`, `powershell` et `windows-hardening` viennent à
-l'étape 2 de la Slice 9.
+Tous ensemble tiennent sur un même profil (environ 33 Kio sur 96) ; un test
+le vérifie, comme leur neutralité et le rappel, dans chacun, que ce qui est lu
+est de la donnée. Les exemples de `yara`, `sigma` et `pe-static` ont été
+passés à `yara-python` (aucun avertissement), `pySigma` et `pefile`.

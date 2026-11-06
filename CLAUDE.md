@@ -303,9 +303,10 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 
 ## Slice 9 en cours — des agents experts (Python, reverse, règles Windows)
 
-Décidée le 2026-11-06 avec l'auteur et ouverte le même jour, avant de
-rejouer l'essai REA (seul le volet PE en dépend, il vient en dernier) ; les
-releases desktop passent après. Détection (Sigma, YARA), durcissement / GPO,
+Décidée le 2026-11-06 avec l'auteur et ouverte le même jour, quand l'essai
+REA a été conclu sur sa cible JavaScript sans appel REA réel : il sera
+éprouvé sur un binaire au volet PE, en dernier ; les releases desktop
+passent après. Détection (Sigma, YARA), durcissement / GPO,
 scripts PowerShell, analyse de binaires PE ; **playbooks** versionnés dans
 `playbooks/` et attachés à un profil par l'humain ; **liste blanche `exec` à
 préfixes bornés** (jamais un interpréteur nu) ; **une VM Windows locale
@@ -315,9 +316,14 @@ déjà tarifé). Décisions et découpage en sept étapes :
 [docs/SLICE9.md](docs/SLICE9.md). Étape 1 faite : les playbooks
 (migration 14, `PROTOCOL_VERSION` 17, `GET /api/playbooks`,
 `PUT /api/agents/:id/playbooks`, `harness playbooks`, premier playbook
-`python`). Un agent créé en hérite ; `list_agents` les montre à
+`python`), verte en CI sur trois plateformes (passages `42277207691` et
+`42277207665`). Un agent créé en hérite ; `list_agents` les montre à
 l'orchestrateur ; un playbook absent arrête la tâche avant tout appel de
-modèle. Le dashboard les montrera à l'étape 6.
+modèle. Le dashboard les montrera à l'étape 6. Étape 2 faite, relue par
+l'auteur : `sigma`, `yara`, `pe-static`, `powershell`,
+`windows-hardening` (environ 33 Kio les six ; exemples passés à
+`yara-python`, `pySigma` et `pefile`). **Aucun identifiant de mémoire** dans
+un playbook (GUID ASR, options WDAC) : un faux ne dit rien.
 
 ## Slice 8 en cours — des serveurs MCP pour les agents, des agents créés à la volée
 
