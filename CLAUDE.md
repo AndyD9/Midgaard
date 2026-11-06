@@ -376,8 +376,13 @@ défauts, réglés : `search_files` prenait `glob: "*.js"` à la lettre et renda
 refuse les autres jokers et dit quand il n'a rien retenu), et un appel pour
 lequel **aucune** approbation n'avait été demandée, ou dont la tâche était
 annulée pendant l'attente, était inscrit « refusé par un humain »
-(`ApprovalOutcome` `cancelled` et `not_asked`). À rejouer machine éveillée,
-l'humain présent.
+(`ApprovalOutcome` `cancelled` et `not_asked`). **Second essai, non conclu** :
+l'orchestrateur trouve la bonne réponse (R7) sans REA, mais ne la soumet pas ;
+deux défauts de la boucle, réglés — la relance après une réponse sans outil
+valait pour toute la tâche (elle se rouvre après chaque appel d'outil), et
+l'agent ne voyait pas venir sa limite d'étapes (prévenu à deux appels de la
+fin, `STEPS_WARNING`). Le plafond de sortie de 4 096 jetons est trop bas pour
+un modèle de raisonnement : à relever par l'auteur avant le troisième passage.
 
 ## Slice 7 terminée — les agents voient
 

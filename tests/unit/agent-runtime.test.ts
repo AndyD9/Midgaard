@@ -64,7 +64,9 @@ function scriptedAdapter(script: Scripted[], options: { supportsWebSearch?: bool
     model: 'modele-de-test',
     supportsWebSearch: options.supportsWebSearch ?? false,
     async complete(request) {
-      calls.push(request)
+      // Une copie de la liste : la boucle la prolonge après l'appel, et un
+      // test qui lit ce qu'un appel a reçu doit voir l'état de ce moment-là.
+      calls.push({ ...request, messages: [...request.messages] })
       const next = script[Math.min(index++, script.length - 1)] ?? {}
       return {
         text: next.text ?? '',
@@ -211,6 +213,46 @@ describe('fin de tâche', () => {
     assert.match(error, /coupée à \d+ jetons de sortie/, 'la cause, pas seulement le symptôme')
     assert.match(error, /plus courte/, 'et un geste que le lecteur peut faire')
     assert.doesNotMatch(error, /relève max_output_tokens/, 'ce réglage est hors d\'atteinte depuis une délégation')
+  })
+
+  // Second essai réel de la Slice 8 : la relance, consommée à l'étape 1, ne
+  // revenait jamais ; une coupure à l'étape 10 a fait échouer le Researcher
+  // sans relance, sous un message qui disait « 2 fois, relance comprise ».
+  it('rouvre la relance après une réponse qui appelle un outil', async () => {
+    const readA = [{ id: 'r1', name: 'read_file', argumentsJson: '{"path":"src/a.ts"}' }]
+    const { outcome, callCount } = await run([
+      { text: 'je réfléchis longuement', finishReason: 'length' },
+      { toolCalls: readA },
+      { text: 'la synthèse commence et', finishReason: 'length' },
+      { toolCalls: submit('conclu après la seconde relance') },
+    ])
+    assert.equal(outcome.status, 'completed', outcome.status === 'failed' ? outcome.error : '')
+    assert.equal(callCount, 4)
+  })
+
+  it('dit au modèle que sa réponse a été coupée, et à quel plafond', async () => {
+    const { calls } = await run([
+      { text: 'je réfléchis longuement', finishReason: 'length' },
+      { toolCalls: submit() },
+    ])
+    const nudge = calls[1]!.messages.at(-1)!
+    assert.equal(nudge.role, 'user')
+    assert.match(String(nudge.content), /cut off at the output limit \(\d+ tokens, reasoning included\)/)
+  })
+
+  // Le même essai : l'orchestrateur écrit « The picture is complete » à
+  // l'étape 13, vérifie encore trois détails et atteint la limite de 16 étapes
+  // sans soumettre. Il ne voyait pas le compteur.
+  it('prévient l\'agent de ses deux derniers appels, et deux fois seulement', async () => {
+    const { calls, notes } = await run(
+      [{ toolCalls: [{ id: 'r1', name: 'read_file', argumentsJson: '{"path":"src/a.ts"}' }] }],
+      { agent: { limits: { ...DEFAULT_RESEARCHER_LIMITS, max_steps: 4 } } },
+    )
+    const warnings = calls.map((c) => c.messages.filter((m) => m.role === 'user' && /model call/.test(String(m.content))).length)
+    assert.deepEqual(warnings, [0, 0, 1, 2], 'rien avant, un à deux appels de la fin, un dernier au dernier')
+    assert.match(String(calls[2]!.messages.at(-1)!.content), /2 model calls left/)
+    assert.match(String(calls[3]!.messages.at(-1)!.content), /last model call/)
+    assert.equal(notes.filter((n) => /appel\(s\) de modèle : l'agent est invité à conclure/.test(n)).length, 2)
   })
 
   it('dit quoi faire quand le modèle s\'arrête vraiment sans conclure', async () => {

@@ -26,7 +26,12 @@ un budget.
 
 **La fin est un acte, pas une interprétation.** Seul `submit_result` termine une
 tâche. Un modèle qui écrit « voilà, j'ai fini » sans l'appeler n'a pas fini : il
-a cessé de parler. La boucle le relance **une fois**, puis échoue en le disant.
+a cessé de parler. La boucle le relance **une fois par réponse**, puis échoue
+en le disant. Le droit à la relance se rouvre dès qu'une réponse appelle un
+outil : au second essai réel de la Slice 8, il valait pour toute la tâche, et
+un Researcher qui l'avait consommé à l'étape 1 a échoué sans relance à
+l'étape 10. Une relance après une coupure le dit au modèle, avec le plafond,
+raisonnement compris.
 
 **Et elle dit *pourquoi* il n'a rien appelé.** « Aucun outil appelé » est un
 symptôme, pas une cause. Dans un cas la réponse a été **coupée au plafond de
@@ -64,7 +69,12 @@ non fiable, encadré avant de remonter à Claude.
 **Les limites sont dites au modèle.** Elles sont appliquées par le code de toute
 façon, mais un agent qui ignore qu'il n'a que douze étapes les dépense à
 explorer, puis se fait couper sans rien rendre. Lui dire son budget change sa
-stratégie, pas seulement son information.
+stratégie, pas seulement son information. **Et la fin lui est rappelée** :
+à deux appels de la limite, puis au dernier, la boucle lui demande de
+soumettre ce qu'il a (`STEPS_WARNING`). Annoncer le budget au départ ne
+suffit pas : au second essai réel de la Slice 8, un orchestrateur a écrit
+« The picture is complete » à l'étape 13, vérifié trois détails de plus, et
+atteint sa limite de 16 étapes sans rien soumettre.
 
 **Un budget inapplicable est annoncé comme tel.** Si le tarif du modèle est
 inconnu, la dépense ne peut pas être plafonnée en dollars — seules les étapes et

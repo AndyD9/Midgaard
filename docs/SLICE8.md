@@ -191,7 +191,7 @@ ouvert.
 | 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | **fait** — migration 13, budget d'arbre ; trois défauts introduits vus échouer, un trou trouvé en écrivant ; verte en CI sur trois plateformes |
 | 5 | Le dashboard : page « Serveurs MCP » (déclarer, tester, cocher), serveurs d'un profil, appels MCP dans le fil, agents créés et leur consigne dans l'arbre | **fait** — la déclaration reste à la CLI ; D16 et D17 dans `test:ui` ; vu dans le navigateur ; verte en CI sur trois plateformes |
 | 6 | Preuves : `test:orchestrator` (création, délégation parallèle, outil MCP), `test:security` (outil non coché refusé sans atteindre le serveur, empreinte changée → plus libre, agent créé qui tente de dépasser son type, rien de non expurgé en base, aucun serveur vivant après `SIGKILL`), CI sur trois plateformes | **fait** — X10 à X13 dans `test:security`, chacun vu échouer sur la protection qu'il garde ; verts en CI sur trois plateformes |
-| 7 | L'essai réel : un orchestrateur sur Venice crée deux agents de reverse sur REA et un Developer, analyse un binaire, rend une synthèse ; coût relevé | **premier essai non conclu** (2026-11-06) — machine en veille, aucune approbation donnée ; deux défauts trouvés et réglés ; à rejouer |
+| 7 | L'essai réel : un orchestrateur sur Venice crée deux agents de reverse sur REA et un Developer, analyse un binaire, rend une synthèse ; coût relevé | **deux essais non conclus** (2026-11-06) — veille et approbation au premier ; au second, l'orchestrateur trouve la bonne réponse sans la soumettre ; quatre défauts trouvés et réglés ; à rejouer |
 
 ### Ce que chaque étape doit surveiller
 
@@ -690,6 +690,54 @@ pas se conclure par le solde tant que la clé est partagée.
 présent pour les approbations, et la cible préparée **sans sa source map**
 (la première préparation l'avait copiée ; elle a été retirée avant le
 lancement, et la commande du protocole corrigée).
+
+### Étape 7 — second essai, non conclu (2026-11-06)
+
+Relancé sur le daemon corrigé, machine maintenue éveillée (`caffeinate`).
+L'auteur avait coché cinq outils REA de lecture : « serveur MCP rea : 207
+outil(s), 5 libre(s) ».
+
+**Ce qui a marché.** Les deux correctifs du premier essai : l'orchestrateur
+emploie `glob: "*.js"` et trouve, et chaque occurrence dans le bundle d'une
+ligne arrive avec sa colonne. **La réponse est juste (R7)** : l'orchestrateur
+a établi, preuves à l'appui, que la page relit `/`, compare le script de
+module désigné au sien (`Rn`, `Mn`) et se recharge s'il diffère, sur un
+calendrier de reconnexion (`Vn`). Aucun processus REA après la fin (R10) ;
+chaque coût a sa provenance ; l'arbre a coûté 0,087 $ (orchestrateur
+0,0345 $, Researcher 0,0529 $), sous le budget de 0,5 $ (R9).
+
+**REA n'a pas servi.** Ni le Researcher ni l'orchestrateur ne l'ont appelé :
+pour cette cible, la recherche textuelle suffisait. Le catalogue a pourtant
+coûté : 62 379 jetons d'entrée au premier appel du Researcher, 877 084 sur
+ses dix appels. L'essai n'éprouve donc toujours pas un appel REA de bout en
+bout (approbation, encadrement, résultat non fiable).
+
+**Ce qui a fait échouer l'essai : deux défauts de la boucle.**
+
+3. **La relance valait pour toute la tâche.** Le modèle (`deepseek-v4-flash-0731`,
+   un modèle de raisonnement) a passé 4 095 de ses 4 096 jetons de sortie à
+   réfléchir dès le premier appel du Researcher : coupé, relancé, il a
+   continué. À l'étape 10, sa synthèse a été coupée de même, et la tâche a
+   échoué **sans relance** — `nudged` n'était jamais remis à zéro —, sous un
+   message qui disait « 2 fois, relance comprise ». La relance se rouvre
+   désormais après chaque réponse qui appelle un outil, et celle qui suit une
+   coupure dit au modèle le plafond, raisonnement compris.
+4. **L'agent ne voyait pas venir la fin.** L'orchestrateur a écrit « The
+   picture is complete » à l'étape 13, puis vérifié trois détails, et atteint
+   la limite de 16 étapes sans `submit_result`. Ses limites lui sont dites au
+   départ, mais rien ne les lui rappelle. La boucle le prévient désormais à
+   deux appels de la limite, puis au dernier (`STEPS_WARNING`).
+
+Les deux sont prouvés par des tests vus échouer sans leur correctif
+(`tests/unit/agent-runtime.test.ts`). En chemin, le faux fournisseur de ce
+test gardait la liste des messages par référence : un test qui lit ce qu'un
+appel a reçu voyait l'état final. Il en garde désormais une copie.
+
+**Pour le troisième passage** : le plafond de sortie de 4 096 jetons est trop
+bas pour un modèle de raisonnement ; le relever est un acte de l'auteur
+(`harness agents limits researcher --max-output-tokens 16384`, confirmé).
+Pour éprouver REA lui-même, il faudra une cible où la recherche textuelle ne
+suffit pas — un binaire, donc le second essai prévu, avec Ghidra.
 
 ### Les limites d'un profil se règlent (2026-11-05)
 

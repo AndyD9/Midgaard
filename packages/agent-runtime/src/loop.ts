@@ -75,6 +75,17 @@ import { buildMessages, workspaceTree, type WorkspaceBrief } from './context.ts'
 import { OutputBatcher, type OutputBatch } from './output.ts'
 
 /**
+ * À partir de combien d'appels de modèle restants l'agent est prévenu.
+ *
+ * Un modèle ne voit pas le compteur d'étapes : sans avertissement, il vérifie
+ * « un dernier détail » jusqu'à la limite et finit `failed` avec la réponse en
+ * main. C'est ce qu'a fait l'orchestrateur du second essai réel de la Slice 8 :
+ * « The picture is complete » à l'étape 13, trois vérifications de plus, et la
+ * limite de 16 étapes atteinte sans `submit_result`.
+ */
+export const STEPS_WARNING = 2
+
+/**
  * Issue d'une demande d'approbation.
  *
  * `approved`, `rejected` et `expired` disent ce qu'a fait l'humain, ou qu'il
@@ -293,6 +304,7 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
   let usage = emptyUsage()
   let step = 0
   let nudged = false
+  let stepsWarned = false
   // Combien de réponses sans appel d'outil ont été **coupées** au plafond de
   // sortie. C'est la différence entre « le modèle a refusé de conclure » et
   // « le modèle n'a pas eu la place de conclure » — deux pannes qui se
@@ -392,6 +404,23 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
     }
 
     step++
+    // `step` est l'appel qui part ; `left` le compte avec lui. L'avertissement
+    // part une fois à `STEPS_WARNING`, puis une dernière fois au dernier appel :
+    // deux messages au plus, pour ne pas payer un rappel à chaque tour.
+    const left = limits.max_steps - step + 1
+    if (left <= STEPS_WARNING && (left === 1 || !stepsWarned)) {
+      stepsWarned = true
+      input.hooks.onNote(`plus que ${left} appel(s) de modèle : l'agent est invité à conclure`, step)
+      messages.push({
+        role: 'user',
+        content:
+          left === 1
+            ? 'This is your last model call: the step limit is reached after it. Call submit_result now with ' +
+              'what you have, and say in it what remains uncertain. Any other tool call will be lost.'
+            : `You have ${left} model calls left, this one included. Stop investigating: call submit_result ` +
+              'with what you have, and say in it what remains uncertain.',
+      })
+    }
     let completion
     try {
       completion = await input.adapter.complete({
@@ -509,11 +538,23 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
       messages.push({
         role: 'user',
         content:
-          'You did not call any tool. If you have the answer, call submit_result now with it. ' +
-          'If you still need information, call a tool. Plain text alone does not end this task.',
+          completion.finishReason === 'length'
+            ? `Your previous response was cut off at the output limit (${limits.max_output_tokens} tokens, ` +
+              'reasoning included) before any tool call. Think briefly, then call submit_result now with a ' +
+              'concise answer, or call one tool if you still need information.'
+            : 'You did not call any tool. If you have the answer, call submit_result now with it. ' +
+              'If you still need information, call a tool. Plain text alone does not end this task.',
       })
       continue
     }
+
+    // Une réponse qui appelle un outil rouvre le droit à une relance : il vaut
+    // pour une réponse, pas pour toute la tâche. Au second essai réel de la
+    // Slice 8, un Researcher l'avait consommé à l'étape 1, et une coupure à
+    // l'étape 10 l'a fait échouer sans relance — sous un message qui disait
+    // « 2 fois, relance comprise ». Le nombre d'étapes borne toujours le tout.
+    nudged = false
+    cutWithoutTools = 0
 
     // Les fournisseurs savent demander plusieurs appels d'un coup. Au-delà de la
     // limite du profil, les surnuméraires sont refusés — en le disant au modèle,
