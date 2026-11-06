@@ -383,6 +383,12 @@ valait pour toute la tâche (elle se rouvre après chaque appel d'outil), et
 l'agent ne voyait pas venir sa limite d'étapes (prévenu à deux appels de la
 fin, `STEPS_WARNING`). Le plafond de sortie de 4 096 jetons est trop bas pour
 un modèle de raisonnement : à relever par l'auteur avant le troisième passage.
+**Troisième essai, conclu sur la cible JavaScript** : l'orchestrateur crée un
+exécutant « REA JS analyser » (base `researcher`, serveur `rea`), qui rend la
+bonne réponse, vérifiée contre `useHarness.ts` ; résultat non fiable, 0,072 $
+pour l'arbre, aucun processus REA ensuite. **Aucun outil REA n'a été appelé**
+— la recherche textuelle suffisait : l'appel réel (approbation, encadrement)
+reste à éprouver sur un binaire, avec Ghidra.
 
 ## Slice 7 terminée — les agents voient
 

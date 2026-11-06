@@ -191,7 +191,7 @@ ouvert.
 | 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | **fait** — migration 13, budget d'arbre ; trois défauts introduits vus échouer, un trou trouvé en écrivant ; verte en CI sur trois plateformes |
 | 5 | Le dashboard : page « Serveurs MCP » (déclarer, tester, cocher), serveurs d'un profil, appels MCP dans le fil, agents créés et leur consigne dans l'arbre | **fait** — la déclaration reste à la CLI ; D16 et D17 dans `test:ui` ; vu dans le navigateur ; verte en CI sur trois plateformes |
 | 6 | Preuves : `test:orchestrator` (création, délégation parallèle, outil MCP), `test:security` (outil non coché refusé sans atteindre le serveur, empreinte changée → plus libre, agent créé qui tente de dépasser son type, rien de non expurgé en base, aucun serveur vivant après `SIGKILL`), CI sur trois plateformes | **fait** — X10 à X13 dans `test:security`, chacun vu échouer sur la protection qu'il garde ; verts en CI sur trois plateformes |
-| 7 | L'essai réel : un orchestrateur sur Venice crée deux agents de reverse sur REA et un Developer, analyse un binaire, rend une synthèse ; coût relevé | **deux essais non conclus** (2026-11-06) — veille et approbation au premier ; au second, l'orchestrateur trouve la bonne réponse sans la soumettre ; quatre défauts trouvés et réglés ; à rejouer |
+| 7 | L'essai réel : un orchestrateur sur Venice crée deux agents de reverse sur REA et un Developer, analyse un binaire, rend une synthèse ; coût relevé | **cible JavaScript conclue** au troisième essai (2026-11-06) : agent créé avec REA, réponse juste, non fiable, 0,072 $ ; quatre défauts trouvés en chemin et réglés. **Aucun appel REA réel encore** : la recherche textuelle suffisait — à éprouver sur un binaire |
 
 ### Ce que chaque étape doit surveiller
 
@@ -738,6 +738,38 @@ bas pour un modèle de raisonnement ; le relever est un acte de l'auteur
 (`harness agents limits researcher --max-output-tokens 16384`, confirmé).
 Pour éprouver REA lui-même, il faudra une cible où la recherche textuelle ne
 suffit pas — un binaire, donc le second essai prévu, avec Ghidra.
+
+### Étape 7 — troisième essai, conclu sur la cible JavaScript (2026-11-06)
+
+Même cible, même objectif, daemon redémarré sur les correctifs de la boucle,
+plafond de sortie du Researcher relevé par l'auteur à 16 384 jetons
+(journalisé « max_output_tokens 4096 → 16384, par cli »).
+
+| # | Constat |
+|---|---|
+| R1 | `mcp add` : 207 outils lus, aucun processus REA ensuite (premier essai) |
+| R2 | 5 outils cochés par l'auteur, « 207 outil(s), 5 libre(s) » au départ |
+| R3 | Venice accepte les 207 outils, à chaque essai |
+| R4 | REA démarré au départ de la sous-tâche, dans `~/midgaard-essai-rea` |
+| R5 | **L'orchestrateur a créé un exécutant** (`create_agent`) : « REA JS analyser », base `researcher`, serveur `rea`, son rôle ajouté après la consigne du profil, limites du profil de base ; puis l'a délégué et attendu |
+| R6 | **Non éprouvé** : aucun outil REA appelé, donc aucune approbation |
+| R7 | **Juste.** Le hook `Gn` ; à une reconnexion sans jeton, après une première ouverture (`o.current`), `Rn()` relit `/` et compare le script de module désigné au sien ; différent → `location.reload()`, sinon nouveau bootstrap. Calendrier `Vn=[300,700,1500,3e3,6e3,1e4]`. Comparé à `apps/dashboard/src/lib/useHarness.ts` : condition, ordre et tableau identiques (`everOpenRef`, `servedBundleChanged`, `BACKOFF_MS`). Il a aussi relevé la source map référencée mais absente, et la seconde occurrence de `location.reload()` (le bouton de la frontière d'erreur) |
+| R8 | Résultat **non fiable** : l'exécutant a fait une recherche web native |
+| R9 | 0,0723 $ pour l'arbre (orchestrateur 0,0099 $, exécutant créé 0,0624 $), tout `provider`, sous le budget d'arbre de 0,5 $ ; le catalogue pèse ~62 000 jetons par appel de l'exécutant (937 080 jetons d'entrée en dix appels) |
+| R10 | Aucun processus REA après la fin |
+
+Les correctifs de la boucle n'ont pas eu à jouer : l'exécutant a conclu à
+l'étape 10 sur 12, l'orchestrateur à la 8e sur 16, sans réponse coupée. Le
+plafond de 16 384 jetons a suffi.
+
+**Ce que la cible JavaScript ne pouvait pas prouver.** Le rôle donné par
+l'orchestrateur disait d'employer REA ; l'exécutant ne l'a pas fait, et il
+avait raison : `search_files` trouvait tout. Aucun appel REA n'a donc
+traversé la chaîne réelle — approbation sur arguments exacts, encadrement,
+résultat d'un serveur MCP marqué non fiable. Ces maillons sont prouvés par
+X10 à X13 contre le faux serveur, pas contre REA. Il faut pour cela une
+cible où la recherche textuelle ne suffit pas : un binaire, donc le second
+essai prévu, avec Ghidra (relever d'abord `--timeout` du Researcher).
 
 ### Les limites d'un profil se règlent (2026-11-05)
 
