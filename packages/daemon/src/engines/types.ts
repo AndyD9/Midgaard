@@ -152,18 +152,21 @@ export interface TaskEngine {
    * Signale une demande d'annulation.
    *
    * @param approval comment se résout l'approbation que la tâche attend, s'il y
-   *                 en a une : `rejected` (défaut) quand un humain refuse ou
-   *                 annule, `expired` quand personne n'a décidé à temps. La
-   *                 boucle l'écrit au journal de l'appel : une expiration
-   *                 inscrite « refusé par un humain » affirmerait une décision
-   *                 que personne n'a prise (vu à l'essai réel de la Slice 7).
+   *                 en a une : `rejected` quand un humain refuse **cette
+   *                 opération**, `expired` quand personne n'a décidé à temps,
+   *                 `cancelled` (défaut) quand la tâche est arrêtée avant la
+   *                 décision — annulation, cascade d'un parent, arrêt. La
+   *                 boucle l'écrit au journal de l'appel : une expiration ou une
+   *                 cascade inscrite « refusé par un humain » affirmerait une
+   *                 décision que personne n'a prise (vu aux essais réels des
+   *                 Slices 7 et 8).
    * @returns `true` si le moteur s'est arrêté immédiatement et que le gérant peut
    *          conclure l'annulation ; `false` si l'arrêt sera **coopératif**, au
    *          prochain point de contrôle. Un appel de modèle en cours n'est pas
    *          interrompu : on l'a déjà payé, autant en récupérer le résultat et le
    *          compter.
    */
-  cancel(task: Task, approval?: 'rejected' | 'expired'): boolean
+  cancel(task: Task, approval?: 'rejected' | 'expired' | 'cancelled'): boolean
   /** Arrête tout, sans rien conclure : les tâches en vol seront `interrupted` au prochain démarrage. */
   stop(): void
 }

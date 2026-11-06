@@ -355,7 +355,17 @@ protection qu'il garde. Les limites d'un profil se règlent désormais
 D18 dans `test:ui`, verts en CI sur trois plateformes, passage
 `42182564486`) : tranché avant l'essai Ghidra, dont le premier appel
 dépasse le délai du Researcher. Étape 7 : protocole écrit (cible JavaScript
-d'abord), à lancer par l'auteur — REA à installer, Node ≥ 24.22.1.
+d'abord). **Premier essai le 2026-11-06, non conclu** : REA 6.7.0 (Homebrew,
+Node 24.18 suffit) annonce **207 outils, ~55 000 jetons** de définitions, que
+Venice accepte (R3) ; aucune approbation donnée, et la machine s'est mise en
+veille capot fermé — toutes les tâches ont fini en délai. Il a trouvé deux
+défauts, réglés : `search_files` prenait `glob: "*.js"` à la lettre et rendait
+« aucune correspondance » (faux négatif ; le filtre lit désormais `*.ext`,
+refuse les autres jokers et dit quand il n'a rien retenu), et un appel pour
+lequel **aucune** approbation n'avait été demandée, ou dont la tâche était
+annulée pendant l'attente, était inscrit « refusé par un humain »
+(`ApprovalOutcome` `cancelled` et `not_asked`). À rejouer machine éveillée,
+l'humain présent.
 
 ## Slice 7 terminée — les agents voient
 

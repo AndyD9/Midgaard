@@ -321,4 +321,61 @@ describe('approbation oubliée', () => {
     assert.equal(completed.error, 'aucune décision humaine dans le délai')
     assert.equal(quick.store.countTasks().active, 0)
   })
+
+  /** Les journaux de fin d'appel d'une tâche, une fois que la boucle les a tous écrits. */
+  async function completions(quick: Awaited<ReturnType<typeof boot>>, taskId: string, count: number) {
+    let found: Record<string, unknown>[] = []
+    for (let i = 0; i < 100 && found.length < count; i++) {
+      found = quick.store.taskEvents(taskId).filter((e) => e.type === 'tool.completed').map((e) => e.payload)
+      if (found.length < count) await new Promise((r) => setTimeout(r, 20))
+    }
+    return found
+  }
+
+  it('n\'inscrit pas « refusé par un humain » pour l\'appel suivant, qu\'aucun humain n\'a vu', async () => {
+    // Premier essai réel de la Slice 8 : deux appels REA dans la même étape ;
+    // le premier a expiré, et le second — pour lequel aucune demande n'a pu
+    // être créée, la tâche étant finie — était inscrit « refusé par un humain ».
+    const quick = await boot({ MIDGAARD_APPROVAL_TTL_S: '1', MIDGAARD_HTTP_POLICY: 'approval' })
+    provider.scripts.set('[deux-appels]', [
+      [
+        { tool: 'http_fetch', args: { url: 'https://example.org/a' } },
+        { tool: 'http_fetch', args: { url: 'https://example.org/b' } },
+      ],
+      [{ tool: 'submit_result', args: { summary: 'jamais atteint', details: 'x' } }],
+    ])
+    const created = quick.tasks.create({
+      objective: '[deux-appels] lis les pages', agentId: 'researcher', context: null, projectDir: project,
+      durationS: 20, needsApproval: false,
+    })
+    assert.ok(!('error' in created), JSON.stringify(created))
+    await until(quick, created.task.id, 'timed_out', 5_000)
+    const [first, second] = await completions(quick, created.task.id, 2)
+    assert.equal(first?.error, 'aucune décision humaine dans le délai')
+    assert.equal(second?.status, 'denied')
+    assert.equal(second?.error, 'tâche arrêtée : aucune approbation demandée')
+    const requested = quick.store.taskEvents(created.task.id).filter((e) => e.type === 'approval.requested')
+    assert.equal(requested.length, 1, 'une seule demande a été créée : le second appel n\'a sollicité personne')
+  })
+
+  it('n\'inscrit pas « refusé par un humain » quand la tâche est annulée pendant l\'attente', async () => {
+    // Une annulation de la tâche — par un humain, ou par la cascade d'un parent
+    // fini — n'est pas un refus de l'opération : personne ne l'a jugée.
+    const quick = await boot({ MIDGAARD_HTTP_POLICY: 'approval' })
+    provider.scripts.set('[annulee-en-attente]', [
+      [{ tool: 'http_fetch', args: { url: 'https://example.org/' } }],
+      [{ tool: 'submit_result', args: { summary: 'jamais atteint', details: 'x' } }],
+    ])
+    const created = quick.tasks.create({
+      objective: '[annulee-en-attente] lis la page', agentId: 'researcher', context: null, projectDir: project,
+      durationS: 20, needsApproval: false,
+    })
+    assert.ok(!('error' in created), JSON.stringify(created))
+    await until(quick, created.task.id, 'waiting_approval')
+    quick.tasks.cancel(created.task.id, 'tâche parente terminée')
+    await until(quick, created.task.id, 'cancelled', 5_000)
+    const [completed] = await completions(quick, created.task.id, 1)
+    assert.equal(completed?.status, 'denied')
+    assert.equal(completed?.error, 'tâche arrêtée avant la décision humaine')
+  })
 })

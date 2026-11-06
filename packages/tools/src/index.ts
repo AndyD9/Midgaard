@@ -37,6 +37,7 @@ export type {
 } from './types.ts'
 export { ToolError, HTTP_POLICIES, MAX_TOOL_RESULT_BYTES, truncate } from './types.ts'
 export { canonicalRoot, isUnder, openUnderRoot, resolveUnderRoot, toolPath } from './paths.ts'
+export { lineExcerpts, nameSuffix } from './fs.ts'
 export { assertPublicHost, hostAllowed, isPrivateAddress, IMDS_ADDRESS } from './net.ts'
 export { follow, htmlToText } from './http.ts'
 export type { HostGuard } from './http.ts'

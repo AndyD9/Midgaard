@@ -74,8 +74,47 @@ import { budgetIsEnforceable, checkLimits, formatUsd, type StopReason } from './
 import { buildMessages, workspaceTree, type WorkspaceBrief } from './context.ts'
 import { OutputBatcher, type OutputBatch } from './output.ts'
 
-/** Décision humaine rendue sur une demande d'approbation. */
-export type ApprovalOutcome = 'approved' | 'rejected' | 'expired'
+/**
+ * Issue d'une demande d'approbation.
+ *
+ * `approved`, `rejected` et `expired` disent ce qu'a fait l'humain, ou qu'il
+ * n'a rien fait à temps. `cancelled` dit que la tâche a été arrêtée avant sa
+ * décision (annulation, cascade d'un parent, arrêt du daemon). `not_asked`
+ * dit que **personne n'a été sollicité** :
+ * la tâche n'était déjà plus en état de pauser (délai écoulé, annulation). Au
+ * premier essai réel de la Slice 8, ce cas rendait `rejected`, et le journal
+ * inscrivait « refusé par un humain » pour un appel qu'aucun humain n'avait vu
+ * — la même faute que l'approbation expirée de la Slice 7.
+ */
+export type ApprovalOutcome = 'approved' | 'rejected' | 'expired' | 'cancelled' | 'not_asked'
+
+/**
+ * Ce que la boucle journalise et répond au modèle pour chaque issue autre
+ * qu'un accord. Seul `rejected` nomme un humain : c'est le seul cas où un
+ * humain a décidé.
+ */
+const APPROVAL_REFUSALS: Record<Exclude<ApprovalOutcome, 'approved'>, { status: 'rejected' | 'denied'; error: string; message: string }> = {
+  rejected: {
+    status: 'rejected',
+    error: 'refusé par un humain',
+    message: 'Refused by a human operator. Do not retry this call; find another way or submit what you have.',
+  },
+  expired: {
+    status: 'denied',
+    error: 'aucune décision humaine dans le délai',
+    message: 'No human decision within the allowed time. Do not retry; submit what you have.',
+  },
+  cancelled: {
+    status: 'denied',
+    error: 'tâche arrêtée avant la décision humaine',
+    message: 'This task was stopped before a human decided. Do not retry.',
+  },
+  not_asked: {
+    status: 'denied',
+    error: 'tâche arrêtée : aucune approbation demandée',
+    message: 'This task is stopping: no approval was requested. Do not retry.',
+  },
+}
 
 /**
  * Ce qu'une demande d'approbation soumet à l'humain : le texte qu'il lit, et
@@ -797,16 +836,9 @@ async function runOneTool(
         }
     const outcome = await input.hooks.requestApproval(request, step)
     if (outcome !== 'approved') {
-      input.hooks.onToolCompleted(logId, {
-        status: outcome === 'rejected' ? 'rejected' : 'denied',
-        summary: null, bytes: null, durationMs: 0,
-        error: outcome === 'rejected' ? 'refusé par un humain' : 'aucune décision humaine dans le délai',
-      })
-      return reply(
-        outcome === 'rejected'
-          ? 'Refused by a human operator. Do not retry this call; find another way or submit what you have.'
-          : 'No human decision within the allowed time. Do not retry; submit what you have.',
-      )
+      const { status, error, message } = APPROVAL_REFUSALS[outcome]
+      input.hooks.onToolCompleted(logId, { status, summary: null, bytes: null, durationMs: 0, error })
+      return reply(message)
     }
   }
 

@@ -60,6 +60,24 @@ dossiers illisibles avalait l'erreur à la racine de la recherche. Le défaut a
 l'a cru absent sur la foi de ce zéro, a reformulé quatre fois et y a laissé son
 budget d'étapes.
 
+Le même défaut est revenu par le filtre de nom, au premier essai réel de la
+Slice 8 : `glob` est un **suffixe** (`.js`), et l'orchestrateur a passé `*.js`.
+Aucun nom ne finissant par `*.js`, sept recherches ont rendu « aucune
+correspondance » sur un fichier qui contenait les motifs, et il a conclu que
+l'outil était cassé. Désormais (`nameSuffix`) :
+
+- `*.js` et `**/*.js` sont ramenés au suffixe `.js` ; tout autre joker
+  (`src/*.js`, `*.{ts,js}`) est **refusé** avec la forme attendue ;
+- zéro fichier retenu par le filtre se dit comme tel (« no file name ends
+  with … : nothing was searched »), jamais « aucune correspondance » ;
+- un fichier de plus de 2 Mo, ou binaire, sauté par la recherche est **compté
+  dans la réponse**.
+
+Une ligne longue — un bundle minifié tient sur une ligne d'un mégaoctet — est
+rendue **autour de chaque occurrence**, avec sa colonne (`lineExcerpts`), au
+lieu de ses 300 premiers caractères : au même essai, quatre correspondances
+montraient toutes le début du fichier.
+
 La leçon est plus générale que l'outil : **un faux négatif est pire qu'un
 refus**, parce qu'il a l'air d'une réponse. Un modèle ne peut pas distinguer
 « je n'ai rien trouvé » de « je n'ai rien cherché » — alors l'outil doit le

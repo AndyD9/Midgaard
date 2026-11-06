@@ -174,6 +174,12 @@ ouvert.
   Ghidra par tâche se révèle trop lent à l'essai.
 - ~~Le délai d'un premier appel Ghidra face aux limites des profils~~ —
   tranché le 2026-11-05 : voir « Les limites d'un profil se règlent ».
+- **Choisir les outils d'un serveur exposés à un profil.** REA en annonce
+  207, ~55 000 jetons de définitions relus à chaque appel de modèle, et ne
+  sait pas en exposer moins (trois variables `REA_MCP_*`, aucune ne filtre).
+  Venice les accepte et son cache en absorbe l'essentiel (61 696 jetons
+  resservis au deuxième appel) ; un fournisseur plafonné à 128 outils les
+  refuserait. À trancher après le second essai, sur ce qu'il aura coûté.
 
 ## Découpage
 
@@ -185,7 +191,7 @@ ouvert.
 | 4 | Les agents créés à la volée : `create_agent`, plafonds (outils, limites, serveurs, modèle, vision), consigne ajoutée, rattachement à l'arbre, plafond de sous-tâches actives | **fait** — migration 13, budget d'arbre ; trois défauts introduits vus échouer, un trou trouvé en écrivant ; verte en CI sur trois plateformes |
 | 5 | Le dashboard : page « Serveurs MCP » (déclarer, tester, cocher), serveurs d'un profil, appels MCP dans le fil, agents créés et leur consigne dans l'arbre | **fait** — la déclaration reste à la CLI ; D16 et D17 dans `test:ui` ; vu dans le navigateur ; verte en CI sur trois plateformes |
 | 6 | Preuves : `test:orchestrator` (création, délégation parallèle, outil MCP), `test:security` (outil non coché refusé sans atteindre le serveur, empreinte changée → plus libre, agent créé qui tente de dépasser son type, rien de non expurgé en base, aucun serveur vivant après `SIGKILL`), CI sur trois plateformes | **fait** — X10 à X13 dans `test:security`, chacun vu échouer sur la protection qu'il garde ; verts en CI sur trois plateformes |
-| 7 | L'essai réel : un orchestrateur sur Venice crée deux agents de reverse sur REA et un Developer, analyse un binaire, rend une synthèse ; coût relevé | **protocole prêt** — d'abord une cible JavaScript, sans Ghidra ; REA à installer par l'auteur |
+| 7 | L'essai réel : un orchestrateur sur Venice crée deux agents de reverse sur REA et un Developer, analyse un binaire, rend une synthèse ; coût relevé | **premier essai non conclu** (2026-11-06) — machine en veille, aucune approbation donnée ; deux défauts trouvés et réglés ; à rejouer |
 
 ### Ce que chaque étape doit surveiller
 
@@ -527,9 +533,9 @@ On peut donc juger le résultat, pas seulement le fait qu'il y en ait un.
 #### Préparer (une fois, dans un terminal)
 
 **Node d'abord.** `rea-agents` 6.8.0 exige Node `^22.23.4 || ^24.22.1 ||
->=26.12.1` (relevé sur npm le 2026-11-05) ; la machine de développement a
-Node 24.18.0. Midgaard, lui, se contente de Node 24 : c'est REA qui impose la
-montée. Le serveur MCP de REA se lance avec le `node` que `mcp add` résout,
+>=26.12.1` (relevé sur npm le 2026-11-05) ; la 6.7.0, que Homebrew a
+installée le 2026-11-06, se contente de `^24.11.0` — le Node 24.18.0 de la
+machine de développement suffit alors. Midgaard, lui, se contente de Node 24. Le serveur MCP de REA se lance avec le `node` que `mcp add` résout,
 donc celui du `PATH` du terminal au moment de la déclaration.
 
 Installer REA, depuis un dossier qui n'est pas un projet :
@@ -561,13 +567,25 @@ npm run harness -- mcp allow rea --read-only
 npm run harness -- mcp attach rea researcher
 ```
 
-Construire la cible, un dépôt d'un commit qui ne contient que le bundle :
+Construire la cible, un dépôt d'un commit qui ne contient que le bundle.
+**Sans sa source map** : le build en produit une, qui rendrait les sources
+à l'agent — la première préparation l'avait copiée.
 
 ```bash
-npm run build && rm -rf ~/midgaard-essai-rea && mkdir -p ~/midgaard-essai-rea && cp -R apps/dashboard/dist ~/midgaard-essai-rea/cible && git -C ~/midgaard-essai-rea init -q && git -C ~/midgaard-essai-rea add -A && git -C ~/midgaard-essai-rea -c user.name=Essai -c user.email=essai@example.org commit -qm cible
+npm run build && rm -rf ~/midgaard-essai-rea && mkdir -p ~/midgaard-essai-rea && cp -R apps/dashboard/dist ~/midgaard-essai-rea/cible && rm -f ~/midgaard-essai-rea/cible/assets/*.map && git -C ~/midgaard-essai-rea init -q && git -C ~/midgaard-essai-rea add -A && git -C ~/midgaard-essai-rea -c user.name=Essai -c user.email=essai@example.org commit -qm cible
 ```
 
 #### Lancer
+
+**Machine éveillée, humain présent.** Une approbation expire au bout de
+quinze minutes, et un portable capot fermé se met en veille : c'est ce qui a
+fait échouer le premier essai. Le daemon ne s'en défend pas — ses délais
+suivent l'horloge murale, la veille les consomme. Dans un terminal à part,
+pendant tout l'essai :
+
+```bash
+caffeinate -dims
+```
 
 Au dashboard, « Nouvelle tâche » : profil `orchestrator`, dossier
 `~/midgaard-essai-rea` (chemin absolu), objectif :
@@ -604,6 +622,74 @@ qui n'emploie pas REA, épuise ses étapes, ou se trompe sur la cible.
 
 Ce que l'essai ne couvre pas : Ghidra et un binaire natif (second essai, après
 avoir tranché les limites), un processus REA partagé par arbre.
+
+### Étape 7 — premier essai, non conclu (2026-11-06)
+
+Lancé par l'API avec l'objectif du protocole ; REA déclaré (`mcp add`),
+donné au Researcher, **aucun outil coché**. Le daemon en marche datait de la
+veille (protocole 13, base en v10) : `harness start` l'a remplacé, et la
+base a été migrée à son démarrage.
+
+**Ce qui a marché.** R1 : `mcp add` a lu 207 outils en 3,9 s, aucun
+processus REA ensuite. R3 : **Venice accepte les 207 outils** — 61 548
+jetons d'entrée au premier appel du Researcher, 0,0082 $ facturés ; au
+deuxième, 61 696 jetons resservis par le cache du fournisseur. R4 : REA
+démarré au départ de la sous-tâche, « serveur MCP rea : 207 outil(s), 0
+libre(s) ». R5 : l'orchestrateur a délégué au Researcher. R6 : le premier
+appel REA (`binary_session {}`) a attendu un humain, serveur, outil et
+arguments sous les yeux. Chaque coût a sa provenance (`provider`).
+
+**Ce qui a fait échouer l'essai.** Personne n'a approuvé, et le capot s'est
+fermé six minutes après le départ (`pmset -g log` : *Clamshell Sleep* à
+08:49 UTC, puis des réveils de maintenance). L'approbation a expiré à son
+quart d'heure, au réveil suivant ; l'orchestrateur a fait la recherche
+lui-même, puis relancé un Researcher dont le premier appel de modèle est
+parti juste avant une nouvelle veille ; à l'heure d'horloge murale,
+l'orchestrateur a fini `timed_out` et sa cascade a annulé le Researcher.
+Les appels de modèle « bloqués » quinze et trente et une minutes n'étaient
+que la veille : ni défaut du fournisseur, ni du délai de 180 s.
+
+**Deux défauts réels, trouvés en lisant la timeline.**
+
+1. **`search_files` prenait `glob: "*.js"` à la lettre.** Le Researcher avait
+   passé `.js` et trouvé ; l'orchestrateur a passé `*.js` et reçu sept fois
+   « aucune correspondance » — jusque sur `react` et sur le CSS —, puis il a
+   conclu que l'outil était cassé et l'a écrit au Researcher suivant. C'est
+   le faux négatif de la Slice 2 revenu par une autre porte. Désormais
+   `*.ext` et `**/*.ext` sont lus comme le suffixe, les autres jokers
+   refusés avec la forme attendue, et un filtre qui ne retient aucun fichier
+   le dit. En chemin : une ligne longue (le bundle tient sur une ligne de
+   1,25 Mo) était rendue par ses 300 premiers caractères, la même pour chaque
+   motif ; elle l'est désormais autour de chaque occurrence, avec sa
+   colonne, et un fichier sauté (plus de 2 Mo, binaire) est compté dans la
+   réponse.
+2. **« Refusé par un humain » sans humain.** Le Researcher avait demandé
+   deux outils REA dans la même étape. Le premier a expiré ; pour le second,
+   aucune demande n'a pu être créée — la tâche était finie —, et la boucle
+   l'a inscrit « refusé par un humain ». Même faute pour une tâche annulée
+   pendant une attente (cascade d'un parent, annulation, arrêt du daemon) :
+   l'annulation de la tâche était journalisée comme un refus de l'opération.
+   `ApprovalOutcome` gagne `cancelled` (« tâche arrêtée avant la décision
+   humaine ») et `not_asked` (« tâche arrêtée : aucune approbation
+   demandée ») ; seul le refus d'un humain sur cette opération nomme un
+   humain. C'est la suite de la leçon de la Slice 7 sur l'approbation
+   expirée.
+
+Les deux sont prouvés par des tests vus échouer sans leur correctif
+(`tests/unit/tools.test.ts`, `tests/unit/conversation.test.ts`).
+
+**Coût, et un écart qui n'est pas le nôtre.** L'arbre a coûté 0,0258 $
+(orchestrateur 0,0153 $, premier Researcher 0,0106 $, second 0 $). Le solde
+Venice a baissé de 0,5248 $ dans le même temps ; mais depuis le relevé du
+2026-11-03 il a baissé de 4,96 $ quand Midgaard n'en a dépensé que 0,06 $ :
+la clé sert ailleurs. L'historique de facturation de Venice
+(`/billing/usage-history`) exige une clé d'administration ; R9 ne peut donc
+pas se conclure par le solde tant que la clé est partagée.
+
+**Pour le second passage** : machine éveillée (`caffeinate`), l'humain
+présent pour les approbations, et la cible préparée **sans sa source map**
+(la première préparation l'avait copiée ; elle a été retirée avant le
+lancement, et la commande du protocole corrigée).
 
 ### Les limites d'un profil se règlent (2026-11-05)
 

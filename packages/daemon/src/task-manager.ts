@@ -614,7 +614,8 @@ export class TaskManager {
     this.log(`approbation ${approvalId} refusée par ${by}`)
     const agent = this.agentFor(done.task.agent_id)
     const engine = agent ? this.engines.get(agent.kind) : undefined
-    engine?.cancel(done.task)
+    // Le seul cas où un humain a refusé : c'est ce que dira le journal de l'outil.
+    engine?.cancel(done.task, 'rejected')
     return this.view(done.task)
   }
 

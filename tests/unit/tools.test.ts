@@ -25,6 +25,7 @@ import {
   htmlToText,
   isPrivateAddress,
   isUnder,
+  lineExcerpts,
   resolveUnderRoot,
   toolSpecs,
   type ToolContext,
@@ -176,6 +177,42 @@ describe('list_directory et search_files', () => {
   it('trouve ce motif quand on lui passe le répertoire', async () => {
     const res = await search().run({ pattern: 'motif', path: 'src' } as never, ctx())
     assert.match(res.content, /a\.ts:1:/)
+  })
+
+  // Premier essai réel de la Slice 8 : l'orchestrateur a passé `glob: "*.js"`,
+  // pris pour un suffixe à la lettre. Sept recherches ont rendu « aucune
+  // correspondance » sur un fichier qui contenait les motifs, et il a conclu
+  // que l'outil était cassé.
+  it('lit « *.ts » et « **/*.ts » comme le suffixe « .ts »', async () => {
+    for (const glob of ['*.ts', '**/*.ts', '.ts']) {
+      const res = await search().run({ pattern: 'trouvé ici', path: '.', glob } as never, ctx())
+      assert.match(res.content, /src\/a\.ts:1:/, glob)
+    }
+  })
+
+  it('refuse un joker qu\'il ne sait pas lire, au lieu de ne rien trouver', async () => {
+    for (const glob of ['src/*.ts', '*.{ts,js}', 'a?.ts']) {
+      await assert.rejects(() => search().run({ pattern: 'x', path: '.', glob } as never, ctx()), /is not supported/, glob)
+    }
+  })
+
+  it('dit qu\'aucun fichier n\'a été parcouru, plutôt qu\'« aucune correspondance »', async () => {
+    const res = await search().run({ pattern: 'trouvé ici', path: '.', glob: '.inexistant' } as never, ctx())
+    assert.match(res.content, /no file name ends with "\.inexistant"/)
+    assert.doesNotMatch(res.content, /aucune correspondance/)
+  })
+
+  // Un bundle minifié tient sur une ligne : rendre son début pour chaque
+  // occurrence ne disait rien de l'endroit trouvé.
+  it('rend chaque occurrence d\'une ligne longue, autour d\'elle et avec sa colonne', () => {
+    const line = `${'a'.repeat(5000)}location.reload()${'b'.repeat(5000)}location.reload()${'c'.repeat(500)}`
+    const excerpts = lineExcerpts(line, /location\.reload/i, 10)
+    assert.equal(excerpts.length, 2)
+    assert.match(excerpts[0]!, /^\[col 5001\] …a+location\.reload\(\)b+…$/)
+    assert.match(excerpts[1]!, /^\[col 10018\] /)
+    assert.ok(excerpts.every((e) => e.length < 320), 'une fenêtre, pas la ligne')
+    assert.deepEqual(lineExcerpts('court location.reload()', /location\.reload/i, 10), ['court location.reload()'])
+    assert.equal(lineExcerpts('x'.repeat(400), /a*/, 3).length, 3, 'une occurrence vide ne fait pas boucler')
   })
 })
 

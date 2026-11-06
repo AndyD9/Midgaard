@@ -137,8 +137,74 @@ const searchSchema = z.object({
   glob: z
     .string()
     .optional()
-    .describe('Optional file name suffix filter, for example ".ts" or ".md"'),
+    .describe('Optional file name suffix filter, for example ".ts" or ".md" ("*.ts" is accepted too)'),
 })
+
+/** Longueur d'une ligne rendue entière ; au-delà, on rend une fenêtre autour de chaque occurrence. */
+const MAX_LINE_EXCERPT = 300
+/** Contexte gardé avant une occurrence dans une ligne longue. */
+const EXCERPT_LEAD = 120
+/** Taille au-delà de laquelle un fichier n'est pas parcouru. */
+const MAX_SEARCHED_FILE_BYTES = 2 * 1024 * 1024
+
+/**
+ * Le filtre de nom de `search_files`, à partir de ce que le modèle a écrit.
+ *
+ * Le schéma parle d'un **suffixe** (`.ts`), mais un modèle écrit volontiers un
+ * motif de shell (`*.js`, `**\/*.js`). Au premier essai réel de la Slice 8,
+ * l'orchestrateur l'a fait : le suffixe `*.js` ne terminait aucun nom, la
+ * recherche a rendu « aucune correspondance » sept fois de suite, et il en a
+ * conclu que l'outil était cassé. Un faux négatif est pire qu'un refus
+ * (docs/SLICE2.md, défaut n° 1). D'où : les formes usuelles `*.ext` et
+ * `**\/*.ext` sont ramenées au suffixe, et tout autre joker est **refusé** avec
+ * la forme attendue, plutôt que pris à la lettre.
+ *
+ * @param glob ce que le modèle a passé, éventuellement absent
+ * @returns le suffixe retenu, ou `null` s'il n'y a pas de filtre
+ * @throws {ToolError} si le filtre contient un joker qu'on ne sait pas lire
+ */
+export function nameSuffix(glob: string | undefined): string | null {
+  let suffix = glob?.trim() ?? ''
+  while (suffix.startsWith('**/')) suffix = suffix.slice(3)
+  if (suffix.startsWith('*')) suffix = suffix.slice(1)
+  if (suffix === '') return null
+  if (/[*?[\]{}/\\]/.test(suffix)) {
+    throw new ToolError(
+      `glob "${glob}" is not supported: it is a file name suffix such as ".js" or "*.js", ` +
+        'without other wildcards or directories (narrow the directory with path instead)',
+    )
+  }
+  return suffix
+}
+
+/**
+ * Les extraits d'une ligne où le motif a été trouvé.
+ *
+ * Une ligne courte est rendue entière. Une ligne longue — un bundle minifié
+ * tient sur une seule ligne d'un mégaoctet — est rendue **autour de chaque
+ * occurrence**, avec sa colonne. Rendre son début, comme avant, montrait les
+ * mêmes 300 premiers caractères pour chaque motif cherché : au premier essai
+ * réel, quatre « correspondances » ne disaient rien de l'endroit trouvé.
+ *
+ * @param line  la ligne
+ * @param regex le motif, sans drapeau `g`
+ * @param max   nombre d'extraits au plus
+ */
+export function lineExcerpts(line: string, regex: RegExp, max: number): string[] {
+  if (line.length <= MAX_LINE_EXCERPT) return regex.test(line) ? [line.trim()] : []
+  const all = new RegExp(regex.source, `${regex.flags}g`)
+  const out: string[] = []
+  let match: RegExpExecArray | null
+  while (out.length < max && (match = all.exec(line)) !== null) {
+    // Une occurrence vide (`a*`) ne fait pas avancer `lastIndex` : sans ce pas,
+    // la boucle tournerait sur place.
+    if (match[0] === '') all.lastIndex++
+    const start = Math.max(0, match.index - EXCERPT_LEAD)
+    const end = Math.min(line.length, start + MAX_LINE_EXCERPT)
+    out.push(`[col ${match.index + 1}] ${start > 0 ? '…' : ''}${line.slice(start, end)}${end < line.length ? '…' : ''}`)
+  }
+  return out
+}
 
 /** Cherche un motif dans les fichiers du projet. */
 export const searchFilesTool: Tool<z.infer<typeof searchSchema>> = {
@@ -159,6 +225,7 @@ export const searchFilesTool: Tool<z.infer<typeof searchSchema>> = {
       throw new ToolError(`invalid regular expression: ${(e as Error).message}`)
     }
 
+    const suffix = nameSuffix(args.glob)
     const root = await resolveUnderRoot(ctx.root, args.path)
 
     // `walk` tolère un dossier illisible : une recherche ne doit pas mourir
@@ -184,6 +251,10 @@ export const searchFilesTool: Tool<z.infer<typeof searchSchema>> = {
     const matches: string[] = []
     let scanned = 0
     let capped = false
+    // Les fichiers écartés le sont **en le disant** : un fichier trop gros ou
+    // binaire que la recherche saute en silence est un faux négatif de plus.
+    let tooLarge = 0
+    let binary = 0
 
     const walk = async (dir: string): Promise<void> => {
       if (capped || ctx.signal?.aborted) return
@@ -199,7 +270,7 @@ export const searchFilesTool: Tool<z.infer<typeof searchSchema>> = {
         // Les liens symboliques ne sont pas suivis : ils peuvent sortir de la
         // racine, et une boucle de liens ferait tourner la recherche sans fin.
         if (!entry.isFile()) continue
-        if (args.glob && !entry.name.endsWith(args.glob)) continue
+        if (suffix && !entry.name.endsWith(suffix)) continue
         if (++scanned > MAX_SCANNED_FILES) {
           capped = true
           return
@@ -212,16 +283,22 @@ export const searchFilesTool: Tool<z.infer<typeof searchSchema>> = {
       const { handle, size } = await openUnderRoot(ctx.root, file).catch(() => ({ handle: null, size: 0 }))
       if (!handle) return
       try {
-        if (size > 2 * 1024 * 1024) return
-        const buffer = Buffer.alloc(Math.min(size, 2 * 1024 * 1024))
+        if (size > MAX_SEARCHED_FILE_BYTES) {
+          tooLarge++
+          return
+        }
+        const buffer = Buffer.alloc(size)
         const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
         const raw = buffer.subarray(0, bytesRead)
-        if (raw.includes(0)) return
+        if (raw.includes(0)) {
+          binary++
+          return
+        }
         const lines = raw.toString('utf8').split('\n')
         for (let i = 0; i < lines.length; i++) {
-          const line = lines[i]!
-          if (!regex.test(line)) continue
-          matches.push(`${toolPath(ctx.root, file)}:${i + 1}: ${line.trim().slice(0, 300)}`)
+          for (const excerpt of lineExcerpts(lines[i]!, regex, MAX_MATCHES - matches.length)) {
+            matches.push(`${toolPath(ctx.root, file)}:${i + 1}: ${excerpt}`)
+          }
           if (matches.length >= MAX_MATCHES) {
             capped = true
             return
@@ -234,8 +311,20 @@ export const searchFilesTool: Tool<z.infer<typeof searchSchema>> = {
 
     await walk(root)
 
-    const body = matches.length ? matches.join('\n') : '(aucune correspondance)'
-    const note = capped ? `\n\n[…arrêté à ${matches.length} correspondance(s) ou ${scanned} fichier(s)]` : ''
+    // Zéro fichier parcouru n'est pas « aucune correspondance » : c'est le
+    // filtre, pas le motif, qui n'a rien retenu, et le modèle doit le savoir.
+    const empty =
+      scanned === 0 && suffix
+        ? `(no file name ends with "${suffix}" under "${args.path}": nothing was searched)`
+        : '(aucune correspondance)'
+    const body = matches.length ? matches.join('\n') : empty
+    const skipped = [
+      tooLarge ? `${tooLarge} file(s) over 2 MB not searched` : '',
+      binary ? `${binary} binary file(s) not searched` : '',
+    ].filter(Boolean)
+    const note =
+      (capped ? `\n\n[…arrêté à ${matches.length} correspondance(s) ou ${scanned} fichier(s)]` : '') +
+      (skipped.length ? `\n\n[${skipped.join(' ; ')}]` : '')
     return {
       content: body + note,
       bytes: Buffer.byteLength(body),
