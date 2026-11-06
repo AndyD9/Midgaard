@@ -352,7 +352,8 @@ persisté ; exécutant créé borné et hors de tout autre arbre ; aucun serveur
 après `SIGKILL` du daemon, serveur figé avant. Chacun vu échouer sur la
 protection qu'il garde. Les limites d'un profil se règlent désormais
 (`harness agents limits`, `PUT /api/agents/:id/limits`, `PROTOCOL_VERSION` 16,
-D18 dans `test:ui`) : tranché avant l'essai Ghidra, dont le premier appel
+D18 dans `test:ui`, verts en CI sur trois plateformes, passage
+`42182564486`) : tranché avant l'essai Ghidra, dont le premier appel
 dépasse le délai du Researcher. Étape 7 : protocole écrit (cible JavaScript
 d'abord), à lancer par l'auteur — REA à installer, Node ≥ 24.22.1.
 

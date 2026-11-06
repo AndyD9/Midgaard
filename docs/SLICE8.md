@@ -634,3 +634,10 @@ inchangée, bornes, corps vide, profil simulé, lecture des options) ; D18 dans
 `test:ui` — relèvement refusé à la confirmation : rien ne change ; confirmé :
 changé en base ; abaissement sans confirmation.
 
+Verte en CI sur trois plateformes (passages `42182564486` « Bout en bout »
+et `42182567697` « Worktrees »). Les passages lancés par le push
+(`42065138919`, `42065138959`) n'avaient rien prouvé sur macOS : le poste n'a
+jamais reçu de machine, GitHub l'a annulé au bout de quinze minutes sans
+qu'aucune étape ait tourné. Un poste annulé n'est pas un poste vert ; ils ont
+été relancés sur le même commit.
+
