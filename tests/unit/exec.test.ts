@@ -90,12 +90,13 @@ describe('politique', () => {
   })
 
   it('n\'autorise d\'office qu\'un argv exactement en liste blanche', () => {
-    const allow = parseExecAllow('npm test ; npx tsc --noEmit')
-    assert.deepEqual(allow, [['npm', 'test'], ['npx', 'tsc', '--noEmit']])
+    const parsed = parseExecAllow('npm test ; npx tsc --noEmit')
+    assert.deepEqual(parsed, [['npm', 'test'], ['npx', 'tsc', '--noEmit']])
+    const allow = parsed.map((argv) => ({ argv, prefix: false }))
     assert.equal(policy({ command: 'npm', args: ['test'] }, ctx({ execAllow: allow })).decision, 'allow')
     assert.equal(policy({ command: 'npm', args: ['test', '--watch'] }, ctx({ execAllow: allow })).decision, 'approval')
     assert.equal(policy({ command: 'npm' }, ctx({ execAllow: allow })).decision, 'approval')
-    assert.equal(execAllowed(['npx', 'tsc'], allow), false)
+    assert.equal(execAllowed(['npx', 'tsc'], allow), undefined)
   })
 
   it('affiche différemment un argument contenant ; et trois arguments', () => {

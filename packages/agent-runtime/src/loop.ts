@@ -159,6 +159,13 @@ export interface ToolRequestedInput {
   status: ToolCallStatus
   /** Arguments **déjà expurgés** par la boucle. */
   argumentsJson: string
+  /**
+   * Pour un appel autorisé **sans** humain, la raison qu'en donne la
+   * politique, déjà expurgée — `exec` y nomme la règle de liste blanche, et
+   * le préfixe qui a laissé passer des arguments que personne n'a lus
+   * (Slice 9). Absente sinon : un refus a son erreur, une demande sa pause.
+   */
+  allowReason?: string | undefined
 }
 
 /** Ce que la boucle journalise quand un outil rend la main. */
@@ -834,6 +841,7 @@ async function runOneTool(
     decision: verdict.decision,
     status: verdict.decision === 'approval' ? 'awaiting_approval' : 'running',
     argumentsJson,
+    allowReason: verdict.decision === 'allow' ? input.redact(verdict.reason) : undefined,
   })
 
   if (verdict.decision === 'deny') {

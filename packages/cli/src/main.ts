@@ -73,8 +73,9 @@ ${bold('Worktrees et commandes des agents écrivants')}
   workspaces clean [--force]
                         Retire ceux des tâches finies ; les worktrees sales sont laissés sans --force
   exec                  Commandes lancées sans approbation dans les worktrees de ce dépôt
-  exec allow [--yes] [--] <commande…>
-                        Ajoute un argv exact à cette liste, après avertissement et confirmation
+  exec allow [--yes] [--prefix] [--] <commande…>
+                        Ajoute un argv exact à cette liste, après avertissement et confirmation ;
+                        --prefix couvre tout ce qui le suit (jamais un interpréteur nu : python -m pytest)
   exec revoke [--] <commande…>
                         Le retire : la commande attendra de nouveau un humain
 

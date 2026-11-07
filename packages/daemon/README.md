@@ -259,6 +259,19 @@ timeline chaque playbook lu avec son SHA-256. Un playbook absent ou invalide
 fait échouer la tâche avant tout appel de modèle. Un agent créé hérite de
 ceux de son profil de base, puisque `resolveCreatedAgent` part du profil.
 
+## La liste blanche `exec` à préfixes (Slice 9)
+
+`POST /api/exec-allow` accepte `prefix` : l'entrée couvre alors tout argv qui
+commence par ses mots (`exec_allow.prefix`, migration 15). La route **juge**
+le préfixe par `execPrefixRefusal` (`@midgaard/contracts`) même si la CLI l'a
+déjà fait, et rend `400 prefix_refused` avec son motif ; un ajout rend
+`outcome` (`added`, `widened` quand une entrée exacte devient préfixe,
+`unchanged`), journalisé. Au départ d'une tâche, `execRulesForTask` **rejuge
+chaque préfixe enregistré** : celui que la règle refuse désormais est écarté
+— il ne devient pas une entrée exacte — et la timeline le dit. Un appel
+`exec` passé sans humain porte `allow_reason` dans son `tool.requested`, qui
+nomme la règle, et le préfixe le cas échéant.
+
 ## Les serveurs MCP déclarés (Slice 8)
 
 `mcp-servers.ts` suit le chemin des fournisseurs : **le coffre d'abord, la

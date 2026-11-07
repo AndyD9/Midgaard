@@ -141,10 +141,10 @@ Chaque point a été lu dans le code ou au catalogue, pas supposé.
 |---|---|---|
 | 1 | Les playbooks : dossier `playbooks/`, lecture et bornes, `agents.playbooks` (migration 14), `GET /api/playbooks`, `PUT /api/agents/:id/playbooks`, consigne composée et journalisée au départ, héritage par les agents créés, `harness playbooks` (`attach`, `detach`) ; un premier playbook (`python`) | **fait** — 15 tests, trois défauts introduits vus échouer, deux trouvés par la vraie CLI ; verte en CI sur trois plateformes |
 | 2 | Le savoir : `sigma`, `yara`, `pe-static`, `powershell`, `windows-hardening`, relus par l'auteur | fait (exemples validés, relus par l'auteur) |
-| 3 | La liste blanche à préfixes : migration, règle des interpréteurs, CLI et dashboard, avertissement | à faire |
+| 3 | La liste blanche à préfixes : migration, règle des interpréteurs, CLI, avertissement (le dashboard, qui ne montre pas encore la liste blanche, à l'étape 6) | **fait** — 70 tests unitaires et V14 ; trois défauts introduits vus échouer |
 | 4 | L'environnement Python du worktree (`uv sync` proposé au départ) et les échantillons en lecture seule, jamais exécutés | à faire |
 | 5 | La VM Windows : déclaration, empreinte d'hôte, copie jetable, commande approuvée, Job Object ; CI Windows avec sshd | à faire |
-| 6 | Le dashboard : playbooks aux Profils, VM, échantillons d'une tâche | à faire |
+| 6 | Le dashboard : playbooks aux Profils, liste blanche `exec` du dépôt (préfixes compris), VM, échantillons d'une tâche | à faire |
 | 7 | Preuves (`test:security`, CI trois plateformes) et essai réel : une règle Sigma, une règle YARA et un script PowerShell vérifiés sur la VM par un modèle *uncensored* ; le PE via REA après l'essai de la Slice 8 | à faire |
 
 ## Reste à trancher
@@ -266,3 +266,62 @@ jet de `sigma` l'a fait échouer : il disait « citer comme donnée » sans
 nommer la donnée non fiable.
 
 Relus par l'auteur le jour même, acceptés sans changement.
+
+### Étape 3 — la liste blanche à préfixes (2026-11-07)
+
+Ce qui existe désormais :
+
+- **`exec_allow.prefix`** (migration 15), et le champ `prefix` d'une entrée,
+  `PROTOCOL_VERSION` 18 : un daemon 17 aurait ignoré le champ et enregistré
+  une entrée exacte en disant l'ajout réussi ;
+- **`execPrefixRefusal`** (`packages/contracts/src/exec-allow.ts`), la règle
+  qui juge un préfixe, appliquée **trois fois** : par la CLI avant
+  l'avertissement, par la route (`400 prefix_refused`), et au départ de
+  chaque tâche (`execRulesForTask`) ;
+- **`harness exec allow --prefix`**, `exec list` qui montre un préfixe suivi
+  de `…` et dit celui que le moteur écarterait, `doctor` de même ;
+- **`allow_reason`** dans le `tool.requested` d'un appel passé sans humain :
+  « commande en liste blanche (préfixe « git rev-parse … ») ». Écrit d'abord
+  dans la politique sans qu'il arrive nulle part — la boucle ne gardait la
+  raison que d'un refus ou d'une demande ; le commentaire qui l'annonçait
+  aurait été faux.
+
+**La règle va un peu au-delà de la décision 6**, pour la même raison : un
+préfixe accepte n'importe quels arguments, que l'agent choisit. Refusés
+aussi : une **option juste après le programme** (`git -c alias.x=!sh`,
+`node --test`), un **chemin relatif** (un fichier du worktree, que l'agent
+écrit), les **lanceurs** (`env`, `xargs`, `find`, `ssh`, `sudo`…), les
+sous-commandes qui exécutent un fichier (`deno run`, `bun run`) ; et un
+**exécuteur** (`uv run`, `npx`, `npm exec`) n'est accepté que s'il nomme un
+programme acceptable à son tour (`uv run pytest` oui, `uv run python` non).
+Les familles se reconnaissent malgré la casse, la version et l'extension
+(`/usr/bin/python3.12`, `PWSH.EXE`). Ce que la règle ne prétend pas : connaître
+chaque programme dont un argument en lance un autre (`tar --to-command`,
+`rsync -e`) ; l'avertissement de la CLI le dit, l'humain décide.
+
+**Un préfixe ne rétrécit jamais en entrée exacte**, ni à l'ajout (`exact` sur
+un préfixe : `unchanged`) ni au départ (un préfixe refusé est écarté, pas
+réduit) : une règle qui changerait de sens en silence ne se relirait pas.
+Élargir une entrée exacte en préfixe change son auteur et sa date : c'est une
+autorisation de plus.
+
+**La variable `MIDGAARD_EXEC_ALLOW` reste exacte** : une forme préfixe y
+aurait demandé une syntaxe de plus à analyser, à l'endroit même où une
+commande approuvée d'office pourrait ne pas être celle qu'on croit.
+
+**Le dashboard attend l'étape 6** : il n'a jamais montré la liste blanche,
+exacte ou non. La décision « CLI et dashboard » du découpage y est reportée.
+
+Preuves : `tests/unit/exec-prefix.test.ts` (70 tests — 17 préfixes acceptés,
+39 refusés chacun avec son motif, la comparaison mot à mot, la politique qui
+nomme le préfixe, la migration d'une base 14, l'élargissement, le
+rejugement) et **V14** dans `test:developer`, un vrai daemon face au faux
+fournisseur : deux `git rev-parse` différents passent sans humain avec leur
+`allow_reason`, `python -c` est refusé par la route et `bash` par la CLI
+**avant** tout avertissement, et un préfixe `node -e` glissé en base est
+écarté au départ — la timeline le dit, l'appel attend l'humain. **Trois
+défauts introduits exprès ont été vus échouer** : moteur qui ne rejuge plus
+(V14 : `node -e` terminé sans aucune demande, et un test unitaire), route
+qui ne juge plus (V14 : `python -c` accepté et inscrit), comparaison de texte
+au lieu de mots (un test unitaire).
+

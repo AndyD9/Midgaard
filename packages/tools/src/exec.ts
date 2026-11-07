@@ -48,7 +48,7 @@ import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { stat } from 'node:fs/promises'
 import { delimiter, isAbsolute, join, relative, sep } from 'node:path'
 import { z } from 'zod'
-import type { ToolResult } from '@midgaard/contracts'
+import { execRuleMatches, formatExecRule, type ExecAllowRule, type ToolResult } from '@midgaard/contracts'
 export { parseExecAllow } from '@midgaard/contracts'
 import { armGuard, guardGroup } from './guard.ts'
 import { resolveUnderRoot } from './paths.ts'
@@ -88,9 +88,16 @@ const execSchema = z.object({
 })
 type ExecArgs = z.infer<typeof execSchema>
 
-/** Vrai si l'argv figure **exactement** dans la liste blanche. */
-export function execAllowed(argv: readonly string[], allow: readonly (readonly string[])[]): boolean {
-  return allow.some((entry) => entry.length === argv.length && entry.every((a, i) => a === argv[i]))
+/**
+ * La règle de la liste blanche qui couvre cet argv, ou `undefined`.
+ *
+ * Une entrée exacte d'abord : si l'argv est couvert des deux façons, la
+ * timeline nomme la règle la plus étroite. Les préfixes ont été jugés à
+ * l'ajout **et** au départ de la tâche (`execPrefixRefusal`) : ici, on ne fait
+ * que comparer, mot à mot.
+ */
+export function execAllowed(argv: readonly string[], allow: readonly ExecAllowRule[]): ExecAllowRule | undefined {
+  return allow.find((r) => !r.prefix && execRuleMatches(r, argv)) ?? allow.find((r) => execRuleMatches(r, argv))
 }
 
 /**
@@ -398,8 +405,12 @@ function execPolicy(args: ExecArgs, ctx: ToolContext): { decision: 'allow' | 'ap
   }
   const argv = [args.command, ...args.args]
   const where = args.cwd === '.' ? '' : ` (dans ${args.cwd})`
-  if (execAllowed(argv, ctx.execAllow ?? [])) {
-    return { decision: 'allow', reason: `commande en liste blanche : ${formatArgv(argv)}${where}` }
+  const rule = execAllowed(argv, ctx.execAllow ?? [])
+  if (rule) {
+    // Un préfixe se nomme : l'humain qui relit la timeline doit savoir quelle
+    // autorisation a laissé passer des arguments qu'il n'a jamais vus.
+    const by = rule.prefix ? ` (préfixe « ${formatExecRule(rule)} »)` : ''
+    return { decision: 'allow', reason: `commande en liste blanche${by} : ${formatArgv(argv)}${where}` }
   }
   // La raison est ce que l'humain lit avant de décider : la commande **exacte**.
   return { decision: 'approval', reason: `exécuter ${formatArgv(argv)}${where}` }

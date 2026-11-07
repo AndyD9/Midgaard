@@ -41,6 +41,7 @@ import type { BrowserSessions } from '../browsers.ts'
 import { MCP_CAPABLE_KINDS } from '../agents.ts'
 import type { McpSessions } from '../mcp-sessions.ts'
 import { composeSystemPrompt, loadPlaybooks, playbooksDirOf } from '../playbooks.ts'
+import { execRulesForTask } from '../workspaces.ts'
 
 /** Un profil qui a l'un de ces outils reçoit le navigateur de sa tâche (Slice 7). */
 const hasBrowser = (tools: readonly string[]): boolean => tools.some((t) => (BROWSER_TOOLS as readonly string[]).includes(t))
@@ -353,6 +354,7 @@ export class AgentEngine implements TaskEngine {
           return
         }
         workspace = made.workspace
+        const allowed = execRulesForTask(ctx.config.execAllow, ctx.store.listExecAllow(workspace.repo_dir))
         ready.tools = {
           ...ready.tools,
           // La racine des outils devient le worktree — plus le sous-dossier
@@ -370,10 +372,13 @@ export class AgentEngine implements TaskEngine {
           // de la tâche : un ajout fait pendant qu'elle tourne vaut pour la
           // suivante, pas pour celle-ci — une autorisation ne s'élargit pas
           // en cours de route.
-          execAllow: [
-            ...ctx.config.execAllow,
-            ...ctx.store.listExecAllow(workspace.repo_dir).map((e) => e.argv),
-          ],
+          execAllow: allowed.rules,
+        }
+        for (const i of allowed.ignored) {
+          ctx.bus.record(task.id, null, {
+            type: 'agent.message',
+            payload: { message: `préfixe exec écarté, chaque commande qu'il couvrait attendra un humain : ${i.argv.join(' ')} — ${i.reason}`, note: true },
+          })
         }
       }
 
@@ -648,7 +653,7 @@ export class AgentEngine implements TaskEngine {
         // `developer` posera ces deux champs sur son worktree (Slice 3, étape 5).
         writable: false,
         workspace: null,
-        execAllow: ctx.config.execAllow,
+        execAllow: ctx.config.execAllow.map((argv) => ({ argv, prefix: false })),
         signal: undefined,
         // Le port de délégation n'est posé que pour un orchestrateur (Slice 5) :
         // tout autre profil qui recevrait `delegate_task` par erreur se verrait
@@ -751,6 +756,9 @@ export class AgentEngine implements TaskEngine {
             decision: input.decision,
             arguments: input.argumentsJson,
             step: input.step,
+            // Seulement pour un appel passé sans humain : la règle qui l'a
+            // permis (une liste blanche, un préfixe), lisible à la timeline.
+            ...(input.allowReason ? { allow_reason: input.allowReason } : {}),
           },
         })
         return call.id

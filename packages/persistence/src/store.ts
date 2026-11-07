@@ -1207,24 +1207,51 @@ export class HarnessStore {
   // --- Liste blanche exec, par dépôt ----------------------------------------
 
   /**
-   * Ajoute une commande à la liste blanche d'un dépôt.
+   * Ajoute une commande à la liste blanche d'un dépôt, exacte ou en préfixe.
+   *
+   * Le préfixe n'est **pas** jugé ici : le dépôt range ce qu'on lui donne, et
+   * c'est la route (`execPrefixRefusal`) qui refuse. Un même argv est exact
+   * **ou** préfixe : l'ajouter en préfixe élargit l'entrée exacte (nouvel
+   * auteur, nouvelle date — c'est une autorisation de plus), l'ajouter exact
+   * alors qu'il est préfixe ne change rien.
    *
    * @param repoDir racine **canonique** du dépôt — celle que `inspectRepository`
    *        rend, et que le moteur consultera. Un chemin non canonique ne serait
    *        jamais retrouvé, et l'entrée ne servirait à rien sans le dire.
-   * @returns `false` si l'argv y figurait déjà
+   * @param prefix  `true` pour un préfixe (Slice 9)
+   * @returns `added`, `widened` (exacte devenue préfixe) ou `unchanged`
    */
-  addExecAllow(repoDir: string, argv: readonly string[], by: string): boolean {
-    const info = this.db
-      .prepare(
-        `INSERT OR IGNORE INTO exec_allow (repo_dir, argv_json, added_at, added_by)
-         VALUES (:repo, :argv, :at, :by)`,
-      )
-      .run({ repo: repoDir, argv: JSON.stringify(argv), at: new Date().toISOString(), by })
-    return info.changes === 1
+  addExecAllow(
+    repoDir: string,
+    argv: readonly string[],
+    by: string,
+    prefix = false,
+  ): 'added' | 'widened' | 'unchanged' {
+    const key = { repo: repoDir, argv: JSON.stringify(argv) }
+    const existing = this.db
+      .prepare('SELECT prefix FROM exec_allow WHERE repo_dir = :repo AND argv_json = :argv')
+      .get(key) as { prefix: number } | undefined
+    const at = new Date().toISOString()
+    if (!existing) {
+      this.db
+        .prepare(
+          `INSERT INTO exec_allow (repo_dir, argv_json, added_at, added_by, prefix)
+           VALUES (:repo, :argv, :at, :by, :prefix)`,
+        )
+        .run({ ...key, at, by, prefix: prefix ? 1 : 0 })
+      return 'added'
+    }
+    if (!prefix || existing.prefix === 1) return 'unchanged'
+    this.db
+      .prepare('UPDATE exec_allow SET prefix = 1, added_at = :at, added_by = :by WHERE repo_dir = :repo AND argv_json = :argv')
+      .run({ ...key, at, by })
+    return 'widened'
   }
 
-  /** Retire une commande. @returns `false` si elle n'y figurait pas */
+  /**
+   * Retire une commande, exacte ou préfixe : l'argv suffit à la désigner.
+   * @returns `false` si elle n'y figurait pas
+   */
   removeExecAllow(repoDir: string, argv: readonly string[]): boolean {
     const info = this.db
       .prepare('DELETE FROM exec_allow WHERE repo_dir = :repo AND argv_json = :argv')
@@ -1237,12 +1264,15 @@ export class HarnessStore {
     const found = repoDir
       ? this.db.prepare('SELECT * FROM exec_allow WHERE repo_dir = :repo ORDER BY added_at, rowid').all({ repo: repoDir })
       : this.db.prepare('SELECT * FROM exec_allow ORDER BY repo_dir, added_at, rowid').all()
-    return rows<{ repo_dir: string; argv_json: string; added_at: string; added_by: string }>(found).map((r) => ({
-      repo_dir: r.repo_dir,
-      argv: JSON.parse(r.argv_json) as string[],
-      added_at: r.added_at,
-      added_by: r.added_by,
-    }))
+    return rows<{ repo_dir: string; argv_json: string; added_at: string; added_by: string; prefix: number }>(found).map(
+      (r) => ({
+        repo_dir: r.repo_dir,
+        argv: JSON.parse(r.argv_json) as string[],
+        prefix: r.prefix === 1,
+        added_at: r.added_at,
+        added_by: r.added_by,
+      }),
+    )
   }
 
   // --- Serveurs MCP (Slice 8) ---------------------------------------------

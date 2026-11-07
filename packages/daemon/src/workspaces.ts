@@ -19,8 +19,11 @@ import { existsSync } from 'node:fs'
 import { readdir, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
+  execPrefixRefusal,
   isTerminal,
+  type ExecAllowEntry,
   type ExecAllowResponse,
+  type ExecAllowRule,
   type HarnessConfig,
   type TaskWorkspaceResponse,
   type Workspace,
@@ -167,4 +170,31 @@ export async function execAllowFor(
 ): Promise<ExecAllowResponse> {
   const repo = await inspectRepository(projectDir)
   return { repo_dir: repo.toplevel, entries: store.listExecAllow(repo.toplevel), global: config.execAllow }
+}
+
+/**
+ * Les règles `exec` d'une tâche : la liste globale (exacte), puis celle du
+ * dépôt, dont chaque **préfixe est rejugé** par `execPrefixRefusal`.
+ *
+ * Pourquoi rejuger ce que la route a déjà jugé : la règle peut se durcir d'une
+ * version à l'autre (un interpréteur de plus), et une entrée ajoutée avant
+ * resterait sinon une porte ouverte que plus rien n'accepterait. Un préfixe
+ * écarté ne devient pas une entrée exacte : il ne vaut plus rien, et c'est dit.
+ *
+ * @param global  `config.execAllow` (`MIDGAARD_EXEC_ALLOW`)
+ * @param entries la liste du dépôt, lue au départ de la tâche
+ * @returns les règles retenues, et les préfixes écartés avec leur motif
+ */
+export function execRulesForTask(
+  global: readonly (readonly string[])[],
+  entries: readonly ExecAllowEntry[],
+): { rules: ExecAllowRule[]; ignored: { argv: string[]; reason: string }[] } {
+  const rules: ExecAllowRule[] = global.map((argv) => ({ argv, prefix: false }))
+  const ignored: { argv: string[]; reason: string }[] = []
+  for (const e of entries) {
+    const refusal = e.prefix ? execPrefixRefusal(e.argv) : null
+    if (refusal) ignored.push({ argv: e.argv, reason: refusal })
+    else rules.push({ argv: e.argv, prefix: e.prefix })
+  }
+  return { rules, ignored }
 }

@@ -175,6 +175,15 @@ le daemon rappelle la conséquence dans son journal à chaque démarrage. Pas de
 guillemets dans cette variable : un argument contenant une espace ne peut pas
 être mis en liste blanche, et c'est voulu.
 
+**Une entrée de dépôt peut être un préfixe** (Slice 9) : elle couvre tout argv
+qui commence par ses mots, comparés un à un (`pytest tests` ne couvre pas
+`pytest tests_evil`). `execAllowed` rend la règle qui couvre l'argv — l'entrée
+exacte d'abord — et la politique la nomme : « commande en liste blanche
+(préfixe « python -m pytest … ») », raison inscrite à la timeline
+(`allow_reason`). L'outil ne juge pas les préfixes : `ToolContext.execAllow`
+n'en reçoit que de jugés (`execPrefixRefusal`, à l'ajout et au départ de la
+tâche). La variable globale reste exacte.
+
 **La sortie se suit en direct** (Slice 6). `runCommand` passe chaque morceau
 lu à `onOutput`, que l'outil branche sur `ToolContext.output`, posé par la
 boucle pour un appel. Les octets sont bruts : la découpe par ligne,

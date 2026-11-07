@@ -585,8 +585,8 @@ describe('espaces de travail', () => {
 
 describe('liste blanche exec par dépôt', () => {
   it('range des argv exacts par dépôt, sans doublon, et les retire', () => {
-    assert.equal(store.addExecAllow('/depot', ['npm', 'test'], 'cli'), true)
-    assert.equal(store.addExecAllow('/depot', ['npm', 'test'], 'cli'), false, 'pas de doublon')
+    assert.equal(store.addExecAllow('/depot', ['npm', 'test'], 'cli'), 'added')
+    assert.equal(store.addExecAllow('/depot', ['npm', 'test'], 'cli'), 'unchanged', 'pas de doublon')
     store.addExecAllow('/depot', ['npm', 'test', '--', '--watch'], 'cli')
     store.addExecAllow('/autre', ['make'], 'cli')
 

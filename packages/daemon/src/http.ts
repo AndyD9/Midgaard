@@ -35,7 +35,7 @@
  * | GET  | `/api/workspaces` | Tous les worktrees, état sur le disque, orphelins | 200 |
  * | POST | `/api/workspaces/:id/remove` | Retire un worktree (la branche reste) | 200, 404, 409 |
  * | GET  | `/api/exec-allow?project_dir=` | Liste blanche `exec` du dépôt, et la globale | 200, 400 |
- * | POST | `/api/exec-allow` | Ajoute un argv exact à la liste du dépôt | 200, 400 |
+ * | POST | `/api/exec-allow` | Ajoute un argv exact, ou un préfixe jugé (`prefix`, Slice 9), à la liste du dépôt | 200, 400 |
  * | POST | `/api/exec-allow/remove` | Retire un argv de la liste du dépôt | 200, 400, 404 |
  * | GET  | `/api/agents` | Profils d'agents, en vue : `enabled` et `disabled_reason` disent s'ils peuvent recevoir une tâche maintenant | 200 |
  * | GET  | `/api/agents/:id` | Un profil, en vue | 200, 404 |
@@ -70,6 +70,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import {
   createTaskRequestSchema,
   execAllowRequestSchema,
+  execPrefixRefusal,
+  formatExecRule,
   mcpAllowRequestSchema,
   postMessageRequestSchema,
   removeWorkspaceRequestSchema,
@@ -366,17 +368,23 @@ async function handleExecAllow(
   } catch (e) {
     return refuse(e)
   }
-  const { argv, by } = parsed.data
+  const { argv, by, prefix } = parsed.data
   if (sub === 'remove') {
     if (!deps.store.removeExecAllow(repoDir, argv)) return send(res, 404, { error: 'not_in_allowlist' })
     deps.log(`exec : « ${argv.join(' ')} » retirée de la liste blanche de ${repoDir} par ${by}`)
-  } else {
-    const added = deps.store.addExecAllow(repoDir, argv, by)
-    // Journalisé à chaque ajout : c'est une autorisation durable, donnée une
-    // fois et appliquée à toutes les tâches à venir sur ce dépôt.
-    if (added) deps.log(`exec : « ${argv.join(' ')} » ajoutée sans approbation pour ${repoDir} par ${by}`)
+    return send(res, 200, await execAllowFor(deps.store, deps.config, repoDir))
   }
-  return send(res, 200, await execAllowFor(deps.store, deps.config, repoDir))
+  // Rejugé ici même si la CLI l'a déjà fait : le daemon ne fait confiance à
+  // aucun client, et un préfixe accepté vaut pour toutes les tâches à venir.
+  const refusal = prefix ? execPrefixRefusal(argv) : null
+  if (refusal) return send(res, 400, { error: 'prefix_refused', reason: refusal })
+  const outcome = deps.store.addExecAllow(repoDir, argv, by, prefix)
+  // Journalisé à chaque ajout ou élargissement : c'est une autorisation
+  // durable, donnée une fois et appliquée à toutes les tâches à venir.
+  const shown = formatExecRule({ argv, prefix })
+  if (outcome === 'added') deps.log(`exec : « ${shown} » ajoutée sans approbation pour ${repoDir} par ${by}`)
+  if (outcome === 'widened') deps.log(`exec : « ${argv.join(' ')} » élargie en préfixe « ${shown} » pour ${repoDir} par ${by}`)
+  return send(res, 200, { ...(await execAllowFor(deps.store, deps.config, repoDir)), outcome })
 }
 
 /** Routes `/api/tasks…`. */

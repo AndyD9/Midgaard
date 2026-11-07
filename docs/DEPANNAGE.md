@@ -391,6 +391,32 @@ Une commande ajoutée à la liste blanche ne sera plus jamais montrée à un
 humain dans ce dépôt ; la CLI demande donc une confirmation, et refuse sans
 terminal. `--yes` passe outre, en connaissance de cause.
 
+### `npm run harness -- exec allow --prefix` : « préfixe refusé : … »
+
+Un préfixe accepte n'importe quels arguments à la suite, que l'agent choisit.
+Il est refusé quand il laisserait tourner du code qu'aucun humain n'a lu ; le
+motif dit lequel de ces cas :
+
+- **« un préfixe d'un seul mot couvrirait tout »** : ajoute une
+  sous-commande (`npm test`, `git status`) ;
+- **« est une option placée juste après le programme »** : commence par une
+  sous-commande ou un argument nommé (`pytest tests` plutôt que `pytest -q`) ;
+- **« n'est accepté en préfixe que suivi d'un module nommé »** : Python,
+  seulement en `python -m pytest` ;
+- **« est un shell », « est un interpréteur », « lance d'autres
+  programmes »**, **« exécute le fichier ou le code qui suit »** : aucun
+  préfixe possible ; une entrée exacte (sans `--prefix`) reste possible ;
+- **« s'arrête sur un exécuteur »** ou **« est une option, pas un
+  programme »** : nomme le programme juste après (`uv run pytest`) ;
+- **« est un chemin relatif »** : c'est un fichier du worktree, que l'agent
+  écrit ; vise un programme du `PATH` ou un chemin absolu.
+
+Le daemon applique la même règle (`400 prefix_refused`), et la rejuge au
+départ de chaque tâche : un préfixe ancien qu'elle refuse est **écarté**, la
+timeline le dit (« préfixe exec écarté ») et `exec list` le marque « écarté
+au départ de chaque tâche ». Retire-le par `npm run harness -- exec revoke`
+suivi de ses mots.
+
 ---
 
 ## Les serveurs MCP des agents

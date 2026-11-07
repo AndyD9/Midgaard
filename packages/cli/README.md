@@ -16,7 +16,7 @@ harness workspaces            # worktrees des tâches Developer, état sur le di
 harness workspaces remove <branche|id> [--force]
 harness workspaces clean [--force]
 harness exec                  # commandes lancées sans approbation dans ce dépôt
-harness exec allow [--yes] [--] <commande…>
+harness exec allow [--yes] [--prefix] [--] <commande…>
 harness exec revoke [--] <commande…>
 harness mcp                   # serveurs MCP déclarés, et leur dernier test
 harness mcp add <id> [--env NOM=v]… [--secret-env NOM]… -- <programme> [arguments…]
@@ -77,6 +77,17 @@ Une commande en liste blanche ne sera plus jamais montrée à un humain dans ce
 dépôt. `exec allow` le dit avant d'ajouter, puis demande confirmation ; **sans
 terminal, il refuse** sauf `--yes`. La liste est rangée sous la racine du dépôt,
 d'où que la commande soit lancée, et seul l'argv **exact** est concerné.
+
+**`--prefix`** (Slice 9) couvre tout ce qui suit : `exec allow --prefix --
+python -m pytest` libère `python -m pytest -k foo`. Le préfixe est jugé
+**avant** l'avertissement (`execPrefixRefusal`) : un seul mot, une option
+juste après le programme (`git -c`, `node -e`), un chemin relatif (un fichier
+du worktree), un shell, un interpréteur, un lanceur (`env`, `xargs`, `find`)
+sont refusés, Python hors de `python -m <module>` aussi, et un exécuteur
+(`uv run`, `npx`) doit nommer un programme acceptable à son tour. L'avertissement
+dit ce que la règle ne sait pas : un argument ajouté peut faire tourner un autre
+programme (`tar --to-command`, `rsync -e`). `exec list` montre un préfixe
+suivi de `…`, et dit celui que le moteur écarterait. Le daemon rejuge tout.
 
 Ce que cette confirmation n'empêche pas, et qu'il faut savoir : un processus
 qui a accès au shell de l'utilisateur — Claude Code avec son outil Bash, par

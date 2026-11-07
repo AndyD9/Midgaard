@@ -152,7 +152,7 @@ Depuis la racine du dépôt :
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; la clé est saisie sans écho |
 | `npm run harness -- pricing refresh <id>` | Relève les tarifs chez le fournisseur |
 | `npm run harness -- workspaces` | Worktrees des tâches Developer ; `remove`, `clean` (la branche reste toujours) |
-| `npm run harness -- exec` | Commandes sans approbation dans ce dépôt ; `allow`, `revoke` |
+| `npm run harness -- exec` | Commandes sans approbation dans ce dépôt ; `allow` (`--prefix` : tout ce qui suit, jamais un interpréteur nu), `revoke` |
 | `npm run harness -- mcp` | Serveurs MCP déclarés ; `add`, `test`, `tools`, `allow`, `revoke`, `remove`, `attach`, `detach` |
 | `npm run harness -- playbooks` | Playbooks du clone (savoir métier ajouté à la consigne d'un profil) ; `attach`, `detach` |
 | `npm run dashboard:dev` | Dashboard avec rechargement à chaud (lance `harness start` avant) |

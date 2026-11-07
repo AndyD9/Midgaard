@@ -397,6 +397,17 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE agents ADD COLUMN playbooks_json TEXT NOT NULL DEFAULT '[]';
     `,
   },
+  {
+    version: 15,
+    label: 'Slice 9 — préfixes de la liste blanche exec',
+    sql: `
+      -- 1 : l'entrée couvre tout argv qui commence par argv_json (mots
+      -- comparés un à un). 0 : l'argv exact, comme toutes les entrées d'avant.
+      -- La clé reste (repo_dir, argv_json) : un même argv est exact OU préfixe,
+      -- et l'élargir se voit comme un changement de cette ligne, journalisé.
+      ALTER TABLE exec_allow ADD COLUMN prefix INTEGER NOT NULL DEFAULT 0 CHECK (prefix IN (0, 1));
+    `,
+  },
 ]
 
 // Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',

@@ -25,7 +25,9 @@ import { taskStatusSchema } from './task.ts'
  *
  *  - `tool.requested` / `tool.completed` encadrent chaque appel d'outil. Les
  *    deux, et pas seulement le second : un outil qui ne rend jamais la main
- *    laisserait sinon un trou que rien n'explique dans la timeline ;
+ *    laisserait sinon un trou que rien n'explique dans la timeline. Un appel
+ *    autorisé sans humain porte `allow_reason` (Slice 9) : la règle qui l'a
+ *    permis, préfixe de liste blanche compris ;
  *  - `usage.updated` suit la consommation après chaque appel modèle. C'est lui
  *    qui permet de voir un budget se remplir **pendant** la tâche, au lieu de
  *    découvrir la facture à la fin ;

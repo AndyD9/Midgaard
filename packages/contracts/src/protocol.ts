@@ -80,8 +80,12 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *        et `GET /api/playbooks` les liste. Un daemon de protocole 16
  *        rendrait des profils sans le champ, et répondrait 404 à
  *        `harness playbooks`.
+ *  - 18 : Slice 9, étape 3 — la liste blanche `exec` a des **préfixes** :
+ *        `POST /api/exec-allow` accepte `prefix`, une entrée porte `prefix`.
+ *        Un daemon de protocole 17 ignorerait le champ et enregistrerait une
+ *        entrée exacte en disant l'ajout réussi : la CLI doit le remplacer.
  */
-export const PROTOCOL_VERSION = 17
+export const PROTOCOL_VERSION = 18
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({
@@ -238,8 +242,17 @@ export const removeWorkspaceRequestSchema = z.object({
 export const execAllowResponseSchema = z.object({
   repo_dir: z.string(),
   entries: z.array(execAllowEntrySchema),
-  /** Liste blanche globale (`MIDGAARD_EXEC_ALLOW`), qui s'ajoute à celle du dépôt. */
+  /**
+   * Liste blanche globale (`MIDGAARD_EXEC_ALLOW`), qui s'ajoute à celle du
+   * dépôt. Des argv **exacts** seulement : la variable n'a pas de forme préfixe.
+   */
   global: z.array(z.array(z.string())),
+  /**
+   * Ce qu'a fait un ajout : `added`, `widened` (une entrée exacte devenue
+   * préfixe), `unchanged` (déjà là, ou déjà couverte par le même préfixe).
+   * Absent d'une simple lecture.
+   */
+  outcome: z.enum(['added', 'widened', 'unchanged']).optional(),
 })
 export type ExecAllowResponse = z.infer<typeof execAllowResponseSchema>
 
@@ -247,6 +260,11 @@ export type ExecAllowResponse = z.infer<typeof execAllowResponseSchema>
 export const execAllowRequestSchema = z.object({
   project_dir: z.string().min(1).max(4096),
   argv: z.array(z.string().min(1).max(4096)).min(1).max(64),
+  /**
+   * Ajout seulement : `true` pour un préfixe (Slice 9). Le daemon le rejuge
+   * par `execPrefixRefusal` : un refus est un 400 avec son motif.
+   */
+  prefix: z.boolean().default(false),
   by: z.string().min(1).max(64).default('cli'),
 })
 

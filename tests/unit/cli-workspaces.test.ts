@@ -1,6 +1,7 @@
 /**
  * @file Ce que la CLI décide seule, sans daemon : lecture des arguments de
- * `harness exec`, et contrôles de `doctor` sur Git et la liste blanche.
+ * `harness exec` (`--prefix` compris), et contrôles de `doctor` sur Git et
+ * la liste blanche.
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
@@ -22,6 +23,13 @@ describe('parseExecArgs', () => {
   it('ne confirme rien d\'office', () => {
     assert.equal(parseExecArgs(['npm', 'test']).yes, false)
   })
+
+  it('lit --prefix avant la commande seulement (Slice 9)', () => {
+    assert.equal(parseExecArgs(['--prefix', 'uv', 'run', 'pytest']).prefix, true)
+    const after = parseExecArgs(['git', 'log', '--prefix'])
+    assert.equal(after.prefix, false, 'un --prefix après la commande lui appartient')
+    assert.deepEqual(after.argv, ['git', 'log', '--prefix'])
+  })
 })
 
 describe('gitCheck', () => {
@@ -42,9 +50,24 @@ describe('execAllowCheck', () => {
   })
 
   it('avertit dès qu\'une commande passe sans approbation, et dit pourquoi', () => {
-    const c = execAllowCheck([['npm', 'test']], [['npx', 'tsc', '--noEmit']], '/depot')
+    const c = execAllowCheck([['npm', 'test']], [{ argv: ['npx', 'tsc', '--noEmit'], prefix: false }], '/depot')
     assert.equal(c.level, 'warn')
     assert.match(c.detail, /npm test \(tous dépôts\).*npx tsc --noEmit/)
     assert.match(c.fix ?? '', /ce que l'agent a écrit/)
+  })
+
+  it('montre un préfixe comme tel, et celui que le moteur écarterait comme écarté (Slice 9)', () => {
+    const c = execAllowCheck(
+      [],
+      [
+        { argv: ['python', '-m', 'pytest'], prefix: true },
+        // Ajouté avant un durcissement de la règle, ou écrit à la main en base.
+        { argv: ['python', '-c'], prefix: true },
+      ],
+      '/depot',
+    )
+    assert.match(c.detail, /python -m pytest …/)
+    assert.match(c.detail, /python -c … \(préfixe écarté\)/)
+    assert.doesNotMatch(c.detail, /python -m pytest … \(préfixe écarté\)/)
   })
 })

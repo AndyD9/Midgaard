@@ -14,10 +14,16 @@
  *  - **une commande en liste blanche n'est plus approuvée par personne.**
  *    `exec allow` le dit avant d'ajouter, et demande confirmation — ou
  *    `--yes`, en connaissance de cause, hors terminal.
+ *
+ * Un **préfixe** (`exec allow --prefix`, Slice 9) est jugé ici par
+ * `execPrefixRefusal` **avant** l'avertissement : on ne demande pas à
+ * l'humain de confirmer ce que le daemon refusera. Le daemon le rejuge.
  */
 import { createInterface } from 'node:readline'
 import {
   daemonJson,
+  execPrefixRefusal,
+  formatExecRule,
   type ExecAllowResponse,
   type HarnessConfig,
   type Workspace,
@@ -176,17 +182,19 @@ async function clean(config: HarnessConfig, force: boolean): Promise<number> {
 /** Répartit les sous-commandes de `harness exec`. */
 export async function exec(config: HarnessConfig, args: string[]): Promise<number> {
   const [sub = 'list', ...rest] = args
-  const { yes, dir, argv } = parseExecArgs(rest)
+  const { yes, dir, argv, prefix } = parseExecArgs(rest)
   switch (sub) {
     case 'list':
       return listAllow(config, dir)
     case 'allow':
-      return allow(config, dir, argv, yes)
+      return allow(config, dir, argv, yes, prefix)
     case 'revoke':
       return revoke(config, dir, argv)
     default:
       console.error(`Sous-commande inconnue : exec ${sub}`)
-      console.error('Attendu : list, allow [--yes] [--dir D] [--] <commande…>, revoke [--dir D] [--] <commande…>')
+      console.error(
+        'Attendu : list, allow [--yes] [--prefix] [--dir D] [--] <commande…>, revoke [--dir D] [--] <commande…>',
+      )
       return 1
   }
 }
@@ -196,20 +204,22 @@ export async function exec(config: HarnessConfig, args: string[]): Promise<numbe
  * qui suit le premier mot qui n'en est pas une — ou `--` — est l'argv, tel
  * quel. Sans cette règle, `npx tsc --noEmit` perdrait son `--noEmit`.
  */
-export function parseExecArgs(args: string[]): { yes: boolean; dir: string; argv: string[] } {
+export function parseExecArgs(args: string[]): { yes: boolean; dir: string; argv: string[]; prefix: boolean } {
   let yes = false
+  let prefix = false
   let dir = process.cwd()
   let i = 0
   for (; i < args.length; i++) {
     const a = args[i]!
     if (a === '--yes' || a === '-y') yes = true
+    else if (a === '--prefix') prefix = true
     else if (a === '--dir') dir = args[++i] ?? dir
     else if (a === '--') {
       i++
       break
     } else break
   }
-  return { yes, dir, argv: args.slice(i) }
+  return { yes, dir, argv: args.slice(i), prefix }
 }
 
 async function listAllow(config: HarnessConfig, dir: string): Promise<number> {
@@ -224,7 +234,15 @@ async function listAllow(config: HarnessConfig, dir: string): Promise<number> {
   }
   console.log(`${bold('exec sans approbation')} ${dim(`— dépôt ${body.repo_dir}`)}`)
   if (body.entries.length === 0) console.log(`  ${dim('aucune commande : chacune attend un humain')}`)
-  for (const e of body.entries) console.log(`  ${e.argv.join(' ')}  ${dim(`ajoutée le ${e.added_at.slice(0, 10)} par ${e.added_by}`)}`)
+  for (const e of body.entries) {
+    const kind = e.prefix ? 'préfixe, ' : ''
+    console.log(`  ${formatExecRule(e)}  ${dim(`${kind}ajoutée le ${e.added_at.slice(0, 10)} par ${e.added_by}`)}`)
+    // Le moteur rejuge chaque préfixe au départ d'une tâche : celui que la
+    // règle refuse désormais ne vaut plus rien, et la liste doit le dire
+    // plutôt que de le montrer comme actif.
+    const refusal = e.prefix ? execPrefixRefusal(e.argv) : null
+    if (refusal) console.log(`    ${yellow('!')} ${dim(`écarté au départ de chaque tâche : ${refusal}`)}`)
+  }
   if (body.global.length) {
     console.log(`${bold('et pour tous les dépôts')} ${dim('(MIDGAARD_EXEC_ALLOW)')}`)
     for (const g of body.global) console.log(`  ${g.join(' ')}`)
@@ -232,17 +250,35 @@ async function listAllow(config: HarnessConfig, dir: string): Promise<number> {
   return 0
 }
 
-async function allow(config: HarnessConfig, dir: string, argv: string[], yes: boolean): Promise<number> {
+async function allow(config: HarnessConfig, dir: string, argv: string[], yes: boolean, prefix: boolean): Promise<number> {
   if (argv.length === 0) {
-    console.error('Usage : exec allow [--yes] [--dir D] [--] <commande> [arguments…]')
+    console.error('Usage : exec allow [--yes] [--prefix] [--dir D] [--] <commande> [arguments…]')
     return 1
   }
   const line = argv.join(' ')
-  console.log(`${yellow('!')} « ${bold(line)} » tournera ${bold('sans approbation')} dans les worktrees des agents de ce dépôt.`)
-  console.log('  Seul cet argv exact est concerné : un argument de plus, et l\'approbation redevient nécessaire.')
+  if (prefix) {
+    const refusal = execPrefixRefusal(argv)
+    if (refusal) {
+      console.error(`${red('✘')} préfixe refusé : ${refusal}`)
+      return 1
+    }
+    console.log(
+      `${yellow('!')} « ${bold(line)} » ${bold('et tout ce qui le suit')} tournera ${bold('sans approbation')} ` +
+        'dans les worktrees des agents de ce dépôt.',
+    )
+    console.log(
+      `  Les arguments ajoutés après le préfixe, l'agent les choisit et personne ne les lira : c'est le programme ` +
+        'qui décide de ce qu\'ils font. Certains font tourner un autre programme ou écrivent un fichier ' +
+        '(git -c, tar --to-command, rsync -e, git log --output=) ; la règle écarte les interpréteurs, les shells ' +
+        'et les lanceurs connus, pas chacun de ceux-là.',
+    )
+  } else {
+    console.log(`${yellow('!')} « ${bold(line)} » tournera ${bold('sans approbation')} dans les worktrees des agents de ce dépôt.`)
+    console.log('  Seul cet argv exact est concerné : un argument de plus, et l\'approbation redevient nécessaire.')
+  }
   console.log(
-    '  Mais si cette commande exécute le code du projet — tests, scripts de package.json, build —, elle exécute ' +
-      'ce que l\'agent a écrit dans son worktree : l\'approbation était la seule frontière.',
+    '  Mais si cette commande exécute le code du projet — tests (pytest lit conftest.py), scripts de package.json, ' +
+      'build —, elle exécute ce que l\'agent a écrit dans son worktree : l\'approbation était la seule frontière.',
   )
   if (!yes) {
     if (!process.stdin.isTTY) {
@@ -257,13 +293,21 @@ async function allow(config: HarnessConfig, dir: string, argv: string[], yes: bo
   const rt = await ensureDaemon(config, quiet)
   const { status, body } = await daemonJson<ExecAllowResponse & { error?: string; reason?: string }>(rt, '/api/exec-allow', {
     method: 'POST',
-    body: JSON.stringify({ project_dir: dir, argv, by: 'cli' }),
+    body: JSON.stringify({ project_dir: dir, argv, prefix, by: 'cli' }),
   })
   if (status !== 200) {
     console.error(`${red('✘')} ${body.reason ?? body.error ?? status}`)
     return 1
   }
-  console.log(`${green('✔')} ajoutée pour ${body.repo_dir} ${dim('— vaut pour les tâches qui démarrent à partir de maintenant')}`)
+  const what =
+    body.outcome === 'widened'
+      ? 'entrée exacte élargie en préfixe'
+      : body.outcome === 'unchanged'
+        ? prefix
+          ? 'déjà là en préfixe, rien n\'a changé'
+          : 'déjà là (exacte, ou en préfixe sur ce même argv), rien n\'a changé'
+        : 'ajoutée'
+  console.log(`${green('✔')} ${what} pour ${body.repo_dir} ${dim('— vaut pour les tâches qui démarrent à partir de maintenant')}`)
   return 0
 }
 

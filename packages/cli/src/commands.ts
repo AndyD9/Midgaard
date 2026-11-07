@@ -14,10 +14,13 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { relative } from 'node:path'
 import {
   daemonJson,
+  execPrefixRefusal,
+  formatExecRule,
   readRuntime,
   pidAlive,
   PROTOCOL_VERSION,
   type Approval,
+  type ExecAllowRule,
   type HarnessConfig,
   type Health,
   type Task,
@@ -432,7 +435,7 @@ export async function doctor(config: HarnessConfig, projectDir: string): Promise
         // Conservés jusqu'au nettoyage, par décision : on rappelle comment, sans presser.
         ...(kept > 0 ? { fix: `${cmd('workspaces')}   # puis « workspaces clean » quand ils sont lus` } : {}),
       })
-      checks.push(execAllowCheck(config.execAllow, projectAllow.map((e) => e.argv), projectRepo))
+      checks.push(execAllowCheck(config.execAllow, projectAllow, projectRepo))
     } catch {
       // La base a déjà été signalée plus haut ; inutile de le redire.
     }
@@ -554,11 +557,20 @@ export function gitCheck(output: string | null): Check {
  * code du projet exécute ce que l'agent a écrit.
  *
  * @param global      liste de `MIDGAARD_EXEC_ALLOW`
- * @param project     liste du dépôt diagnostiqué
+ * @param project     liste du dépôt diagnostiqué, préfixes compris (Slice 9)
  * @param projectRepo racine de ce dépôt ; `null` hors dépôt Git
  */
-export function execAllowCheck(global: string[][], project: string[][], projectRepo: string | null): Check {
-  const all = [...global.map((a) => `${a.join(' ')} (tous dépôts)`), ...project.map((a) => a.join(' '))]
+export function execAllowCheck(
+  global: string[][],
+  project: readonly ExecAllowRule[],
+  projectRepo: string | null,
+): Check {
+  const all = [
+    ...global.map((a) => `${a.join(' ')} (tous dépôts)`),
+    // Un préfixe que le moteur écarterait se dit tel : `doctor` ne doit pas
+    // le montrer comme une autorisation active.
+    ...project.map((r) => (r.prefix && execPrefixRefusal(r.argv) ? `${formatExecRule(r)} (préfixe écarté)` : formatExecRule(r))),
+  ]
   if (all.length === 0) {
     return {
       level: 'ok',
@@ -571,7 +583,8 @@ export function execAllowCheck(global: string[][], project: string[][], projectR
     label: 'Exec',
     detail: `sans approbation : ${all.join(' ; ')}`,
     fix:
-      'Si l\'une exécute le code du projet (tests, scripts, build), elle exécute ce que l\'agent a écrit. ' +
+      'Si l\'une exécute le code du projet (tests, scripts, build), elle exécute ce que l\'agent a écrit ; ' +
+      'un préfixe (…) accepte en plus tout argument que l\'agent choisit. ' +
       `${cmd('exec revoke <commande…>')} pour la retirer.`,
   }
 }

@@ -94,12 +94,15 @@ export const taskWorkspaceSchema = z.object({
 export type TaskWorkspace = z.infer<typeof taskWorkspaceSchema>
 
 /**
- * Une commande que `exec` lance sans approbation dans les worktrees d'un dépôt.
- * Argv **exact** : rien de plus, rien de moins.
+ * Une commande que `exec` lance sans approbation dans les worktrees d'un dépôt :
+ * l'argv **exact**, ou un **préfixe** borné (Slice 9) qui couvre tout argv
+ * commençant par ses mots — voir `execPrefixRefusal`.
  */
 export const execAllowEntrySchema = z.object({
   repo_dir: z.string(),
   argv: z.array(z.string()).min(1),
+  /** `true` : préfixe. `false` pour toutes les entrées d'avant la Slice 9. */
+  prefix: z.boolean(),
   added_at: z.iso.datetime(),
   added_by: z.string(),
 })

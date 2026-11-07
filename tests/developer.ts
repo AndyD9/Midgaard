@@ -647,6 +647,89 @@ await scenario(outcomes, 'V11 un sous-module vide est annoncé, et rien ne s\'y 
   }
 })
 
+await scenario(outcomes, 'V14 un préfixe couvre la suite de l\'argv, un préfixe ouvert est refusé, un préfixe en base rejugé', async () => {
+  const repo = makeRepo('v14')
+  const problems: string[] = []
+  const post = (argv: string[], prefix: boolean) =>
+    daemonJson<ExecAllowResponse & { error?: string; reason?: string }>(rt, '/api/exec-allow', {
+      method: 'POST',
+      body: JSON.stringify({ project_dir: repo, argv, prefix, by: 'test' }),
+    })
+
+  // La route rejuge, même sans la CLI : `python -c` en préfixe, c'est tout code.
+  const open = await post(['python', '-c'], true)
+  if (open.status !== 400 || open.body.error !== 'prefix_refused' || !/module nommé/.test(open.body.reason ?? '')) {
+    problems.push(`préfixe python -c : ${open.status} ${open.body.error}`)
+  }
+  const added = await post(['git', 'rev-parse'], true)
+  if (added.status !== 200 || added.body.outcome !== 'added') problems.push(`préfixe git rev-parse : ${added.status} ${added.body.outcome}`)
+  if (added.body.entries?.length !== 1 || !added.body.entries[0]!.prefix) problems.push('entrée absente, ou pas en préfixe')
+
+  // Un préfixe que la règle refuse, glissé en base comme s'il datait d'avant
+  // un durcissement : le moteur doit l'écarter au départ, pas l'appliquer.
+  const direct = HarnessStore.open(main.config)
+  try {
+    direct.addExecAllow(repo, ['node', '-e'], 'ancien', true)
+  } finally {
+    direct.close()
+  }
+
+  const script = "require('fs').writeFileSync('approuve.txt', 'par un humain')"
+  const task = await delegate(rt, '[V14]', repo, [
+    [{ tool: 'exec', args: { command: 'git', args: ['rev-parse', 'HEAD'] } }],
+    // Un argument différent derrière le même préfixe : toujours sans humain.
+    [{ tool: 'exec', args: { command: 'git', args: ['rev-parse', '--show-toplevel'] } }],
+    [{ tool: 'exec', args: { command: 'node', args: ['-e', script] } }],
+    submit('fait'),
+  ])
+  const paused = await waitFor(rt, task.id, new Set(['waiting_approval', ...TERMINAL]))
+  const log = await events(rt, task.id)
+  const requested = log.filter((e) => e.type === 'approval.requested')
+  const freed = log.filter(
+    (e) => e.type === 'tool.requested' && e.payload.decision === 'allow' && /préfixe « git rev-parse … »/.test(String(e.payload.allow_reason)),
+  )
+  if (paused.task.status !== 'waiting_approval') problems.push(`node -e n'a pas attendu d'humain : ${paused.task.status}`)
+  if (requested.length !== 1) problems.push(`${requested.length} demande(s) au lieu d'une`)
+  if (freed.length !== 2) problems.push(`${freed.length} appel(s) git rev-parse passés par le préfixe au lieu de 2`)
+  if (!log.some((e) => e.type === 'agent.message' && /préfixe exec écarté.*node -e/.test(String(e.payload.message)))) {
+    problems.push('le préfixe écarté n\'est pas dit à la timeline')
+  }
+  if (paused.approval) {
+    await daemonJson(rt, `/api/approvals/${paused.approval.id}/approve`, { method: 'POST', body: JSON.stringify({ by: 'test' }) })
+  }
+  const done = await waitFor(rt, task.id, TERMINAL)
+  const w = done.task.result?.workspace
+  if (!w || !git(repo, 'show', `${w.branch}:approuve.txt`).includes('par un humain')) problems.push('la commande approuvée n\'a pas tourné')
+
+  // La CLI refuse avant de demander confirmation, et la liste dit l'écarté.
+  const cli = (...args: string[]) =>
+    new Promise<{ code: number | null; out: string }>((resolve) => {
+      const child = spawn(process.execPath, [...nodeArgsFor('@midgaard/cli/main'), ...args], {
+        env: childEnv(main.home),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let out = ''
+      child.stdout!.on('data', (c) => (out += c))
+      child.stderr!.on('data', (c) => (out += c))
+      child.on('close', (code) => resolve({ code, out }))
+    })
+  const refused = await cli('exec', 'allow', '--yes', '--prefix', '--dir', repo, '--', 'bash', 'run.sh')
+  if (refused.code === 0 || !/préfixe refusé.*shell/.test(refused.out)) problems.push(`CLI bash en préfixe : ${refused.out.trim()}`)
+  if (/sans approbation/.test(refused.out)) problems.push('la CLI a averti avant de refuser')
+  const listed = await cli('exec', 'list', '--dir', repo)
+  if (!/git rev-parse …/.test(listed.out) || !/node -e …[\s\S]*écarté au départ/.test(listed.out)) {
+    problems.push(`liste : ${listed.out.trim()}`)
+  }
+  const after = (await daemonJson<ExecAllowResponse>(rt, `/api/exec-allow?project_dir=${encodeURIComponent(repo)}`)).body
+  if (after.entries.length !== 2) problems.push(`${after.entries.length} entrée(s) au lieu de 2 : un refus a ajouté quelque chose`)
+  return {
+    verdict: problems.length ? 'FAIL' : 'PASS',
+    detail: problems.length
+      ? problems.join(' ; ')
+      : 'git rev-parse … libre sur deux argv, python -c et bash refusés (route et CLI), node -e en base écarté et soumis à l\'humain',
+  }
+})
+
 // --- Démontage ---------------------------------------------------------------
 
 await daemonJson(rt, '/api/shutdown', { method: 'POST' }).catch(() => {})

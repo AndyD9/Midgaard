@@ -46,7 +46,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho |
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés ; `agents limits <profil> --timeout 900` les règle (relèvement confirmé) |
 | `npm run harness -- workspaces` | Worktrees : `remove`, `clean` — la branche reste toujours |
-| `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme), `revoke` |
+| `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme ; `--prefix` couvre tout ce qui suit, jamais un interpréteur nu), `revoke` |
 | `npm run harness -- playbooks` | Playbooks du clone : `attach`, `detach` (à un profil) — savoir métier ajouté à la consigne, relu au départ de chaque tâche |
 | `npm run harness -- mcp` | Serveurs MCP : `add` (programme résolu, testé dans la foulée), `test`, `tools`, `allow` (avertit, confirme), `revoke`, `remove`, `attach`/`detach` (à un profil) |
 | `npm run test:unit` | ~15 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git), navigateur (vrai Chromium), client MCP (vrai serveur stdio, processus comptés) |
@@ -222,6 +222,11 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 - **Une liste blanche `exec` se range sous la racine canonique du dépôt**, d'où
   que la CLI soit lancée : rangée ailleurs, elle aurait l'air de marcher et ne
   servirait jamais. Le moteur la lit au départ de la tâche, jamais en route.
+  **Un préfixe est jugé trois fois** (Slice 9) — CLI, route, et départ de
+  chaque tâche (`execRulesForTask`) — par la même règle
+  (`execPrefixRefusal`) : jamais un shell, un interpréteur, un lanceur ni un
+  fichier du worktree, Python seulement en `-m <module>`. Un préfixe que la
+  règle refuse désormais est **écarté**, jamais réduit à une entrée exacte.
 - **Les commits d'agent ne portent ni l'identité ni la signature de
   l'utilisateur** : `Midgaard <agent> <agent@midgaard.invalid>`, `--no-gpg-sign`.
 - **Le diff se calcule contre `base_commit`, jamais contre une branche**, et
@@ -323,7 +328,12 @@ modèle. Le dashboard les montrera à l'étape 6. Étape 2 faite, relue par
 l'auteur : `sigma`, `yara`, `pe-static`, `powershell`,
 `windows-hardening` (environ 33 Kio les six ; exemples passés à
 `yara-python`, `pySigma` et `pefile`). **Aucun identifiant de mémoire** dans
-un playbook (GUID ASR, options WDAC) : un faux ne dit rien.
+un playbook (GUID ASR, options WDAC) : un faux ne dit rien. Étape 3 faite :
+la liste blanche à préfixes (migration 15, `PROTOCOL_VERSION` 18,
+`exec allow --prefix`, `allow_reason` à la timeline) ; V14 dans
+`test:developer`. **Sans le rejugement au départ, un `node -e` glissé en base
+passait sans humain** — vu en retirant la protection. Le dashboard ne montre
+toujours pas la liste blanche : étape 6.
 
 ## Slice 8 en cours — des serveurs MCP pour les agents, des agents créés à la volée
 

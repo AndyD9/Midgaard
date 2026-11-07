@@ -15,6 +15,7 @@ import type { McpPort } from './mcp.ts'
 import type {
   AgentKind,
   AgentLimits,
+  ExecAllowRule,
   RequestedLimits,
   TaskResult,
   TaskStatus,
@@ -70,10 +71,11 @@ export interface ToolContext {
     | null
     | undefined
   /**
-   * Commandes que `exec` lance **sans** approbation : des argv exacts. Vide ou
-   * absent, chaque commande attend un humain — c'est le défaut voulu (Slice 3).
+   * Commandes que `exec` lance **sans** approbation : des argv exacts, ou des
+   * préfixes déjà jugés par `execPrefixRefusal` (Slice 9). Vide ou absent,
+   * chaque commande attend un humain — c'est le défaut voulu (Slice 3).
    */
-  execAllow?: readonly (readonly string[])[] | undefined
+  execAllow?: readonly ExecAllowRule[] | undefined
   /**
    * Échéance de la tâche, en millisecondes depuis l'époque. Un outil qui dure —
    * `exec` — ne doit pas la dépasser : la boucle ne vérifie ses limites qu'entre
