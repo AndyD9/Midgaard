@@ -31,8 +31,9 @@
  * Windows en CI, huit Node démarrant ensemble sur deux cœurs, une manche a
  * trouvé le bon survivant mais pas encore de fichier (SLICE4, étape 5). On
  * l'attend donc jusqu'à `PUBLISH_MS` de plus, en disant combien de temps il a
- * fallu ; et si la manche échoue, les journaux des candidats encore vivants
- * sont affichés — sans eux, impossible de distinguer une lenteur d'une panne.
+ * fallu ; et si la manche échoue, les journaux de **tous** les candidats sont
+ * affichés, morts compris, avec leur code de sortie — sans eux, impossible de
+ * distinguer une lenteur d'une panne, ni un vainqueur mort d'un perdant.
  */
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
@@ -107,10 +108,15 @@ async function round(label: string, prepare?: () => Promise<void>): Promise<void
   const stillOne = kids.filter(running).length === 1
   const ok = alive.length === 1 && stillOne && rt?.pid === alive[0]!.pid && healthy
   if (!ok) {
+    // **Tous** les candidats, morts compris, avec leur code de sortie. Une
+    // manche Windows a fini à zéro survivant (passage 42402763315) : n'afficher
+    // que les vivants n'avait alors rien montré, et la cause est restée
+    // illisible. Un perdant normal dit pourquoi il s'est arrêté ; un vainqueur
+    // mort aussi, et c'est lui qu'on cherche.
     for (const [i, kid] of kids.entries()) {
-      if (!running(kid)) continue
+      const state = running(kid) ? 'vivant' : `sorti (code ${kid.exitCode ?? '?'}${kid.signalCode ? `, ${kid.signalCode}` : ''})`
       const tail = readFileSync(logs[i]!, 'utf8').trim().split('\n').slice(-15).join('\n    ')
-      console.log(`  journal du candidat ${kid.pid} :\n    ${tail || '(vide)'}`)
+      console.log(`  journal du candidat ${kid.pid}, ${state} :\n    ${tail || '(vide)'}`)
     }
   }
 

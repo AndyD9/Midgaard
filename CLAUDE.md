@@ -348,7 +348,10 @@ le harness avant le premier appel de modèle d'un Developer dont le worktree
 porte un `uv.lock` (`packages/daemon/src/python-env.ts`) ; V15 et V16 dans
 `test:developer`, la CI installe uv et l'exige (`MIDGAARD_REQUIRE_UV`). Le
 playbook `pe-static` ne permet plus l'émulation « si l'humain l'a
-autorisée » : le code la refuse toujours.
+autorisée » : le code la refuse toujours. Verte en CI sur trois plateformes
+(passage `42402763315`) après une relance : une manche Windows de
+`test:lock` a échoué une fois, sans journal à lire — non expliquée ; le
+test affiche désormais le journal de chaque candidat d'une manche ratée.
 
 ## Slice 8 en cours — des serveurs MCP pour les agents, des agents créés à la volée
 

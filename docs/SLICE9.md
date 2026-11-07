@@ -142,7 +142,7 @@ Chaque point a été lu dans le code ou au catalogue, pas supposé.
 | 1 | Les playbooks : dossier `playbooks/`, lecture et bornes, `agents.playbooks` (migration 14), `GET /api/playbooks`, `PUT /api/agents/:id/playbooks`, consigne composée et journalisée au départ, héritage par les agents créés, `harness playbooks` (`attach`, `detach`) ; un premier playbook (`python`) | **fait** — 15 tests, trois défauts introduits vus échouer, deux trouvés par la vraie CLI ; verte en CI sur trois plateformes |
 | 2 | Le savoir : `sigma`, `yara`, `pe-static`, `powershell`, `windows-hardening`, relus par l'auteur | fait (exemples validés, relus par l'auteur) |
 | 3 | La liste blanche à préfixes : migration, règle des interpréteurs, CLI, avertissement (le dashboard, qui ne montre pas encore la liste blanche, à l'étape 6) | **fait** — 70 tests unitaires et V14 ; trois défauts introduits vus échouer ; verte en CI sur trois plateformes (passages `42398543114`, `42398543220`, `42398543196`) |
-| 4 | L'environnement Python du worktree (`uv sync` proposé au départ) et les échantillons en lecture seule, jamais exécutés | **fait** — 17 tests unitaires, V15 et V16 ; quatre défauts introduits vus échouer |
+| 4 | L'environnement Python du worktree (`uv sync` proposé au départ) et les échantillons en lecture seule, jamais exécutés | **fait** — 17 tests unitaires, V15 et V16 ; quatre défauts introduits vus échouer ; verte en CI sur trois plateformes (passages `42402763315`, `42402763377`), après une relance Windows : une manche de `test:lock` a échoué une fois, sans journal (voir le récit) |
 | 5 | La VM Windows : déclaration, empreinte d'hôte, copie jetable, commande approuvée, Job Object ; CI Windows avec sshd | à faire |
 | 6 | Le dashboard : playbooks aux Profils, liste blanche `exec` du dépôt (préfixes compris), VM, échantillons d'une tâche | à faire |
 | 7 | Preuves (`test:security`, CI trois plateformes) et essai réel : une règle Sigma, une règle YARA et un script PowerShell vérifiés sur la VM par un modèle *uncensored* ; le PE via REA après l'essai de la Slice 8 | à faire |
@@ -404,4 +404,14 @@ vérification au départ sautée (2). La première mutation a aussi montré que
 la suite plantait au ménage sur une copie en lecture seule laissée par une
 tâche bloquée : le ménage des tests rouvre désormais les droits, et V15
 annule sa tâche si elle n'a pas fini.
+
+**En CI** (passage `42402763315`), Windows a d'abord échoué sur une manche
+de `test:lock` — « verrou périmé #4 », 0 survivant sur 8 —, code du verrou
+inchangé, puis est passé à la relance, toutes suites vertes (V15 et V16
+compris, uv 0.13.7). **Non expliqué** : le test n'affiche les journaux que
+des candidats encore vivants, et il n'y en avait aucun. Ce n'est pas une
+preuve que le verrou tient ; c'est une manche qu'on n'a pas pu lire. Le
+test affiche désormais, pour une manche ratée, le journal de **chaque**
+candidat avec son code de sortie (`tests/single-instance.ts`), vérifié en
+forçant une manche à échouer : la prochaine occurrence se lira.
 
