@@ -205,6 +205,7 @@ Midgaard/
 │   ├── SLICE6.md                 atelier façon VS Code : conversations, boucle entre agents, Tauri
 │   ├── SLICE7.md                 les agents voient : images, navigateur isolé
 │   ├── SLICE8.md                 serveurs MCP pour les agents, agents créés à la volée
+│   ├── SLICE9.md                 agents experts : playbooks, préfixes exec, échantillons, VM Windows
 │   └── DEPANNAGE.md              symptômes, causes et remèdes ; variables d'environnement
 ├── packages/
 │   ├── contracts/                schémas Zod, machine à états, protocole — aucune dépendance
@@ -214,6 +215,7 @@ Midgaard/
 │   ├── tools/                    outils des agents : lecture, écriture et exec dans le worktree, git_diff, http_fetch
 │   ├── browser/                  navigateur isolé : Chromium jetable, proxy gardé, aucun processus survivant
 │   ├── mcp-client/               client MCP du daemon : serveur stdio déclaré, lancé sous la garde, aucun processus survivant
+│   ├── remote/                   SSH vers la VM Windows de test : clé dédiée, empreinte épinglée, commandes et copie
 │   ├── workspace/                worktrees Git des agents écrivants : création, commit, diff, retrait
 │   ├── agent-runtime/            la boucle : budgets, limites, approbations, résultat structuré
 │   ├── daemon/                   HTTP, WebSocket, bus d'événements, moteurs de tâches

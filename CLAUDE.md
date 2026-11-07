@@ -351,7 +351,14 @@ playbook `pe-static` ne permet plus l'émulation « si l'humain l'a
 autorisée » : le code la refuse toujours. Verte en CI sur trois plateformes
 (passage `42402763315`) après une relance : une manche Windows de
 `test:lock` a échoué une fois, sans journal à lire — non expliquée ; le
-test affiche désormais le journal de chaque candidat d'une manche ratée.
+test affiche désormais le journal de chaque candidat d'une manche ratée. Étape 5 ouverte
+(troisième tour de décisions, 2026-11-07) : client **`ssh2`**, empreinte
+d'hôte **recopiée depuis la VM**, clé **générée et dédiée**, outil
+**`windows_run`** (script PowerShell) ; découpée en cinq sous-étapes. 5.1
+faite : le paquet `remote` (`packages/remote`) — empreinte comparée pendant
+l'échange de clés, **aucune tentative d'authentification** vers un hôte à la
+mauvaise empreinte (compté par l'hôte factice `tests/fake-ssh-server.ts`),
+copie qui ne suit jamais un lien.
 
 ## Slice 8 en cours — des serveurs MCP pour les agents, des agents créés à la volée
 

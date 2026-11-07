@@ -1,0 +1,22 @@
+{
+  "name": "@midgaard/remote",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Connexion SSH à la VM Windows de test : clé dédiée, empreinte d'hôte épinglée, exécution et copie de fichiers",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "exports": {
+    ".": {
+      "midgaard-dev": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "@types/ssh2": "^1.15.6"
+  }
+}

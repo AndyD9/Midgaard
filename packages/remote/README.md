@@ -1,0 +1,55 @@
+# `@midgaard/remote`
+
+La connexion SSH à la **VM Windows de test** (Slice 9, étape 5) : une clé
+générée par Midgaard et dédiée à la VM, une empreinte d'hôte recopiée par
+l'humain depuis la console de la VM, des commandes et une copie de fichiers.
+
+Le paquet ne connaît ni le daemon, ni la base, ni les approbations, ni
+PowerShell : il transporte des commandes et des fichiers vers un hôte
+épinglé. L'outil qui en fait usage, et l'approbation de chaque commande,
+viennent ensuite (sous-étapes 5.2 et 5.3, [docs/SLICE9.md](../../docs/SLICE9.md)).
+
+```ts
+const pair = generateKeyPair('midgaard-vm1')          // ed25519, OpenSSH ; la privée va au coffre
+const pinned = normalizeFingerprint(lineFromVmConsole) // « 256 SHA256:… (ED25519) » → « SHA256:… »
+const session = await RemoteSession.open({ host, port: 22, username, privateKey, fingerprint: pinned! })
+const r = await session.run('powershell.exe -NoProfile -Command "$PSVersionTable"', { timeoutMs: 60_000, signal })
+await session.uploadTree(worktree, '/C:/midgaard/tache', (rel) => (rel === '.git' ? 'never copied' : null))
+session.close()                                        // idempotente, ne lève pas
+```
+
+## Ce que la session garantit
+
+| Garantie | Comment |
+|---|---|
+| Empreinte comparée **avant** toute authentification | `hostVerifier`, appelé pendant l'échange de clés : un hôte qui présente une autre clé ne reçoit ni signature ni nom d'utilisateur. Le refus (`fingerprint_mismatch`) dit l'empreinte vue. Les tests comptent zéro tentative d'authentification côté hôte |
+| La clé ne quitte pas la mémoire | Lue au coffre par l'appelant, passée telle quelle à `ssh2` ; ni agent SSH, ni mot de passe, ni clavier |
+| Une commande a un délai et s'annule | Au délai ou au signal, le canal est fermé et le résultat le dit (`timedOut`, `cancelled`). Le sort des processus de l'hôte : sous-étape 5.4 |
+| Sortie bornée | Début (8 Kio) et fin (32 Kio) gardés, le reste compté ; chaque morceau rendu à `onOutput` |
+| La copie ne suit jamais un lien | `lstat` : un lien (vers `~/.ssh`, par exemple) est écarté et nommé. Au-delà de 20 000 fichiers ou 256 Mio, refus **avant** toute copie |
+
+## Les refus
+
+`RemoteError.kind` : `fingerprint_mismatch`, `auth_failed` (la clé
+publique n'est pas posée sur la VM), `unreachable`, `timeout`, `protocol`.
+Les messages sont en anglais : ils peuvent remonter à un modèle.
+
+## L'empreinte
+
+Comme OpenSSH : `SHA256:` puis le SHA-256 du blob public en base64 sans
+remplissage — constaté identique à `ssh-keygen -lf`. `normalizeFingerprint`
+accepte la ligne entière de `ssh-keygen -lf` ou la forme nue, et refuse
+une empreinte MD5.
+
+## Dépendance
+
+`ssh2` (pur JavaScript). Ses modules natifs facultatifs (`cpu-features`,
+liaison crypto) ne sont pas compilés — npm 11 n'exécute pas leurs scripts
+d'installation sans accord — et il s'en passe.
+
+## Tests
+
+`tests/unit/remote.test.ts`, face à `tests/fake-ssh-server.ts` : un hôte
+`ssh2` dans le processus, au petit langage de commandes (`echo`, `stderr`,
+`exit`, `sleep`, `flood`), SFTP adossé à un vrai dossier. Il compte les
+tentatives d'authentification et les canaux fermés avant leur fin.

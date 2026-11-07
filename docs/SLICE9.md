@@ -33,6 +33,22 @@ passent après. Étape 1 verte en CI sur trois plateformes (passages
 | Quelle VM Windows ? | **Locale** (Parallels, UTM ou VMware sur le Mac), OpenSSH Server activé, si possible avec un instantané propre |
 | Exécuter un échantillon ? | **Jamais.** Analyse statique seulement, même sur la VM, même avec approbation |
 
+### Le troisième tour (2026-11-07, à l'ouverture de l'étape 5)
+
+| Question | Réponse retenue |
+|---|---|
+| Quel client SSH ? | **La bibliothèque `ssh2`** (pure JS, sans ses dépendances natives facultatives) : la clé reste en mémoire, lue au coffre ; l'empreinte d'hôte est comparée dans notre code ; même comportement sur les trois plateformes ; fichiers par SFTP |
+| Comment épingler l'empreinte d'hôte ? | **Recopiée depuis la VM** : l'humain la lit sur la console de la VM (commande donnée par la CLI) et la passe à la déclaration. Aucune confiance au premier contact |
+| Quelle clé ? | **Générée par Midgaard, dédiée à la VM** (ed25519), rangée au coffre ; la CLI donne la commande PowerShell exacte qui pose la clé publique |
+| Quelle forme pour l'agent ? | **Un script PowerShell** (`windows_run`), montré tel quel à l'approbation ; le worktree est recopié dans le dossier jetable de la VM avant chaque commande |
+
+Constaté avant d'écrire (2026-11-07) : `ssh2` 1.17.0 génère une clé
+ed25519 au format OpenSSH, et l'empreinte qu'on tire de la clé d'hôte
+présentée est **identique** à celle d'`ssh-keygen -lf` (`SHA256:…`, base64
+sans remplissage). Il fonctionne installé sans ses dépendances facultatives
+(`cpu-features`, `nan`, qui se compilent), et fournit un serveur SSH en
+processus : les tests ont un hôte factice sans machine Windows.
+
 ## Ce qui a été constaté avant de décider (2026-11-06)
 
 Chaque point a été lu dans le code ou au catalogue, pas supposé.
@@ -146,6 +162,18 @@ Chaque point a été lu dans le code ou au catalogue, pas supposé.
 | 5 | La VM Windows : déclaration, empreinte d'hôte, copie jetable, commande approuvée, Job Object ; CI Windows avec sshd | à faire |
 | 6 | Le dashboard : playbooks aux Profils, liste blanche `exec` du dépôt (préfixes compris), VM, échantillons d'une tâche | à faire |
 | 7 | Preuves (`test:security`, CI trois plateformes) et essai réel : une règle Sigma, une règle YARA et un script PowerShell vérifiés sur la VM par un modèle *uncensored* ; le PE via REA après l'essai de la Slice 8 | à faire |
+
+### L'étape 5 en détail
+
+| # | Sous-étape | État |
+|---|---|---|
+| 5.1 | Le paquet `remote` : connexion `ssh2`, empreinte comparée **avant** toute authentification, exécution avec sortie en flux, SFTP, fermeture ; tests contre un hôte factice en processus | **fait** — 10 tests, deux défauts introduits vus échouer |
+| 5.2 | La déclaration : table des hôtes (migration), routes `/api/windows`, `harness windows add` (clé générée au coffre, empreinte recopiée, commande PowerShell donnée), `test`, `remove`, `attach`/`detach` à un profil | à faire |
+| 5.3 | L'outil `windows_run` : script PowerShell approuvé à chaque fois (hôte et texte exacts), dossier jetable de la tâche sur la VM, worktree recopié avant chaque commande (jamais `.git`, jamais un échantillon), sortie en direct expurgée et non fiable, délai et annulation, dossier effacé en fin de tâche | à faire |
+| 5.4 | Aucun processus ne survit : **constater d'abord** ce que Win32-OpenSSH fait d'une session coupée, en comptant les processus de l'hôte ; puis, s'il le faut, un lanceur qui pose un Job Object tué à sa fermeture | à faire |
+| 5.5 | La CI : un poste Windows GitHub active OpenSSH Server, pose la clé **par la commande que donne la CLI** (ce qui prouve la consigne), se joint lui-même ; `test:windows` — exécution, empreinte fausse refusée, daemon tué net, processus comptés sur l'hôte | à faire |
+
+Chaque sous-étape se commite à part, avec l'accord de l'auteur.
 
 ## Reste à trancher
 
@@ -414,4 +442,35 @@ preuve que le verrou tient ; c'est une manche qu'on n'a pas pu lire. Le
 test affiche désormais, pour une manche ratée, le journal de **chaque**
 candidat avec son code de sortie (`tests/single-instance.ts`), vérifié en
 forçant une manche à échouer : la prochaine occurrence se lira.
+
+### Étape 5.1 — le paquet `remote` (2026-11-07)
+
+`packages/remote` : `generateKeyPair` (ed25519 au format OpenSSH, commentée
+`midgaard-<vm>`), `fingerprintOf` et `normalizeFingerprint` (la ligne de
+`ssh-keygen -lf` ou la forme nue ; MD5 refusé), et `RemoteSession` :
+`open` compare l'empreinte **pendant l'échange de clés** — un hôte qui
+présente une autre clé ne reçoit ni signature ni nom d'utilisateur, et le
+refus dit l'empreinte vue ; `run` (sortie bornée début et fin, chaque
+morceau en direct, délai et annulation qui ferment le canal) ; `uploadTree`
+par SFTP, qui **ne suit jamais un lien** et refuse au-delà de 20 000
+fichiers ou 256 Mio avant de rien copier. Ni agent SSH, ni mot de passe, ni
+clavier : la seule clé est celle que l'appelant lit au coffre.
+
+`ssh2` 1.17 est installé **sans exécuter ses scripts d'installation**
+(politique `allow-scripts` de npm 11) : ses deux modules natifs facultatifs
+(`cpu-features`, liaison crypto) ne sont pas compilés, et il s'en passe —
+constaté par les tests.
+
+Preuves : `tests/unit/remote.test.ts` (10 tests) face à
+`tests/fake-ssh-server.ts`, un hôte `ssh2` dans le processus qui **compte
+les tentatives d'authentification** : zéro quand l'empreinte ne correspond
+pas. L'empreinte d'une clé fixe est comparée à celle relevée avec
+`ssh-keygen -lf` (OpenSSH 10.3). **Deux défauts introduits ont été vus
+échouer** : empreinte non comparée, liens suivis à la copie. La première
+mutation a montré un test qui restait **suspendu** au lieu d'échouer (la
+session ouverte à tort n'était jamais fermée) : il la ferme désormais.
+Trouvé en chemin : côté serveur, `ssh2` ne signale pas la fermeture d'un
+canal par le client sur le canal (`close`) mais par `finish`, ou `close` de
+la session ; l'hôte factice écoute les deux. Ce que Windows fait des
+processus d'une session coupée reste à constater (5.4).
 
