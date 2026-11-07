@@ -243,6 +243,14 @@ const delegateSchema = z.object({
   limits: requestedLimitsSchema
     .optional()
     .describe('Optional tighter limits for this subtask. They can only LOWER the profile limits, never raise them.'),
+  samples: z
+    .array(z.string().min(1).max(128))
+    .max(16)
+    .optional()
+    .describe(
+      'Names of YOUR samples (the read-only files listed in your context) to pass to the subtask. Only your own ' +
+        'samples can be passed, by name; the subtask gets read-only copies it must never execute.',
+    ),
 })
 
 /** Crée une sous-tâche et rend la main tout de suite, sans l'attendre. */
@@ -262,6 +270,7 @@ export const delegateTaskTool: Tool<z.infer<typeof delegateSchema>> = {
         objective: args.objective,
         context: args.context,
         limits: args.limits,
+        ...(args.samples ? { samples: args.samples } : {}),
       }),
     )
     const content = JSON.stringify(

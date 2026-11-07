@@ -141,8 +141,8 @@ Chaque point a été lu dans le code ou au catalogue, pas supposé.
 |---|---|---|
 | 1 | Les playbooks : dossier `playbooks/`, lecture et bornes, `agents.playbooks` (migration 14), `GET /api/playbooks`, `PUT /api/agents/:id/playbooks`, consigne composée et journalisée au départ, héritage par les agents créés, `harness playbooks` (`attach`, `detach`) ; un premier playbook (`python`) | **fait** — 15 tests, trois défauts introduits vus échouer, deux trouvés par la vraie CLI ; verte en CI sur trois plateformes |
 | 2 | Le savoir : `sigma`, `yara`, `pe-static`, `powershell`, `windows-hardening`, relus par l'auteur | fait (exemples validés, relus par l'auteur) |
-| 3 | La liste blanche à préfixes : migration, règle des interpréteurs, CLI, avertissement (le dashboard, qui ne montre pas encore la liste blanche, à l'étape 6) | **fait** — 70 tests unitaires et V14 ; trois défauts introduits vus échouer |
-| 4 | L'environnement Python du worktree (`uv sync` proposé au départ) et les échantillons en lecture seule, jamais exécutés | à faire |
+| 3 | La liste blanche à préfixes : migration, règle des interpréteurs, CLI, avertissement (le dashboard, qui ne montre pas encore la liste blanche, à l'étape 6) | **fait** — 70 tests unitaires et V14 ; trois défauts introduits vus échouer ; verte en CI sur trois plateformes (passages `42398543114`, `42398543220`, `42398543196`) |
+| 4 | L'environnement Python du worktree (`uv sync` proposé au départ) et les échantillons en lecture seule, jamais exécutés | **fait** — 17 tests unitaires, V15 et V16 ; quatre défauts introduits vus échouer |
 | 5 | La VM Windows : déclaration, empreinte d'hôte, copie jetable, commande approuvée, Job Object ; CI Windows avec sshd | à faire |
 | 6 | Le dashboard : playbooks aux Profils, liste blanche `exec` du dépôt (préfixes compris), VM, échantillons d'une tâche | à faire |
 | 7 | Preuves (`test:security`, CI trois plateformes) et essai réel : une règle Sigma, une règle YARA et un script PowerShell vérifiés sur la VM par un modèle *uncensored* ; le PE via REA après l'essai de la Slice 8 | à faire |
@@ -324,4 +324,84 @@ défauts introduits exprès ont été vus échouer** : moteur qui ne rejuge plus
 (V14 : `node -e` terminé sans aucune demande, et un test unitaire), route
 qui ne juge plus (V14 : `python -c` accepté et inscrit), comparaison de texte
 au lieu de mots (un test unitaire).
+
+### Étape 4 — les échantillons et l'environnement Python (2026-11-07)
+
+Ce qui existe désormais :
+
+- **`samples`** à `POST /api/tasks` et à `harness_delegate_task` : des
+  chemins de fichiers, absolus ou relatifs au projet. Le daemon les copie
+  **avant** la tâche (`packages/daemon/src/samples.ts`), en lecture seule,
+  sous `samplesDir/<tâche>` du dossier runtime — hors de tout dépôt : un
+  échantillon dans un worktree serait commité par `git add -A`. Une tâche
+  porte `samples` (nom, SHA-256, taille ; migration 16, `PROTOCOL_VERSION`
+  19), jamais le chemin d'origine, que seul le journal du daemon cite ;
+- **les refus avant création** (`400 invalid_samples`) : introuvable, pas un
+  fichier ordinaire, sous le dossier runtime (jeton, coffre), plus de 16, plus
+  de 256 Mio, plus de 1 Gio ensemble ; `409 samples_unsupported` pour un
+  profil qui n'analyse pas. Un refus efface le dossier préparé ;
+- **au départ**, chaque empreinte revérifiée, tout ou rien, avant tout appel
+  de modèle : les copies appartiennent à l'utilisateur, une commande
+  approuvée pourrait les réécrire. L'agent reçoit leurs chemins et la règle,
+  la timeline leurs noms et empreintes ;
+- **à la fin**, les copies effacées **avant** la conclusion — une tâche vue
+  finie n'en a plus ; le démarrage du daemon balaie ce qu'une mort nette a
+  laissé. Rien n'est effacé hors de `samplesDir` ;
+- **`delegate_task` transmet par nom** les échantillons de l'orchestrateur, et
+  eux seuls, par lien dur : un orchestrateur ne désigne jamais un fichier du
+  disque, qu'un texte lu lui aurait soufflé ;
+- **la garde d'`exec`** (`packages/tools/src/samples-guard.ts`), dans
+  `prepare` : refus sans demande, liste blanche comprise, de tout ce qui
+  lancerait un échantillon — lui, **une copie de même contenu** (taille puis
+  SHA-256 : `cp sample x ; ./x` est la même exécution), un chargeur, émulateur,
+  débogueur ou traceur qui le reçoit, un shell ou un interpréteur autre que
+  Python qui le reçoit, Python quand il est le script ou passé à `runpy`,
+  `pdb`, `floss`, `qiling`… ;
+- **`uv sync --locked`** (`packages/daemon/src/python-env.ts`), proposé par
+  le harness au départ d'un Developer dont le worktree porte un `uv.lock`,
+  par l'outil `exec` lui-même, à l'étape 0, avant le premier appel de modèle.
+  L'agent apprend s'il a réussi ou échoué.
+
+**Trois écarts aux décisions 8 et 9**, tranchés en chemin :
+
+- **Pas de `uv sync` sans `uv.lock`** (la décision disait « ou un
+  `pyproject.toml` ») : `uv sync` écrirait alors un `uv.lock` dans le
+  worktree, et le diff l'attribuerait à l'agent. `--locked` pour la même
+  raison : un lock périmé fait échouer la commande au lieu d'être réécrit —
+  V16 le prouve, et la mutation sans `--locked` y laisse un `uv.lock` au diff ;
+- **refuser `uv sync` arrête la tâche**, comme tout refus d'approbation
+  (`cancelled`) : l'opération le dit à l'humain avant qu'il décide ;
+- **l'émulation est refusée sans exception**, même approuvée — décision
+  « jamais » prise avec l'auteur. Le playbook `pe-static` la permettait « si
+  la tâche dit que l'humain l'a autorisée » ; la phrase est corrigée, et
+  c'est la seule retouche d'un playbook relu à l'étape 2.
+
+**Ce que la garde ne prétend pas** : lire ce que fait un script du fichier
+qu'il reçoit (`exec(open(sample).read())`), ni reconnaître une copie
+modifiée d'un octet. Là, l'approbation de la commande reste la frontière.
+Un Researcher, sans `exec`, ne lit un binaire que par un serveur MCP qui le
+sait (REA) ; les outils de lecture ne voient pas `samplesDir`.
+
+**Constaté avant d'écrire** : `uv sync --locked` dans un dépôt Git laisse
+`git status` vide — `uv` pose un `.gitignore` (`*`) dans `.venv` (uv 0.12.16).
+V16 le revérifie par le diff de la tâche.
+
+Preuves : `tests/unit/samples.test.ts` (17 tests : la garde sur une table de
+commandes, la copie, les droits, les refus sans reste, la vérification, la
+transmission par nom, l'effacement borné et le balayage ; dans un vrai
+daemon, ce que l'agent lit, la note, l'effacement en fin de tâche, les refus
+de la route, la transmission d'un orchestrateur) et, dans `test:developer`,
+**V15** (dans un vrai worktree : une copie identique écrite par l'agent et
+`node <échantillon>` refusés sans demande, `git hash-object` approuvé, rien
+n'a tourné, copies effacées) et **V16** (`uv sync --locked` demandé avant le
+modèle, approuvé, `.venv` hors du diff ; refusé, la tâche s'arrête sans aucun
+appel ; un lock périmé échoue et l'agent le sait ; sans lock, c'est dit). La
+CI installe uv (`astral-sh/setup-uv`) et l'exige par `MIDGAARD_REQUIRE_UV` :
+sans uv, V16 serait un constat, pas un succès. **Quatre défauts introduits
+exprès ont été vus échouer** : garde coupée (5 tests unitaires et V15),
+comparaison de contenu retirée (3 et V15), `uv sync` sans `--locked` (V16),
+vérification au départ sautée (2). La première mutation a aussi montré que
+la suite plantait au ménage sur une copie en lecture seule laissée par une
+tâche bloquée : le ménage des tests rouvre désormais les droits, et V15
+annule sa tâche si elle n'a pas fini.
 

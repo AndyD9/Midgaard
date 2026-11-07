@@ -43,6 +43,9 @@
  *     faire durer une tâche au-delà de son `timeout_s`.
  *  7. **Sortie bornée, début et fin conservés** : la fin d'une sortie de test
  *     porte le verdict, son début la cause. Le milieu est retiré, et c'est dit.
+ *  8. **Aucun échantillon exécuté** (Slice 9) : `prepare` refuse, sans
+ *     solliciter personne, une commande qui le lancerait, le chargerait ou
+ *     l'émulerait — voir `samples-guard.ts`.
  */
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { stat } from 'node:fs/promises'
@@ -52,6 +55,7 @@ import { execRuleMatches, formatExecRule, type ExecAllowRule, type ToolResult } 
 export { parseExecAllow } from '@midgaard/contracts'
 import { armGuard, guardGroup } from './guard.ts'
 import { resolveUnderRoot } from './paths.ts'
+import { sampleExecRefusal } from './samples-guard.ts'
 import { ToolError, type PreparedOperation, type Tool, type ToolContext } from './types.ts'
 
 /** Délai par défaut d'une commande, en secondes. Un `npm test` ordinaire tient en dessous. */
@@ -458,6 +462,10 @@ export const execTool: Tool<ExecArgs> = {
     const cwd = await resolveUnderRoot(ctx.root, args.cwd)
     if (!(await stat(cwd)).isDirectory()) throw new ToolError(`not a directory: ${args.cwd}`)
     const file = await resolveCommand(args.command, cwd, ctx.root, execEnv())
+    // Un échantillon ne s'exécute jamais, même approuvé (Slice 9) : refus ici,
+    // avant toute demande, liste blanche comprise — `prepare` passe toujours.
+    const refusal = await sampleExecRefusal(file, args.args, cwd, ctx.samples)
+    if (refusal) throw new ToolError(refusal)
     const id = fingerprint(await stat(file))
     const state: ExecState = { file, cwd, fingerprint: id }
     return {
@@ -530,6 +538,7 @@ export const execTool: Tool<ExecArgs> = {
       // paquet installé, une page téléchargée par un test. Elle est encadrée
       // comme du contenu web, pour l'agent comme pour Claude.
       untrusted: true,
+      exit_code: r.timedOut || r.cancelled ? null : r.code,
     }
   },
 }

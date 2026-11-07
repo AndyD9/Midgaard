@@ -60,6 +60,7 @@ import { SimulatedEngine, STEPS_TOTAL } from './engines/simulated.ts'
 import type { EngineContext, TaskEngine, VisionVerdict } from './engines/types.ts'
 import { navigatorBlindError } from './engines/agent.ts'
 import { resolveCreatedAgent } from './agents.ts'
+import { adoptStaged, discardStaged, stageForwarded, type StagedSamples } from './samples.ts'
 
 /** Délai maximal d'un constat de vision attendu par une requête : le catalogue ne doit pas bloquer l'API. */
 const VISION_PROBE_WAIT_MS = 5_000
@@ -88,6 +89,12 @@ export interface TaskView {
   next_action: ReturnType<typeof nextActionFor>
   approval: Approval | null
 }
+
+/**
+ * Profils qui reçoivent des échantillons (Slice 9) : ceux qui analysent. Un
+ * Navigator n'a rien à en faire, et le profil simulé ne lit rien.
+ */
+const SAMPLE_KINDS: readonly string[] = ['researcher', 'developer', 'orchestrator']
 
 /** Pilote les tâches et applique la machine à états. */
 export class TaskManager {
@@ -342,7 +349,23 @@ export class TaskManager {
    *
    * @returns la tâche créée, ou un refus explicite
    */
-  create(input: {
+  create(input: Parameters<TaskManager['createTask']>[0]): { task: Task } | Refusal {
+    // Les échantillons préparés appartiennent à cette création : un refus,
+    // quel qu'il soit, les efface. Sans cela, une copie de malware resterait
+    // sous `samplesDir` jusqu'au prochain démarrage du daemon.
+    const done = this.createTask(input)
+    if ('error' in done && input.samples) {
+      try {
+        discardStaged(this.config, input.samples)
+      } catch (e) {
+        this.log('échantillons préparés : effacement impossible', e)
+      }
+    }
+    return done
+  }
+
+  /** Corps de {@link create}, sans le ménage des échantillons d'une création refusée. */
+  private createTask(input: {
     objective: string
     agentId: string
     context: string | null
@@ -358,6 +381,12 @@ export class TaskManager {
      * son parent indéfiniment.
      */
     conversation?: boolean | undefined
+    /**
+     * Échantillons déjà copiés en lecture seule (Slice 9) : par la route pour
+     * un client, par {@link stageForwarded} pour une sous-tâche. Réservés aux
+     * profils qui analysent ; le dossier préparé devient celui de la tâche.
+     */
+    samples?: StagedSamples | null | undefined
   }): { task: Task } | Refusal {
     const agent = this.agentFor(input.agentId)
     // Un agent créé ne sert qu'aux sous-tâches de l'orchestrateur qui l'a créé
@@ -403,6 +432,13 @@ export class TaskManager {
     if (!this.engines.has(agent.kind)) {
       return { error: 'engine_unavailable', status: 503, detail: { agent_id: agent.id, kind: agent.kind } }
     }
+    if (input.samples && input.samples.samples.length > 0 && !SAMPLE_KINDS.includes(agent.kind)) {
+      return {
+        error: 'samples_unsupported',
+        status: 409,
+        detail: { agent_id: agent.id, reason: `un profil ${agent.kind} ne reçoit pas d'échantillons à analyser` },
+      }
+    }
     if (input.conversation && (agent.kind !== 'orchestrator' || input.parentTaskId)) {
       return {
         error: 'conversation_unsupported',
@@ -442,7 +478,21 @@ export class TaskManager {
         : input.parentTaskId && agent.kind === 'developer'
           ? 'review'
           : 'oneshot',
+      samples: input.samples?.samples ?? [],
     })
+    if (input.samples) {
+      try {
+        adoptStaged(this.config, input.samples, task.id)
+        this.log(`échantillons de la tâche ${short(task.id)} : ${input.samples.origins.join(' ; ')}`)
+      } catch (e) {
+        // La tâche existe déjà : son départ revérifiera les copies et
+        // s'arrêtera, motif à l'appui, avant tout appel de modèle.
+        this.log(`échantillons de la tâche ${short(task.id)} : dossier non adopté`, e)
+        try {
+          discardStaged(this.config, input.samples)
+        } catch {}
+      }
+    }
     this.log(
       `tâche ${short(task.id)} créée pour ${agent.id} (budget ${limits.max_cost_usd} $)` +
         (input.parentTaskId ? `, sous-tâche de ${short(input.parentTaskId)}` : ''),
@@ -811,6 +861,15 @@ export class TaskManager {
             return { refused: `the budget of this task ($${tree.limit}) is spent across its subtasks: no new subtask can start` }
           }
         }
+        // Un orchestrateur ne transmet que **ses** échantillons, par leur nom
+        // (Slice 9) : jamais un chemin du disque, qu'un texte lu lui aurait soufflé.
+        let staged: StagedSamples | null = null
+        if (request.samples && request.samples.length > 0) {
+          const parent = this.store.getTask(parentId)
+          const done = stageForwarded(this.config, parentId, parent?.samples ?? [], request.samples)
+          if ('error' in done) return { refused: done.error }
+          staged = done
+        }
         const created = this.create({
           objective: redact(request.objective.trim()),
           agentId: request.agent_id,
@@ -821,6 +880,7 @@ export class TaskManager {
           durationS: 20,
           needsApproval: false,
           parentTaskId: parentId,
+          samples: staged,
         })
         if ('error' in created) return { refused: this.refusalForModel(created) }
         return subtaskState(created.task)

@@ -50,6 +50,7 @@ import { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'
 import { securityContext, type SecurityContext } from './security.ts'
 import { StaticFiles } from './static-files.ts'
 import { TaskManager } from './task-manager.ts'
+import { sweepSamples } from './samples.ts'
 import { EventStream } from './ws.ts'
 
 /** Intervalle de vérification de l'inactivité. */
@@ -357,6 +358,15 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
   // de découverte : aucun client ne peut voir une tâche encore marquée `running`
   // alors que le processus qui la faisait avancer est mort.
   tasks.recoverFromRestart()
+  // Après le marquage : les échantillons d'une tâche devenue `interrupted`
+  // partent avec ceux des tâches finies, et les dossiers préparés pour une
+  // tâche jamais créée aussi (Slice 9). Une copie de malware ne traîne pas.
+  try {
+    const swept = sweepSamples(config, store)
+    if (swept > 0) log(`échantillons : ${swept} dossier(s) de tâches finies effacé(s)`)
+  } catch (e) {
+    log('échantillons : balayage impossible', e)
+  }
   // Les profils livrés d'office sont (re)posés à chaque démarrage, pour qu'une
   // montée de version livre ses consignes système corrigées sans que
   // l'utilisateur ait à supprimer sa base.

@@ -89,6 +89,11 @@ async function until(check: () => boolean | Promise<boolean>, timeoutMs: number)
 
 /** Délègue au Developer une tâche dont l'objectif porte l'étiquette de son scénario. */
 async function delegate(rt: RuntimeInfo, tag: string, projectDir: string, script: Turn[]) {
+  return delegateWith(rt, tag, projectDir, {}, script)
+}
+
+/** Comme {@link delegate}, avec des champs de plus dans la requête (`samples`). */
+async function delegateWith(rt: RuntimeInfo, tag: string, projectDir: string, extra: Record<string, unknown>, script: Turn[]) {
   provider.scripts.set(tag, script)
   const res = await daemonJson<TaskView & { error?: string }>(rt, '/api/tasks', {
     method: 'POST',
@@ -97,6 +102,7 @@ async function delegate(rt: RuntimeInfo, tag: string, projectDir: string, script
       agent_id: 'developer',
       project_dir: projectDir,
       context: 'Le routeur est dans src/app.ts.',
+      ...extra,
     }),
   })
   if (res.status !== 200 && res.status !== 201) throw new Error(`délégation refusée : ${JSON.stringify(res.body)}`)
@@ -727,6 +733,136 @@ await scenario(outcomes, 'V14 un préfixe couvre la suite de l\'argv, un préfix
     detail: problems.length
       ? problems.join(' ; ')
       : 'git rev-parse … libre sur deux argv, python -c et bash refusés (route et CLI), node -e en base écarté et soumis à l\'humain',
+  }
+})
+
+await scenario(outcomes, 'V15 un échantillon ne s\'exécute jamais : ni lui, ni sa copie, ni par un interpréteur', async () => {
+  const repo = makeRepo('v15')
+  const problems: string[] = []
+  // Un « échantillon » texte, hors du dépôt : sa copie identique dans le
+  // worktree doit être reconnue à son contenu.
+  const outside = join(scratch, 'echantillons-v15')
+  mkdirSync(outside, { recursive: true })
+  const payload = '#!/bin/sh\necho "ne doit jamais tourner" > pwned.txt\n'
+  const sample = join(outside, 'payload.sh')
+  writeFileSync(sample, payload)
+
+  const task = await delegateWith(rt, '[V15]', repo, { samples: [sample] }, [
+    [{ tool: 'write_file', args: { path: 'copie.sh', content: payload } }],
+    [{ tool: 'exec', args: { command: './copie.sh' } }],
+    [{ tool: 'exec', args: { command: 'node', args: [sample] } }],
+    // Lire l'échantillon reste permis, sous approbation comme toute commande.
+    [{ tool: 'exec', args: { command: 'git', args: ['hash-object', sample] } }],
+    submit('analysé'),
+  ])
+  const copyDir = join(main.config.samplesDir, task.id)
+  if (task.samples.length !== 1 || task.samples[0]!.name !== 'payload.sh') problems.push(`échantillons de la tâche : ${JSON.stringify(task.samples)}`)
+  const paused = await waitFor(rt, task.id, new Set(['waiting_approval', ...TERMINAL]))
+  if (!existsSync(join(copyDir, 'payload.sh'))) problems.push('aucune copie sous samplesDir pendant la tâche')
+  const log = await events(rt, task.id)
+  const refusals = log.filter((e) => e.type === 'tool.completed' && /never executed, loaded or emulated/.test(String(e.payload.error)))
+  if (refusals.length !== 2) problems.push(`${refusals.length} refus au lieu de 2 (copie, node)`)
+  const asked = log.filter((e) => e.type === 'approval.requested')
+  if (paused.task.status !== 'waiting_approval' || asked.length !== 1) problems.push(`${asked.length} demande(s), statut ${paused.task.status}`)
+  if (paused.approval && !String(paused.approval.operation).includes('hash-object')) problems.push(`demande inattendue : ${paused.approval.operation}`)
+  if (paused.approval) await daemonJson(rt, `/api/approvals/${paused.approval.id}/approve`, { method: 'POST', body: JSON.stringify({ by: 'test' }) })
+  const done = await waitFor(rt, task.id, TERMINAL)
+  if (done.task.status !== 'completed') problems.push(`fin : ${done.task.status} ${done.task.error ?? ''}`)
+  // Une tâche restée en attente (protection retirée exprès) ne doit pas
+  // retenir la suite : on l'annule, ce qui efface aussi ses copies.
+  if (!TERMINAL.has(done.task.status)) {
+    await daemonJson(rt, `/api/tasks/${task.id}/cancel`, { method: 'POST' })
+    await waitFor(rt, task.id, TERMINAL)
+  }
+  const w = done.task.result?.workspace
+  if (w && existsSync(join(w.worktree_path, 'pwned.txt'))) problems.push('l\'échantillon a tourné : pwned.txt existe')
+  if (existsSync(copyDir)) problems.push('la copie a survécu à la tâche')
+  return {
+    verdict: problems.length ? 'FAIL' : 'PASS',
+    detail: problems.length
+      ? problems.join(' ; ')
+      : 'copie identique et node refusés sans demande, lecture (git hash-object) approuvée, copie effacée à la fin',
+  }
+})
+
+await scenario(outcomes, 'V16 uv sync --locked est proposé avant l\'agent, approuvé une fois, hors du diff ; refusé, il arrête tout', async () => {
+  const uv = (() => {
+    try {
+      return execFileSync('uv', ['--version'], { encoding: 'utf8' }).trim()
+    } catch {
+      return null
+    }
+  })()
+  if (!uv) {
+    // Un test qui saute le dit, et la CI exige uv : ce constat n'y passe pas.
+    if (process.env.MIDGAARD_REQUIRE_UV) return { verdict: 'FAIL', detail: 'uv introuvable alors que MIDGAARD_REQUIRE_UV est posé' }
+    return { verdict: 'CONSTAT', detail: 'SANS uv sur cette machine : V16 non exercé' }
+  }
+  const problems: string[] = []
+  const repo = makeRepo('v16')
+  writeFileSync(join(repo, 'pyproject.toml'), '[project]\nname = "demo"\nversion = "0.1.0"\nrequires-python = ">=3.9"\ndependencies = []\n')
+  execFileSync('uv', ['lock', '-q'], { cwd: repo })
+  git(repo, 'add', '-A')
+  git(repo, 'commit', '-q', '-m', 'projet python')
+
+  // A — approuvé : l'environnement est là, l'agent le sait, le diff l'ignore.
+  const a = await delegate(rt, '[V16a]', repo, [submit('prêt')])
+  const pausedA = await waitFor(rt, a.id, new Set(['waiting_approval', ...TERMINAL]))
+  if (!/le harness prépare l'environnement Python/.test(String(pausedA.approval?.operation))) {
+    problems.push(`première demande : ${pausedA.approval?.operation ?? pausedA.task.status}`)
+  }
+  if (provider.systems.has('[V16a]')) problems.push('le modèle a été appelé avant la décision')
+  if (pausedA.approval) await daemonJson(rt, `/api/approvals/${pausedA.approval.id}/approve`, { method: 'POST', body: JSON.stringify({ by: 'test' }) })
+  const doneA = await waitFor(rt, a.id, TERMINAL, 120_000)
+  const wA = doneA.task.result?.workspace
+  if (doneA.task.status !== 'completed') problems.push(`A : ${doneA.task.status} ${doneA.task.error ?? ''}`)
+  if (!wA || !existsSync(join(wA.worktree_path, '.venv'))) problems.push('aucun .venv dans le worktree')
+  if (wA && wA.files_changed !== 0) problems.push(`${wA.files_changed} fichier(s) au diff : le .venv ou un uv.lock récrit y est entré`)
+  const said = (provider.received.get('[V16a]') ?? []).map((m) => m.content ?? '').join('\n')
+  if (!/prepared the Python environment/.test(said)) problems.push('l\'agent n\'a pas été prévenu')
+
+  // B — refusé : la tâche s'arrête, aucun appel de modèle.
+  const b = await delegate(rt, '[V16b]', repo, [submit('jamais')])
+  const pausedB = await waitFor(rt, b.id, new Set(['waiting_approval', ...TERMINAL]))
+  if (pausedB.approval) {
+    await daemonJson(rt, `/api/approvals/${pausedB.approval.id}/reject`, { method: 'POST', body: JSON.stringify({ by: 'test', reason: 'pas d\'environnement' }) })
+  }
+  const doneB = await waitFor(rt, b.id, TERMINAL)
+  if (doneB.task.status !== 'cancelled') problems.push(`B : ${doneB.task.status}`)
+  if (provider.systems.has('[V16b]')) problems.push('B : le modèle a été appelé malgré le refus')
+
+  // D — un uv.lock périmé : `--locked` échoue au lieu de le récrire, et
+  // l'agent le sait ; un uv.lock récrit serait au diff comme son travail.
+  const stale = makeRepo('v16-perime')
+  writeFileSync(join(stale, 'pyproject.toml'), '[project]\nname = "demo"\nversion = "0.1.0"\nrequires-python = ">=3.9"\ndependencies = []\n')
+  execFileSync('uv', ['lock', '-q'], { cwd: stale })
+  writeFileSync(join(stale, 'pyproject.toml'), '[project]\nname = "demo"\nversion = "0.2.0"\nrequires-python = ">=3.9"\ndependencies = []\n')
+  git(stale, 'add', '-A')
+  git(stale, 'commit', '-q', '-m', 'lock périmé')
+  const d = await delegate(rt, '[V16d]', stale, [submit('sans environnement')])
+  const pausedD = await waitFor(rt, d.id, new Set(['waiting_approval', ...TERMINAL]))
+  if (pausedD.approval) await daemonJson(rt, `/api/approvals/${pausedD.approval.id}/approve`, { method: 'POST', body: JSON.stringify({ by: 'test' }) })
+  const doneD = await waitFor(rt, d.id, TERMINAL, 120_000)
+  if (doneD.task.status !== 'completed') problems.push(`D : ${doneD.task.status} ${doneD.task.error ?? ''}`)
+  if ((doneD.task.result?.workspace?.files_changed ?? -1) !== 0) problems.push('D : uv.lock récrit, au diff de l\'agent')
+  const saidD = (provider.received.get('[V16d]') ?? []).map((m) => m.content ?? '').join('\n')
+  if (!/and it failed \(exit code [1-9]/.test(saidD)) problems.push('D : l\'agent n\'a pas appris l\'échec')
+
+  // C — un pyproject.toml sans uv.lock : rien proposé, et c'est dit.
+  const bare = makeRepo('v16-sans-lock')
+  writeFileSync(join(bare, 'pyproject.toml'), '[project]\nname = "x"\nversion = "0"\n')
+  git(bare, 'add', '-A')
+  git(bare, 'commit', '-q', '-m', 'sans lock')
+  const c = await delegate(rt, '[V16c]', bare, [submit('ok')])
+  const doneC = await waitFor(rt, c.id, TERMINAL)
+  const notes = (await events(rt, c.id)).filter((e) => e.type === 'agent.message').map((e) => String(e.payload.message))
+  if (doneC.task.status !== 'completed' || (await events(rt, c.id)).some((e) => e.type === 'approval.requested')) problems.push('C : une demande, ou pas de fin')
+  if (!notes.some((m) => /pyproject\.toml sans uv\.lock/.test(m))) problems.push('C : la note manque')
+  return {
+    verdict: problems.length ? 'FAIL' : 'PASS',
+    detail: problems.length
+      ? problems.join(' ; ')
+      : `${uv} : proposé avant le modèle, approuvé, .venv hors du diff ; refusé → cancelled sans appel ; lock périmé → échec dit, rien récrit ; sans lock → dit`,
   }
 })
 

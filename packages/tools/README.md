@@ -175,6 +175,18 @@ le daemon rappelle la conséquence dans son journal à chaque démarrage. Pas de
 guillemets dans cette variable : un argument contenant une espace ne peut pas
 être mis en liste blanche, et c'est voulu.
 
+**Aucun échantillon ne s'exécute** (Slice 9, `samples-guard.ts`). Quand la
+tâche a des échantillons (`ToolContext.samples`), `prepare` refuse — sans
+demander à personne, liste blanche comprise — une commande dont le programme
+est un échantillon ou **une copie de même contenu** (taille, puis SHA-256) ;
+un chargeur, émulateur, débogueur ou traceur (`wine`, `rundll32`, `qemu-*`,
+`floss`, `speakeasy`, `gdb`, `strace`…) qui en reçoit un ; un shell ou un
+interpréteur autre que Python qui en reçoit un ; Python quand l'échantillon
+est le script, ou passé à un module qui exécute ou émule (`runpy`, `pdb`,
+`floss`, `qiling`…). `python analyze.py sample.exe` reste permis. La garde ne
+lit pas ce que fait un script du fichier qu'il reçoit, ni ne reconnaît une
+copie modifiée d'un octet : là, l'approbation reste la frontière.
+
 **Une entrée de dépôt peut être un préfixe** (Slice 9) : elle couvre tout argv
 qui commence par ses mots, comparés un à un (`pytest tests` ne couvre pas
 `pytest tests_evil`). `execAllowed` rend la règle qui couvre l'argv — l'entrée

@@ -20,6 +20,8 @@ soit le nombre de sessions Claude Code ouvertes.
 | `mcp-servers.ts` | Serveurs MCP déclarés (Slice 8) : coffre d'abord, test qui lit le vrai catalogue, outils cochés avec leur empreinte |
 | `mcp-sessions.ts` | Les serveurs MCP des tâches : lancés au départ, fermés à la fin, tous fermés à l'arrêt |
 | `playbooks.ts` | Playbooks (Slice 9) : lister le dossier, attacher à un profil, lire au départ d'une tâche et composer la consigne |
+| `samples.ts` | Échantillons d'une tâche (Slice 9) : copie en lecture seule, transmission par nom, vérification au départ, effacement |
+| `python-env.ts` | `uv sync --locked` proposé par le harness au départ d'un Developer, approuvé une fois (Slice 9) |
 | `http.ts` | Routeur de l'API locale |
 | `ws.ts` | Diffusion temps réel et **reprise sans trou** après coupure |
 | `security.ts` | `Host` exact, `Origin` en liste blanche, `Sec-Fetch-Site`, jeton porteur |
@@ -258,6 +260,33 @@ revérifiées), les ajoute à la consigne **après** les règles du profil et
 timeline chaque playbook lu avec son SHA-256. Un playbook absent ou invalide
 fait échouer la tâche avant tout appel de modèle. Un agent créé hérite de
 ceux de son profil de base, puisque `resolveCreatedAgent` part du profil.
+
+## Les échantillons et l'environnement Python (Slice 9)
+
+`POST /api/tasks` accepte `samples` : des fichiers à analyser **sans jamais
+les exécuter**. `stageSamples` les copie **avant** la tâche dans
+`samplesDir/.staging-<uuid>` (lecture seule, SHA-256 de la copie) ; un refus
+— introuvable, pas un fichier ordinaire, sous le dossier runtime, trop
+nombreux ou trop gros — est un `400 invalid_samples` avec son motif, et un
+profil qui n'analyse pas (simulé, Navigator) un `409 samples_unsupported`.
+`TaskManager.create` adopte le dossier préparé (`samplesDir/<tâche>`) ou
+l'efface si la création est refusée. Un orchestrateur transmet à une
+sous-tâche **ses** échantillons, par leur nom seulement (`delegate_task`,
+`samples`), par lien dur. Au départ, le moteur **revérifie chaque empreinte**
+(tout ou rien, avant tout appel de modèle), donne les chemins à l'outil
+`exec` (`ToolContext.samples`) et à l'agent, et note à la timeline les noms
+et empreintes ; les copies partent **avant** la conclusion, et le démarrage du
+daemon balaie ce qu'une mort nette a laissé (`sweepSamples`). Rien n'est
+effacé hors de `samplesDir`.
+
+Pour un Developer dont le worktree porte un `uv.lock`, `preparePythonEnv`
+propose `uv sync --locked` **avant le premier appel de modèle** : l'arbre
+est encore celui du commit de départ. La commande passe par l'outil `exec`
+(résolue, revérifiée, groupe tué, sortie en direct), à l'étape 0, avec une
+opération qui dit que c'est le harness qui la lance ; refuser arrête la
+tâche, comme tout refus. `--locked` n'écrit jamais `uv.lock` ; sans
+`uv.lock`, rien n'est proposé et la timeline le dit. Le `.venv` créé dans le
+worktree reste hors du diff : `uv` y pose un `.gitignore`.
 
 ## La liste blanche `exec` à préfixes (Slice 9)
 

@@ -42,6 +42,10 @@ jobs:
         with: { node-version: '24', cache: npm }
       - run: npm ci
       - run: git --version
+      # `uv` (Slice 9) : V16 éprouve `uv sync --locked`, proposé par le harness
+      # au départ d'un Developer. `MIDGAARD_REQUIRE_UV` fait échouer V16 si uv
+      # manque, au lieu d'un constat qui passerait au vert sans rien exercer.
+      - uses: astral-sh/setup-uv@v6
       # Le dashboard compilé est ce que le daemon sert : sans lui, S8 et
       # `test:ui` n'éprouveraient qu'une page « non compilé ».
       - id: build
@@ -61,6 +65,7 @@ jobs:
       - name: test:developer
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: npm run test:developer
+        env: { MIDGAARD_REQUIRE_UV: '1' }
       # Slice 5 : délégation parallèle, approbation d'un enfant, cascade
       # d'annulation et `SIGKILL` — la mort du daemon et les groupes de
       # processus sont précisément ce qui diffère d'un système à l'autre.

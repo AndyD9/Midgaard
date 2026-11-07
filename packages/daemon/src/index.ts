@@ -46,6 +46,21 @@ export {
 } from './playbooks.ts'
 export type { LoadedPlaybook } from './playbooks.ts'
 export { execRulesForTask } from './workspaces.ts'
+export {
+  adoptStaged,
+  discardStaged,
+  removeTaskSamples,
+  samplesContext,
+  sha256File,
+  stageForwarded,
+  stageSamples,
+  sweepSamples,
+  taskSamplesDir,
+  verifySamples,
+} from './samples.ts'
+export type { StagedSamples, VerifiedSample } from './samples.ts'
+export { preparePythonEnv, UV_SYNC_TIMEOUT_S } from './python-env.ts'
+export type { PythonEnvOutcome } from './python-env.ts'
 export { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'
 export { WS_PATH } from './ws.ts'
 export { checkProjectDir } from './project-dir.ts'

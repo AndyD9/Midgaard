@@ -40,7 +40,7 @@ function task(id: string, over: Partial<Task> = {}): Task {
   const at = '2026-11-03T10:00:00.000Z'
   return {
     id, objective: 'objectif', status: 'running', step: 0, steps_total: 1, agent_id: 'orchestrator', context: null,
-    project_dir: '/p', parent_task_id: null, mode: 'chat', awaiting_input: null, limits: DEFAULT_RESEARCHER_LIMITS,
+    project_dir: '/p', parent_task_id: null, mode: 'chat', awaiting_input: null, samples: [], limits: DEFAULT_RESEARCHER_LIMITS,
     usage: emptyUsage(), needs_approval: false, approval_seq: 0, duration_s: 1, created_at: at, updated_at: at,
     started_at: null, ended_at: null, result: null, error: null, ...over,
   }

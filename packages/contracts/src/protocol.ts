@@ -83,9 +83,13 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *  - 18 : Slice 9, étape 3 — la liste blanche `exec` a des **préfixes** :
  *        `POST /api/exec-allow` accepte `prefix`, une entrée porte `prefix`.
  *        Un daemon de protocole 17 ignorerait le champ et enregistrerait une
- *        entrée exacte en disant l'ajout réussi : la CLI doit le remplacer.
+ *        entrée exacte en disant l'ajout réussi : la CLI doit le remplacer ;
+ *  - 19 : Slice 9, étape 4 — une tâche porte `samples`, que le serveur MCP
+ *        et le dashboard valident, et `POST /api/tasks` les accepte. Un
+ *        daemon de protocole 18 ignorerait le champ : la tâche partirait sans
+ *        ses échantillons, et sans que `exec` sache lesquels refuser.
  */
-export const PROTOCOL_VERSION = 18
+export const PROTOCOL_VERSION = 19
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({
@@ -163,6 +167,13 @@ export const createTaskRequestSchema = z.object({
    * profil autre qu'un orchestrateur. Le serveur MCP ne l'envoie jamais.
    */
   conversation: z.boolean().default(false),
+  /**
+   * Échantillons à analyser sans jamais les exécuter (Slice 9) : des chemins
+   * de fichiers, absolus ou relatifs à `project_dir`. Le daemon les copie en
+   * lecture seule avant de créer la tâche ; un chemin refusé refuse la tâche
+   * entière (`invalid_samples`, avec le motif).
+   */
+  samples: z.array(z.string().min(1).max(4096)).max(16).default([]),
 })
 export type CreateTaskRequest = z.infer<typeof createTaskRequestSchema>
 

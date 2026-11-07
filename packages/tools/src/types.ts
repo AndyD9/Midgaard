@@ -77,6 +77,19 @@ export interface ToolContext {
    */
   execAllow?: readonly ExecAllowRule[] | undefined
   /**
+   * Échantillons de la tâche (Slice 9) : copies en lecture seule, vérifiées
+   * au départ. `exec` refuse de lancer l'une d'elles, une copie identique, ou
+   * un interpréteur, un chargeur ou un émulateur qui la recevrait — sans
+   * demander à personne : un échantillon ne s'exécute jamais, même approuvé.
+   */
+  samples?:
+    | {
+        /** Dossier canonique des copies. */
+        dir: string
+        files: readonly { path: string; name: string; bytes: number; sha256: string }[]
+      }
+    | undefined
+  /**
    * Échéance de la tâche, en millisecondes depuis l'époque. Un outil qui dure —
    * `exec` — ne doit pas la dépasser : la boucle ne vérifie ses limites qu'entre
    * deux appels de modèle, et une commande de dix minutes passerait entre.
@@ -313,6 +326,8 @@ export interface DelegateRequest {
   objective: string
   context?: string | undefined
   limits?: RequestedLimits | undefined
+  /** Noms d'échantillons **de la tâche parente** à transmettre (Slice 9). */
+  samples?: readonly string[] | undefined
 }
 
 /** Pourquoi une attente de sous-tâche a rendu la main. */

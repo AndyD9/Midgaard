@@ -419,6 +419,61 @@ suivi de ses mots.
 
 ---
 
+## Les échantillons et l'environnement Python (Slice 9)
+
+### La tâche est refusée : `invalid_samples`
+
+Les échantillons sont copiés **avant** que la tâche existe ; un seul refus
+refuse la tâche, et rien n'est créé. Le motif dit lequel :
+
+- **« sample not found »** : le chemin n'existe pas ; un chemin relatif se lit
+  depuis le dossier du projet ;
+- **« sample path must be absolute »** : la tâche n'a pas de dossier de
+  projet, et le chemin est relatif ;
+- **« is inside the Midgaard runtime folder »** : le dossier runtime
+  (`~/.midgaard`, ou `MIDGAARD_HOME`) garde le jeton du daemon et, parfois,
+  le coffre ; rien n'en sort comme échantillon ;
+- **« sample is not a regular file »** : un dossier, un périphérique ; un
+  lien est suivi, puis jugé ;
+- **« sample too large »**, **« samples too large together »**, **« at most
+  16 per task »** : 256 Mio par fichier, 1 Gio et 16 fichiers par tâche.
+
+`samples_unsupported` : seuls les profils Researcher, Developer et
+orchestrateur reçoivent des échantillons.
+
+### La tâche échoue au départ : « échantillon modifié depuis sa copie » ou « échantillon introuvable »
+
+Les copies sont en lecture seule sous `samples/<tâche>` du dossier runtime, et
+leur empreinte est revérifiée au départ. Quelque chose les a changées ou
+effacées entre la création et le départ : relance la tâche, qui refera les
+copies.
+
+### Une commande de l'agent est refusée : « refused: … sample … »
+
+Voulu : un échantillon ne s'exécute jamais, même approuvé. La commande le
+lançait, en lançait une copie identique, ou le passait à un chargeur, un
+émulateur, un débogueur, un shell ou un interpréteur qui pouvait le faire
+tourner. Pour l'analyser par du code, un script Python qui le reçoit en
+argument passe (`python analyze.py sample.exe`).
+
+### « environnement Python non préparé : … »
+
+Le harness ne propose `uv sync --locked` qu'à un Developer dont le dossier
+porte un `uv.lock` :
+
+- **« pyproject.toml sans uv.lock »** : `uv sync` écrirait un `uv.lock`, que
+  le diff attribuerait à l'agent. Commite un `uv.lock` (`uv lock`) dans ton
+  dépôt ;
+- **« uv introuvable ou inutilisable »** : `uv` n'est pas dans le `PATH` du
+  daemon. Installe-le, puis relance le daemon (`npm run harness -- stop`).
+
+Si `uv sync --locked` échoue (code de sortie non nul), la tâche continue et
+l'agent le sait ; la sortie est au terminal de la tâche. Un `uv.lock` périmé
+par rapport à `pyproject.toml` en est la cause la plus courante : `uv lock`
+dans ton dépôt, puis commit.
+
+---
+
 ## Les serveurs MCP des agents
 
 ### `npm run harness -- mcp add` : « programme introuvable ou non exécutable »

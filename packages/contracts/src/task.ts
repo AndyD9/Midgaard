@@ -23,6 +23,7 @@ import { z } from 'zod'
 import { taskWorkspaceSchema } from './workspace.ts'
 import { agentLimitsSchema } from './agent.ts'
 import { usageSchema } from './usage.ts'
+import { taskSampleSchema } from './samples.ts'
 
 /** Statuts finaux : une tâche qui y entre n'en sort plus. */
 export const TERMINAL_STATUSES = [
@@ -215,6 +216,12 @@ export const taskSchema = z.object({
    * l'annulation en cascade d'un parent emporterait des tâches qu'il n'a pas créées.
    */
   parent_task_id: z.uuid().nullable(),
+  /**
+   * Échantillons d'analyse de la tâche (Slice 9) : copies en lecture seule,
+   * que l'agent analyse sans jamais les exécuter. Posés à la création, par le
+   * daemon qui les a copiés ; `[]` pour les tâches d'avant.
+   */
+  samples: z.array(taskSampleSchema).default([]),
   /** Manière dont la tâche converse ; posée par le daemon seul, comme `parent_task_id`. */
   mode: taskModeSchema,
   /**

@@ -42,6 +42,7 @@ import {
   type Task,
   type TaskEvent,
   type TaskMode,
+  type TaskSample,
   type TaskResult,
   type TaskStatus,
   type ToolCall,
@@ -79,6 +80,7 @@ interface TaskRow {
   parent_task_id: string | null
   mode: string
   awaiting_input: string | null
+  samples_json: string
 }
 
 /** Ligne `task_events` telle que SQLite la rend. */
@@ -166,6 +168,7 @@ function toTask(row: TaskRow): Task {
     parent_task_id: row.parent_task_id,
     mode: row.mode as TaskMode,
     awaiting_input: row.awaiting_input as InputRequest | null,
+    samples: JSON.parse(row.samples_json) as TaskSample[],
   }
 }
 
@@ -363,6 +366,8 @@ export class HarnessStore {
     parentTaskId?: string | null
     /** `oneshot` par défaut. Choisi par le daemon, jamais par le client (Slice 6). */
     mode?: TaskMode
+    /** Échantillons déjà copiés par le daemon (Slice 9). */
+    samples?: readonly TaskSample[]
   }): Recorded {
     const now = new Date().toISOString()
     const id = randomUUID()
@@ -371,9 +376,9 @@ export class HarnessStore {
         .prepare(
           `INSERT INTO tasks (id, objective, status, step, steps_total, needs_approval, approval_seq,
                               duration_s, created_at, updated_at, agent_id, context, limits_json, usage_json,
-                              project_dir, parent_task_id, mode)
+                              project_dir, parent_task_id, mode, samples_json)
            VALUES (:id, :objective, 'queued', 0, :steps_total, :needs_approval, 0, :duration_s, :now, :now,
-                   :agent_id, :context, :limits, :usage, :project_dir, :parent_task_id, :mode)`,
+                   :agent_id, :context, :limits, :usage, :project_dir, :parent_task_id, :mode, :samples)`,
         )
         .run({
           id,
@@ -387,6 +392,7 @@ export class HarnessStore {
           project_dir: input.projectDir,
           parent_task_id: input.parentTaskId ?? null,
           mode: input.mode ?? 'oneshot',
+          samples: JSON.stringify(input.samples ?? []),
           limits: JSON.stringify(input.limits),
           usage: JSON.stringify(emptyUsage()),
         })

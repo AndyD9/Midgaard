@@ -422,10 +422,19 @@ export function createMcpServer(config: HarnessConfig, log: (...a: unknown[]) =>
           .boolean()
           .default(false)
           .describe('Simulated agent only: insert a step that requires human approval'),
+        samples: z
+          .array(z.string().min(1).max(4096))
+          .max(16)
+          .optional()
+          .describe(
+            'Files to analyse without ever running them (binaries, suspicious scripts, documents): absolute paths, ' +
+              'or relative to the project. The harness gives the executor read-only copies and refuses any command ' +
+              'that would execute, load or emulate one. Researcher, developer and orchestrator profiles only.',
+          ),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
-    async ({ objective, agent_id, context, max_steps, max_cost_usd, timeout_s, duration_s, needs_approval }) => {
+    async ({ objective, agent_id, context, max_steps, max_cost_usd, timeout_s, duration_s, needs_approval, samples }) => {
       // Les limites sont des **abaissements** : le daemon les applique par
       // `tightenLimits`, qui ne sait que serrer. Une demande plus large n'est
       // pas une erreur, elle est simplement sans effet.
@@ -460,6 +469,7 @@ export function createMcpServer(config: HarnessConfig, log: (...a: unknown[]) =>
             project_dir: await projectRoot(),
             duration_s,
             needs_approval,
+            ...(samples && samples.length > 0 ? { samples } : {}),
           }),
         },
       )

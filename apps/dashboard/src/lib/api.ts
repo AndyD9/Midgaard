@@ -190,7 +190,10 @@ export function fetchApprovals(): Promise<{ approvals: Approval[] }> {
  * arrive en `ApiError` avec son motif.
  */
 export function createTask(
-  request: Omit<CreateTaskRequest, 'duration_s' | 'needs_approval' | 'conversation'> & { conversation?: boolean },
+  request: Omit<CreateTaskRequest, 'duration_s' | 'needs_approval' | 'conversation' | 'samples'> & {
+    conversation?: boolean
+    samples?: string[]
+  },
 ): Promise<TaskView> {
   return api('/api/tasks', { method: 'POST', body: JSON.stringify(request) })
 }

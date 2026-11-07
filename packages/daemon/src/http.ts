@@ -112,6 +112,7 @@ import { FileAccessError, taskFileContent, taskFileTree, taskImage } from './fil
 import { setAgentLimits, setAgentMcpServers, updateAgentModel } from './agents.ts'
 import { listPlaybooks, playbooksDirOf, setAgentPlaybooks } from './playbooks.ts'
 import { checkProjectDir } from './project-dir.ts'
+import { stageSamples, type StagedSamples } from './samples.ts'
 
 /** Taille maximale d'un corps de requête, contre l'épuisement mémoire. */
 const MAX_BODY_BYTES = 64 * 1024
@@ -414,6 +415,14 @@ async function handleTasks(
         if ('error' in checked) return send(res, 400, { error: 'invalid_project_dir', reason: checked.error })
         projectDir = checked.dir
       }
+      // Les échantillons se copient **avant** la tâche (Slice 9) : une copie
+      // qui échoue refuse la tâche, et rien n'est créé.
+      let staged: StagedSamples | null = null
+      if (parsed.data.samples.length > 0) {
+        const done = await stageSamples(deps.config, parsed.data.samples, projectDir)
+        if ('error' in done) return send(res, 400, { error: 'invalid_samples', reason: done.error })
+        staged = done
+      }
       const created = deps.tasks.create({
         objective: parsed.data.objective.trim(),
         agentId: parsed.data.agent_id,
@@ -423,6 +432,7 @@ async function handleTasks(
         durationS: parsed.data.duration_s,
         needsApproval: parsed.data.needs_approval,
         conversation: parsed.data.conversation,
+        samples: staged,
       })
       if ('error' in created) return send(res, created.status, { error: created.error, ...created.detail })
       return send(res, 201, deps.tasks.view(created.task))

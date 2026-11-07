@@ -50,6 +50,7 @@ export type { ExecOutcome } from './exec.ts'
 // La garde des processus sert aussi au navigateur (Slice 7) : Chromium meurt
 // avec le daemon comme une commande `exec`.
 export { armGuard, guardGroup } from './guard.ts'
+export { sampleExecRefusal, type SamplesContext } from './samples-guard.ts'
 export { MAX_MCP_DESCRIPTION_CHARS, MCP_NAME_SEPARATOR, mcpResultText, mcpToolName, mcpTools } from './mcp.ts'
 export type { McpCallOutcome, McpPort, McpToolDescriptor } from './mcp.ts'
 export { submitResultSchema } from './result.ts'

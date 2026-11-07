@@ -408,6 +408,18 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE exec_allow ADD COLUMN prefix INTEGER NOT NULL DEFAULT 0 CHECK (prefix IN (0, 1));
     `,
   },
+  {
+    version: 16,
+    label: 'Slice 9 — échantillons d\'une tâche',
+    sql: `
+      -- Échantillons copiés en lecture seule pour la tâche, en JSON : nom de la
+      -- copie, SHA-256, taille. Pas le chemin d'origine, qui peut nommer
+      -- l'utilisateur ou un dossier de travail : seul le journal du daemon le
+      -- cite, à la copie. Les copies vivent sous samplesDir/<tâche> et partent
+      -- avec elle. '[]' pour les tâches d'avant.
+      ALTER TABLE tasks ADD COLUMN samples_json TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
 ]
 
 // Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',

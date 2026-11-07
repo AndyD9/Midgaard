@@ -147,6 +147,12 @@ export interface ToolResult {
    * un message utilisateur, après les résultats de l'étape. Jamais journalisées.
    */
   images?: ToolImage[]
+  /**
+   * Code de sortie d'une commande (`exec`) : `null` si elle a été tuée (délai,
+   * annulation, signal). Lu par le harness quand c'est lui qui la lance — la
+   * préparation de l'environnement Python (Slice 9) —, jamais par le modèle.
+   */
+  exit_code?: number | null
 }
 
 // --- Encadrement des données non fiables -----------------------------------

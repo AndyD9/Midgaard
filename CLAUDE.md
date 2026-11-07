@@ -55,7 +55,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
 | `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer, arbre d'un orchestrateur, atelier (conversation, éditeur, terminal), onglet « Navigateur », rechargement d'une page plus vieille que son daemon, serveurs MCP aux Profils et agents créés compris (`npx playwright install chromium` au préalable) |
-| `npm run test:developer` | ~35 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris |
+| `npm run test:developer` | ~45 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris, préfixes `exec`, échantillons jamais exécutés, `uv sync` au départ (uv requis pour V16) |
 | `npm run test:orchestrator` | ~10 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL`, conversation qui pilote une revue, `SIGKILL` pendant une attente |
 | `npm run test:security` | ~1 min — PLAN §8.4 de bout en bout : base et journal lus octet pour octet (conversation, questions, propositions et sortie en direct comprises), refus tracés, API sur la seule boucle locale ; le navigateur : saisie sans approbation, adresses privées, aucun Chromium après `SIGKILL`, aucune capture en base ; les serveurs MCP : outil non coché ou changé jamais reçu par le serveur, secret d'un serveur jamais persisté, exécutant créé borné, aucun serveur après `SIGKILL` (`npx playwright install chromium` au préalable) |
 | `npm run test:live-vision` | Payant, opt-in — une image envoyée à un modèle Venice qui la lit, coût relevé |
@@ -252,6 +252,13 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   agent créé. Il se **relit au départ de chaque tâche**, tout ou rien, bornes
   revérifiées, et la timeline cite le SHA-256 de ce qui a été lu. Il ne nomme
   ni modèle ni client.
+- **Un échantillon ne s'exécute jamais, même approuvé** (Slice 9). Copié en
+  lecture seule sous `samplesDir/<tâche>`, hors de tout dépôt, empreinte
+  revérifiée au départ, effacé avant la conclusion ; `exec` refuse **dans
+  `prepare`**, sans demander à personne, une commande qui le lance, en lance
+  une copie de même contenu, ou le passe à un chargeur, émulateur, shell ou
+  interpréteur (Python seulement en position de script). Un orchestrateur ne
+  transmet que **ses** échantillons, par nom — jamais un chemin du disque.
 - **Aucune sous-tâche ne survit à son parent.** Un parent en
   `cancel_requested` ou dans un statut final emporte ses sous-tâches actives ;
   le vérifier en **comptant les tâches actives en base**. Profondeur 1 : un
@@ -331,9 +338,17 @@ l'auteur : `sigma`, `yara`, `pe-static`, `powershell`,
 un playbook (GUID ASR, options WDAC) : un faux ne dit rien. Étape 3 faite :
 la liste blanche à préfixes (migration 15, `PROTOCOL_VERSION` 18,
 `exec allow --prefix`, `allow_reason` à la timeline) ; V14 dans
-`test:developer`. **Sans le rejugement au départ, un `node -e` glissé en base
+`test:developer` ; verte en CI sur trois plateformes (passage `42398543114`). **Sans le rejugement au départ, un `node -e` glissé en base
 passait sans humain** — vu en retirant la protection. Le dashboard ne montre
-toujours pas la liste blanche : étape 6.
+toujours pas la liste blanche : étape 6. Étape 4 faite : les **échantillons**
+(migration 16, `PROTOCOL_VERSION` 19, `samples` à `POST /api/tasks`, à
+`harness_delegate_task` et, par nom, à `delegate_task` ; garde d'`exec`,
+`packages/tools/src/samples-guard.ts`) et **`uv sync --locked`** proposé par
+le harness avant le premier appel de modèle d'un Developer dont le worktree
+porte un `uv.lock` (`packages/daemon/src/python-env.ts`) ; V15 et V16 dans
+`test:developer`, la CI installe uv et l'exige (`MIDGAARD_REQUIRE_UV`). Le
+playbook `pe-static` ne permet plus l'émulation « si l'humain l'a
+autorisée » : le code la refuse toujours.
 
 ## Slice 8 en cours — des serveurs MCP pour les agents, des agents créés à la volée
 

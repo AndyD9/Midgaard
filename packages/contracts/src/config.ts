@@ -43,6 +43,13 @@ export interface HarnessConfig {
    */
   worktreesDir: string
   /**
+   * Copies des échantillons d'analyse, une par tâche (`<samplesDir>/<tâche>`),
+   * en lecture seule (Slice 9, étape 4). Sous le dossier runtime, hors de tout
+   * dépôt : un échantillon ne doit jamais entrer dans un worktree, que
+   * `git add -A` commiterait. Effacées à la fin de la tâche.
+   */
+  samplesDir: string
+  /**
    * Port d'écoute souhaité. `7777` par défaut pour que l'URL du dashboard soit
    * stable d'une session à l'autre ; si le port est pris, le daemon se rabat sur
    * un port libre choisi par le système — sauf si `MIDGAARD_PORT` a été fixé
@@ -213,6 +220,7 @@ export function loadConfig(env: ConfigEnv = {}, overrides: Partial<HarnessConfig
     logFile: join(home, 'daemon.log'),
     traceFile: join(home, 'mcp-trace.jsonl'),
     worktreesDir: join(home, 'worktrees'),
+    samplesDir: join(home, 'samples'),
     port: portIsExplicit ? Number(rawPort) : DEFAULT_PORT,
     portIsExplicit,
     homeIsExplicit,
@@ -243,6 +251,7 @@ export function loadConfig(env: ConfigEnv = {}, overrides: Partial<HarnessConfig
     merged.logFile = join(overrides.home, 'daemon.log')
     merged.traceFile = join(overrides.home, 'mcp-trace.jsonl')
     if (!overrides.worktreesDir) merged.worktreesDir = join(overrides.home, 'worktrees')
+    if (!overrides.samplesDir) merged.samplesDir = join(overrides.home, 'samples')
   }
   return merged
 }

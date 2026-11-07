@@ -35,7 +35,7 @@ export interface ExecAllowRule {
  * Shells : aucune forme de préfixe n'est bornée, ils exécutent ce qu'on leur
  * passe. `cmd /c` et `pwsh -Command` comme `sh -c`.
  */
-const SHELLS = new Set([
+export const SHELL_FAMILIES: ReadonlySet<string> = new Set([
   'sh', 'bash', 'zsh', 'dash', 'ksh', 'mksh', 'csh', 'tcsh', 'fish', 'nu', 'elvish', 'xonsh', 'busybox',
   'cmd', 'pwsh', 'powershell',
 ])
@@ -45,13 +45,13 @@ const SHELLS = new Set([
  * argument est du code ou un fichier de code, que l'agent écrit. Une entrée
  * exacte reste possible.
  */
-const INTERPRETERS = new Set([
+export const INTERPRETER_FAMILIES: ReadonlySet<string> = new Set([
   'node', 'nodejs', 'ruby', 'irb', 'perl', 'php', 'lua', 'luajit', 'rscript', 'osascript', 'tclsh', 'wish',
   'awk', 'gawk', 'mawk', 'nawk', 'java', 'javaw', 'jshell', 'jrunscript', 'groovy',
 ])
 
 /** Python : accepté seulement en `python -m <module>`. */
-const PYTHONS = new Set(['python', 'pythonw', 'py', 'pypy'])
+export const PYTHON_FAMILIES: ReadonlySet<string> = new Set(['python', 'pythonw', 'py', 'pypy'])
 
 /**
  * Lanceurs : leur rôle est de faire tourner un **autre** programme, nommé dans
@@ -132,16 +132,16 @@ function judgeProgram(argv: readonly string[], i: number): string | null {
     return `« ${word} » est un chemin relatif : dans un worktree, c'est un fichier que l'agent écrit. Un préfixe se pose sur un programme du PATH ou un chemin absolu.`
   }
   const family = programFamily(word)
-  if (SHELLS.has(family)) {
+  if (SHELL_FAMILIES.has(family)) {
     return `« ${word} » est un shell : en préfixe, il exécuterait n'importe quelle commande. Seule une entrée exacte est possible.`
   }
-  if (INTERPRETERS.has(family)) {
+  if (INTERPRETER_FAMILIES.has(family)) {
     return `« ${word} » est un interpréteur : en préfixe, il exécuterait n'importe quel code ou script que l'agent écrit. Seule une entrée exacte est possible.`
   }
   if (LAUNCHERS.has(family)) {
     return `« ${word} » lance d'autres programmes : en préfixe, il ferait tourner n'importe lequel. Seule une entrée exacte est possible.`
   }
-  if (PYTHONS.has(family)) {
+  if (PYTHON_FAMILIES.has(family)) {
     const module = argv[i + 1] === '-m' ? argv[i + 2] : undefined
     if (module === undefined || !PYTHON_MODULE.test(module)) {
       return `« ${word} » n'est accepté en préfixe que suivi d'un module nommé (${word} -m pytest) : ${word} -c ou ${word} script.py ferait tourner sans regard le code de l'agent.`
@@ -181,7 +181,7 @@ export function execPrefixRefusal(argv: readonly string[]): string | null {
   // Python a sa propre règle (`-m <module>` seulement), au motif plus précis ;
   // partout ailleurs une option en tête change ce que fait le programme avant
   // même sa sous-commande.
-  if (second.startsWith('-') && !PYTHONS.has(programFamily(argv[0]!))) {
+  if (second.startsWith('-') && !PYTHON_FAMILIES.has(programFamily(argv[0]!))) {
     return `« ${second} » est une option placée juste après le programme : elle changerait ce qu'il fait (git -c, node -e). Commence par une sous-commande ou un argument nommé, ou ajoute une entrée exacte.`
   }
   return judgeProgram(argv, 0)

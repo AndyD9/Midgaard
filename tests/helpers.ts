@@ -3,7 +3,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -39,7 +39,28 @@ export function tempHome(prefix: string): { home: string; config: HarnessConfig;
   // Réessais : sous Windows, un dossier qu'un processus tout juste arrêté tient
   // encore ouvert refuse d'être supprimé (EPERM) pendant un instant. Constaté
   // en CI à la fin de `test:ui`, après huit scénarios réussis.
-  return { home, config, cleanup: () => rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) }
+  return {
+    home,
+    config,
+    cleanup: () => {
+      // Les copies d'échantillons sont en lecture seule (Slice 9) : une tâche
+      // laissée active à l'arrêt du daemon en laisse, que seul le balayage du
+      // démarrage suivant efface. On rouvre les droits avant d'effacer.
+      unlockTree(config.samplesDir)
+      rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+    },
+  }
+}
+
+/** Rend inscriptible un arbre de fichiers, s'il existe : ménage des tests seulement. */
+export function unlockTree(root: string): void {
+  if (!existsSync(root)) return
+  chmodSync(root, 0o755)
+  for (const name of readdirSync(root)) {
+    const path = join(root, name)
+    if (statSync(path).isDirectory()) unlockTree(path)
+    else chmodSync(path, 0o644)
+  }
 }
 
 /**

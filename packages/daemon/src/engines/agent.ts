@@ -42,6 +42,8 @@ import { MCP_CAPABLE_KINDS } from '../agents.ts'
 import type { McpSessions } from '../mcp-sessions.ts'
 import { composeSystemPrompt, loadPlaybooks, playbooksDirOf } from '../playbooks.ts'
 import { execRulesForTask } from '../workspaces.ts'
+import { removeTaskSamples, samplesContext, verifySamples } from '../samples.ts'
+import { preparePythonEnv } from '../python-env.ts'
 
 /** Un profil qui a l'un de ces outils reçoit le navigateur de sa tâche (Slice 7). */
 const hasBrowser = (tools: readonly string[]): boolean => tools.some((t) => (BROWSER_TOOLS as readonly string[]).includes(t))
@@ -342,6 +344,30 @@ export class AgentEngine implements TaskEngine {
         })
       }
 
+      // Les échantillons (Slice 9) : chaque copie revérifiée, tout ou rien,
+      // avant tout appel de modèle. L'outil `exec` reçoit leurs chemins et leurs
+      // empreintes pour refuser de les lancer ; l'agent, leur liste et la règle.
+      let context = task.context
+      if (task.samples.length > 0) {
+        const checked = await verifySamples(ctx.config, task.id, task.samples)
+        if (cancelledNow()) return
+        if ('error' in checked) {
+          this.conclude(task.id, { status: 'failed', error: checked.error, usage: emptyish() })
+          return
+        }
+        ready.tools = { ...ready.tools, samples: { dir: dirname(checked.files[0]!.path), files: checked.files } }
+        context = [task.context, samplesContext(checked.files)].filter(Boolean).join('\n\n')
+        ctx.bus.record(task.id, null, {
+          type: 'agent.message',
+          payload: {
+            message:
+              `échantillons vérifiés, en lecture seule : ` +
+              checked.files.map((f) => `${f.name} (${f.bytes} octets, sha256 ${f.sha256})`).join(', '),
+            note: true,
+          },
+        })
+      }
+
       // Le worktree se crée **en `preparing`** : c'est un checkout complet, qui
       // peut durer, et une tâche qui afficherait `running` sans avoir commencé
       // mentirait sur ce qui la retient.
@@ -424,6 +450,38 @@ export class AgentEngine implements TaskEngine {
         payload: { step: 0, message: 'appel du modèle' },
       })
 
+      const hooks = this.hooks(task.id, state)
+
+      // L'environnement Python du worktree (Slice 9) : proposé par le harness,
+      // approuvé une fois, **avant** le premier appel de modèle — l'arbre est
+      // encore celui du commit de départ. Seulement pour un worktree qui porte
+      // un `uv.lock`.
+      if (workspace) {
+        const env = await preparePythonEnv(
+          { ...ready.tools, signal: state.abort.signal },
+          hooks,
+          ready.redact,
+          task.limits.timeout_s,
+        )
+        if (env.kind === 'stopped') {
+          // Un refus a déjà conclu la tâche (`cancelled`), une expiration aussi
+          // (`timed_out`) ; une annulation se conclut ici. Rien d'autre à écrire.
+          if (!cancelledNow()) {
+            this.conclude(task.id, {
+              status: 'failed',
+              error: 'environnement Python non préparé : aucune décision humaine',
+              usage: emptyish(),
+            })
+          }
+          return
+        }
+        if (cancelledNow()) return
+        if (env.kind === 'skipped' && env.note) {
+          ctx.bus.record(task.id, null, { type: 'agent.message', payload: { message: env.note, note: true } })
+        }
+        if (env.kind === 'ran') context = [context, env.context].filter(Boolean).join('\n\n')
+      }
+
       // Un modèle qui ne lit pas les images ne se voit proposer ni
       // `read_image` ni le navigateur (Slice 7) : un outil qu'il ne peut que
       // se faire refuser lui coûterait une étape pour rien. La note le dit,
@@ -454,10 +512,10 @@ export class AgentEngine implements TaskEngine {
         delegated: task.parent_task_id !== null,
         extraTools,
         objective: task.objective,
-        context: task.context,
+        context,
         adapter: ready.adapter,
         tools: ready.tools,
-        hooks: this.hooks(task.id, state),
+        hooks,
         redact: ready.redact,
         signal: state.abort.signal,
         mode: task.mode,
@@ -478,6 +536,9 @@ export class AgentEngine implements TaskEngine {
       // Les serveurs MCP aussi : aucun processus d'une tâche finie ne doit
       // pouvoir écrire pendant le commit de son travail.
       await this.deps.mcp?.endTask(task.id)
+      // Les échantillons aussi, avant la conclusion : une tâche vue finie n'a
+      // plus de copie de malware sous `samplesDir`.
+      this.dropSamples(task)
       if (workspace && outcome.status === 'completed') outcome = await this.commitWork(task, agent, workspace, outcome)
       this.conclude(task.id, outcome)
     } catch (e) {
@@ -492,6 +553,9 @@ export class AgentEngine implements TaskEngine {
       await this.deps.browsers?.endTask(task.id, 'the task ended').catch(() => {})
       await this.deps.mcp?.endTask(task.id).catch(() => {})
       this.running.delete(task.id)
+      // Filet des chemins d'arrêt anticipé (échec de préparation, refus) :
+      // sans effet si le dossier est déjà parti.
+      this.dropSamples(task)
       // Conservé dans tous les cas, jamais retiré : ce qu'il contient est
       // peut-être la seule trace de ce que l'agent avait fait (PLAN §9.4).
       if (workspace) {
@@ -844,6 +908,20 @@ export class AgentEngine implements TaskEngine {
         const current = ctx.store.getTask(taskId)
         return !current || isTerminal(current.status)
       },
+    }
+  }
+
+  /**
+   * Efface les copies d'échantillons d'une tâche (Slice 9) : une copie de
+   * malware ne traîne pas dans le dossier runtime. Le balayage du démarrage
+   * rattrape ce qu'une mort nette du daemon aurait laissé.
+   */
+  private dropSamples(task: Task): void {
+    if (task.samples.length === 0) return
+    try {
+      removeTaskSamples(this.deps.ctx.config, task.id)
+    } catch (e) {
+      this.deps.ctx.log(`tâche ${task.id.slice(0, 8)} : échantillons non effacés`, e)
     }
   }
 

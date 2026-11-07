@@ -8,7 +8,7 @@ appels d'outils en requêtes HTTP, et retient une seule chose — ce qu'il a dé
 | Outil exposé | Rôle |
 |---|---|
 | `harness_ping` | Vérifie le daemon, le démarre si besoin |
-| `harness_delegate_task` | Crée une tâche, rend son identifiant sans attendre |
+| `harness_delegate_task` | Crée une tâche, rend son identifiant sans attendre ; `samples` (Slice 9) désigne des fichiers à analyser sans jamais les exécuter |
 | `harness_wait_for_task` | **Bloque** jusqu'à la fin, une nouvelle pause, ou le délai |
 | `harness_get_task_status` | État instantané |
 | `harness_get_task_result` | Résultat structuré d'une tâche finie |
