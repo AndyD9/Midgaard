@@ -370,7 +370,10 @@ par le daemon, **au coffre avant la base**, jamais dans une réponse ni au
 journal ; empreinte **exigée** ; commandes PowerShell données à l'humain dans
 `contracts/src/windows.ts`, groupes désignés par SID, **pas encore exécutées
 sur un vrai Windows** (5.5). L'attache à un profil passe en 5.3, avec
-`windows_run`.
+`windows_run`. 5.1 et 5.2 vertes en CI sur trois plateformes (passage
+`42791814211`), après deux corrections trouvées par la CI Windows : une paire
+ed25519 sur 256 mal formée par `ssh2`, et l'hôte factice qui créait un dossier
+`C:`.
 
 ## Slice 8 en cours — des serveurs MCP pour les agents, des agents créés à la volée
 
