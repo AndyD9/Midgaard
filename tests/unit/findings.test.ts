@@ -29,7 +29,7 @@ import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import { createRedactor, loadConfig, type AgentKind, type Finding, type Task } from '@midgaard/contracts'
 import { MAX_FINDINGS, reconcileAgents, startDaemon, type Daemon, type EngineContext, type TaskEngine } from '@midgaard/daemon'
-import { findTool, type FindingsPort, type FindingsRefusal, type ToolContext } from '@midgaard/tools'
+import { findTool, formatReport, type FindingsPort, type FindingsRefusal, type ToolContext } from '@midgaard/tools'
 
 let home: string
 let project: string
@@ -184,8 +184,8 @@ describe('la couche outils', () => {
   /** Un contexte minimal sans port de findings. */
   const noPort = { root: project, httpPolicy: 'approval', allowHosts: [], log() {} } as unknown as ToolContext
 
-  it('les quatre outils refusent sans ToolContext.findings', () => {
-    for (const name of ['record_finding', 'reject_finding', 'confirm_trace', 'list_findings']) {
+  it('les cinq outils refusent sans ToolContext.findings', () => {
+    for (const name of ['record_finding', 'reject_finding', 'confirm_trace', 'list_findings', 'compile_report']) {
       const tool = findTool(name)!
       assert.equal(tool.policy({} as never, noPort).decision, 'deny', `${name} doit refuser sans port`)
     }
@@ -197,5 +197,71 @@ describe('la couche outils', () => {
     assert.equal(schema.safeParse(tooShort).success, false, 'un seul pas : refusé au bord de l\'outil')
     const full = { finding_id: randomUUID(), threat_model: 'x', path: PATH }
     assert.equal(schema.safeParse(full).success, true)
+  })
+})
+
+describe('le rapport déterministe (compile_report)', () => {
+  const at = '2026-11-10T10:00:00.000Z'
+  const F: Finding = {
+    id: '00000000-0000-4000-8000-0000000000aa',
+    tree_task_id: '00000000-0000-4000-8000-0000000000bb',
+    title: 'Stack overflow in parse_header',
+    vuln_class: 'stack-buffer-overflow',
+    sink: 'src/fmt/hdr.c:42',
+    source: 'net.c:88',
+    evidence: 'memcpy(buf, p, len)\nlen from the header',
+    status: 'trace_confirmed',
+    reject_reason: null,
+    threat_model: 'remote attacker sends a crafted packet',
+    taint_path: PATH,
+    created_at: at,
+    updated_at: at,
+  }
+
+  it('markdown : titre, source→sink, chaîne, évidence', () => {
+    const md = formatReport([F], 'markdown')
+    assert.match(md, /1 trace-confirmed finding/)
+    assert.match(md, /## 1\. Stack overflow in parse_header/)
+    assert.match(md, /\*\*Sink:\*\* src\/fmt\/hdr\.c:42/)
+    assert.match(md, /1\. `net\.c:88` — len read from the socket/)
+    assert.ok(md.includes('memcpy(buf, p, len)'), 'l\'évidence est citée')
+  })
+
+  it('json : le compte et les champs, parsable', () => {
+    const parsed = JSON.parse(formatReport([F], 'json')) as { count: number; findings: { sink: string; taint_path: unknown[] }[] }
+    assert.equal(parsed.count, 1)
+    assert.equal(parsed.findings[0]!.sink, 'src/fmt/hdr.c:42')
+    assert.equal(parsed.findings[0]!.taint_path.length, 2)
+  })
+
+  it('sarif : 2.1.0 valide, un résultat, règle et localisation du sink', () => {
+    const sarif = JSON.parse(formatReport([F], 'sarif')) as {
+      version: string
+      runs: { results: { ruleId: string; locations: { physicalLocation: { artifactLocation: { uri: string }; region?: { startLine: number } } }[] }[] }[]
+    }
+    assert.equal(sarif.version, '2.1.0')
+    const result = sarif.runs[0]!.results[0]!
+    assert.equal(result.ruleId, 'stack-buffer-overflow')
+    assert.equal(result.locations[0]!.physicalLocation.artifactLocation.uri, 'src/fmt/hdr.c')
+    assert.equal(result.locations[0]!.physicalLocation.region?.startLine, 42)
+  })
+
+  it('déterministe : à findings égaux, sortie égale', () => {
+    assert.equal(formatReport([F], 'sarif'), formatReport([F], 'sarif'))
+    assert.equal(formatReport([], 'markdown'), formatReport([], 'markdown'))
+    assert.match(formatReport([], 'markdown'), /0 trace-confirmed finding/)
+  })
+
+  it('l\'outil n\'inclut QUE les findings tracés de l\'arbre', async () => {
+    const { parent, port } = orchestrator()
+    const confirmed = ok(port.record(CANDIDATE))
+    ok(port.record({ ...CANDIDATE, title: 'pas tracé' })) // reste open
+    ok(port.confirm(confirmed.id, { threat_model: 'remote', path: PATH }))
+    const ctx = { root: project, httpPolicy: 'approval', allowHosts: [], findings: port, log() {} } as unknown as ToolContext
+    const out = await findTool('compile_report')!.run({ format: 'markdown' } as never, ctx)
+    assert.match(out.content, /1 trace-confirmed finding/, 'un seul finding tracé')
+    assert.ok(!out.content.includes('pas tracé'), 'un finding non tracé n\'apparaît pas')
+    assert.equal(out.untrusted, true)
+    void parent
   })
 })

@@ -20,7 +20,7 @@
  * confirme.
  */
 import { z } from 'zod'
-import { MIN_TAINT_PATH, type ToolResult } from '@midgaard/contracts'
+import { MIN_TAINT_PATH, type Finding, type ToolResult } from '@midgaard/contracts'
 import {
   ToolError,
   type FindingsPort,
@@ -180,6 +180,168 @@ export const confirmTraceTool: Tool<z.infer<typeof confirmSchema>> = {
       bytes: Buffer.byteLength(content),
       summary: `finding ${f.id.slice(0, 8)} tracé (${f.taint_path.length} pas)`,
       untrusted: false,
+    }
+  },
+}
+
+// --- compile_report ----------------------------------------------------------
+
+/** Les formats du rapport. */
+export const REPORT_FORMATS = ['markdown', 'json', 'sarif'] as const
+export type ReportFormat = (typeof REPORT_FORMATS)[number]
+
+/** Sépare une référence `fichier:ligne` en ses deux parts ; la ligne est facultative. */
+function parseRef(ref: string): { uri: string; line?: number } {
+  const m = /^(.*):(\d+)$/.exec(ref.trim())
+  return m ? { uri: m[1]!, line: Number(m[2]) } : { uri: ref.trim() }
+}
+
+/**
+ * Formate un rapport **déterministe** à partir des findings tracés, et d'eux
+ * seuls. Fonction pure, testée sans daemon : à findings égaux, sortie égale.
+ *
+ * C'est ce qui ferme la boucle de la porte de traçage : le modèle n'écrit pas
+ * la liste des findings de mémoire (il pourrait en oublier ou en inventer) ;
+ * elle est émise ici, telle quelle, depuis ce que le daemon a enregistré. Le
+ * modèle n'ajoute que sa prose autour.
+ *
+ * @param findings les findings à inclure — l'appelant ne passe que des `trace_confirmed`
+ * @param format   `markdown` (lecture humaine), `json` (outil aval), `sarif` (scanner)
+ */
+export function formatReport(findings: readonly Finding[], format: ReportFormat): string {
+  if (format === 'json') {
+    return JSON.stringify(
+      {
+        count: findings.length,
+        findings: findings.map((f) => ({
+          id: f.id,
+          title: f.title,
+          vuln_class: f.vuln_class,
+          source: f.source,
+          sink: f.sink,
+          threat_model: f.threat_model,
+          taint_path: f.taint_path,
+          evidence: f.evidence,
+        })),
+      },
+      null,
+      2,
+    )
+  }
+
+  if (format === 'sarif') {
+    // SARIF 2.1.0 minimal mais valide : une règle par classe, un résultat par
+    // finding, la localisation tirée du sink, le chemin de contamination en
+    // codeFlow. Déterministe : règles triées, pas d'horodatage.
+    const rules = [...new Set(findings.map((f) => f.vuln_class))].sort().map((id) => ({ id }))
+    return JSON.stringify(
+      {
+        $schema: 'https://json.schemastore.org/sarif-2.1.0.json',
+        version: '2.1.0',
+        runs: [
+          {
+            tool: { driver: { name: 'Midgaard', informationUri: 'https://github.com/AndyD9/Midgaard', rules } },
+            results: findings.map((f) => {
+              const sink = parseRef(f.sink)
+              return {
+                ruleId: f.vuln_class,
+                level: 'warning',
+                message: { text: f.title },
+                locations: [
+                  {
+                    physicalLocation: {
+                      artifactLocation: { uri: sink.uri },
+                      ...(sink.line ? { region: { startLine: sink.line } } : {}),
+                    },
+                  },
+                ],
+                codeFlows: [
+                  {
+                    threadFlows: [
+                      {
+                        locations: f.taint_path.map((s) => {
+                          const loc = parseRef(s.ref)
+                          return {
+                            location: {
+                              physicalLocation: {
+                                artifactLocation: { uri: loc.uri },
+                                ...(loc.line ? { region: { startLine: loc.line } } : {}),
+                              },
+                              message: { text: s.note },
+                            },
+                          }
+                        }),
+                      },
+                    ],
+                  },
+                ],
+              }
+            }),
+          },
+        ],
+      },
+      null,
+      2,
+    )
+  }
+
+  // markdown
+  const lines: string[] = []
+  lines.push('# Vulnerability report')
+  lines.push('')
+  lines.push(`${findings.length} trace-confirmed finding(s). Only findings whose taint path was proven appear here.`)
+  findings.forEach((f, i) => {
+    lines.push('')
+    lines.push(`## ${i + 1}. ${f.title}`)
+    lines.push('')
+    lines.push(`- **Class:** ${f.vuln_class}`)
+    lines.push(`- **Source:** ${f.source}`)
+    lines.push(`- **Sink:** ${f.sink}`)
+    if (f.threat_model) lines.push(`- **Threat model:** ${f.threat_model}`)
+    lines.push('- **Taint path:**')
+    f.taint_path.forEach((s, j) => lines.push(`  ${j + 1}. \`${s.ref}\` — ${s.note}`))
+    lines.push('- **Evidence:**')
+    lines.push('')
+    lines.push('  ```')
+    for (const line of f.evidence.split('\n')) lines.push(`  ${line}`)
+    lines.push('  ```')
+  })
+  return lines.join('\n')
+}
+
+const compileReportSchema = z.object({
+  format: z
+    .enum(REPORT_FORMATS)
+    .default('markdown')
+    .describe('markdown for people, json for a downstream tool, sarif for a code-scanning integration.'),
+})
+
+/**
+ * Émet le rapport **déterministe** des findings tracés (étape `report`). Le
+ * modèle l'inclut dans son `submit_result` et n'ajoute que sa prose : il ne
+ * recompose pas la liste des findings lui-même, donc il ne peut ni en oublier
+ * ni en inventer.
+ */
+export const compileReportTool: Tool<z.infer<typeof compileReportSchema>> = {
+  name: 'compile_report',
+  description:
+    'Compile the deterministic report of the trace-confirmed findings in your tree, in the chosen format ' +
+    '(markdown, json, sarif). It contains exactly those findings, with their taint paths, built from what the ' +
+    'daemon recorded — not from memory. Include it verbatim in your submit_result and add only your prose ' +
+    'summary around it. Rejected or unconfirmed findings never appear.',
+  schema: compileReportSchema,
+  policy: (_args, ctx) => findingsPolicy(ctx),
+
+  async run(args, ctx): Promise<ToolResult> {
+    const confirmed = portOf(ctx).list('trace_confirmed')
+    const content = formatReport(confirmed, args.format)
+    return {
+      content,
+      bytes: Buffer.byteLength(content),
+      summary: `rapport ${args.format} : ${confirmed.length} finding(s) tracé(s)`,
+      // Le rapport cite l'évidence et les chemins, composés depuis des résultats
+      // de sous-tâches : de la donnée, encadrée comme le reste (list_findings).
+      untrusted: true,
     }
   },
 }

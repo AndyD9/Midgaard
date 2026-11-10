@@ -8,7 +8,7 @@ d'information sur ce qui se passe, une *dialogue box* vers l'orchestrateur
 conservée), et — pour le reverse — des **outils d'analyse en lecture seule**,
 l'exécution dynamique restant **confinée à la seule VM Windows**.
 
-**État : ouverte, étapes 1 à 5 faites.** Posée le 2026-11-10 à la demande de l'auteur,
+**État : ouverte, étapes 1 à 6 faites.** Posée le 2026-11-10 à la demande de l'auteur,
 après lecture de deux références qu'il a proposées :
 [baby-naptime](https://github.com/faizann24/baby-naptime) (implémentation
 ouverte de *Project Naptime* de Google — boucle d'agent avec `CodeBrowser`,
@@ -411,3 +411,31 @@ playbook à l'orchestrateur (200), là où le simulé est refusé (409) ;
 l'injection elle-même est déjà couverte pour un profil quelconque. **Aucun
 code, aucune migration.** `test:unit` (806), `typecheck` verts en local.
 Restent le `report` (6) et l'essai réel (7).
+
+### Étape 6 — le `report` déterministe (2026-11-10)
+
+Question laissée ouverte par le plan (« outil ou playbook »), tranchée avec
+l'auteur : **un outil `compile_report`**. C'est le maillon qui manquait pour
+fermer la boucle de la porte : la porte garantit que le store ne contient que
+des findings jugés, mais si le modèle recomposait la liste **de mémoire** dans
+son `submit_result`, il pourrait en oublier ou en inventer. L'outil l'émet à sa
+place.
+
+`compile_report` (orchestrateur seul, `packages/tools/src/findings.ts`) lit
+`list('trace_confirmed')` de son arbre et rend un rapport **déterministe** —
+`markdown` (humain), `json` (outil aval), `sarif` 2.1.0 (scanner) — par un
+formateur **pur**, `formatReport`, testé sans daemon : à findings égaux, sortie
+égale, pas d'horodatage, règles SARIF triées. Le modèle l'inclut tel quel et
+n'écrit que sa prose autour (gravité, impact, l'entonnoir, le hors-périmètre).
+Le `report.md` le dit, et la consigne de l'orchestrateur aussi. Rejetés et non
+confirmés n'y apparaissent jamais — c'est l'outil, pas le modèle, qui le
+garantit.
+
+Prouvé dans `tests/unit/findings.test.ts` : `formatReport` dans les trois
+formats (titre/source→sink/chaîne/évidence ; `count` et champs JSON ; SARIF
+2.1.0 valide avec règle et localisation du sink), son **déterminisme**, et
+l'outil qui n'inclut que les findings tracés de l'arbre (un `open` n'y est
+pas), résultat `untrusted`. `test:unit` (811), `test:orchestrator` (6),
+`typecheck` verts en local. **CI trois plateformes à confirmer.** Reste
+l'**essai réel** de bout en bout (étape 7), qui donnera aussi le plafond de
+sous-tâches `hunt`.

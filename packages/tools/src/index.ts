@@ -24,7 +24,7 @@ import {
   sendMessageTool,
   waitForTaskTool,
 } from './delegation.ts'
-import { confirmTraceTool, listFindingsTool, recordFindingTool, rejectFindingTool } from './findings.ts'
+import { compileReportTool, confirmTraceTool, listFindingsTool, recordFindingTool, rejectFindingTool } from './findings.ts'
 import { askParentTool } from './ask.ts'
 import { readImageTool } from './image.ts'
 import {
@@ -60,6 +60,8 @@ export { armGuard, guardGroup } from './guard.ts'
 export { sampleExecRefusal, type SamplesContext } from './samples-guard.ts'
 export { MAX_MCP_DESCRIPTION_CHARS, MCP_NAME_SEPARATOR, mcpResultText, mcpToolName, mcpTools } from './mcp.ts'
 export type { McpCallOutcome, McpPort, McpToolDescriptor } from './mcp.ts'
+export { formatReport, REPORT_FORMATS } from './findings.ts'
+export type { ReportFormat } from './findings.ts'
 export { submitResultSchema } from './result.ts'
 export type { SubmitResultArgs } from './result.ts'
 export { ASK_PARENT, askParentSchema } from './ask.ts'
@@ -90,7 +92,7 @@ export const DELEGATION_TOOLS = [
  * la porte de traçage du pipeline. Ils refusent sans `ToolContext.findings`.
  */
 export const FINDING_TOOLS = [
-  'record_finding', 'reject_finding', 'confirm_trace', 'list_findings',
+  'record_finding', 'reject_finding', 'confirm_trace', 'list_findings', 'compile_report',
 ] as const
 
 /** Nom de l'outil terminal, que la boucle intercepte. */
@@ -130,6 +132,7 @@ export const TOOLBOX: Readonly<Record<string, Tool<never>>> = Object.freeze({
   reject_finding: rejectFindingTool as Tool<never>,
   confirm_trace: confirmTraceTool as Tool<never>,
   list_findings: listFindingsTool as Tool<never>,
+  compile_report: compileReportTool as Tool<never>,
   ask_parent: askParentTool as Tool<never>,
   browser_open: browserOpenTool as Tool<never>,
   browser_screenshot: browserScreenshotTool as Tool<never>,
