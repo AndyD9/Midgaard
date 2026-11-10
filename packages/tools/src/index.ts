@@ -14,6 +14,7 @@ import { submitResultTool } from './result.ts'
 import { deleteFileTool, editFileTool, writeFileTool } from './write.ts'
 import { gitDiffTool } from './git.ts'
 import { execTool } from './exec.ts'
+import { windowsRunTool } from './windows.ts'
 import {
   acceptResultTool,
   cancelTaskTool,
@@ -34,6 +35,7 @@ export type {
   Tool, ToolContext, HttpPolicy, PreparedOperation,
   CreateAgentRequest, CreatedAgentInfo, DelegableAgent, DelegateRequest, DelegationPort, DelegationRefusal, SubtaskAwaiting, SubtaskState, WaitStop,
   BrowserCapture, BrowserNoSession, BrowserPageView, BrowserPlannedInput, BrowserPort, BrowserSessionInfo,
+  WindowsPort, WindowsRunOutcome, WindowsTarget,
 } from './types.ts'
 export { ToolError, HTTP_POLICIES, MAX_TOOL_RESULT_BYTES, truncate } from './types.ts'
 export { canonicalRoot, isUnder, openUnderRoot, resolveUnderRoot, toolPath } from './paths.ts'
@@ -47,6 +49,9 @@ export {
   EXEC_DEFAULT_TIMEOUT_S, EXEC_MAX_TIMEOUT_S, EXEC_KILL_GRACE_MS,
 } from './exec.ts'
 export type { ExecOutcome } from './exec.ts'
+export {
+  windowsRunTool, WINDOWS_DEFAULT_TIMEOUT_S, WINDOWS_MAX_SCRIPT_CHARS, WINDOWS_MAX_TIMEOUT_S,
+} from './windows.ts'
 // La garde des processus sert aussi au navigateur (Slice 7) : Chromium meurt
 // avec le daemon comme une commande `exec`.
 export { armGuard, guardGroup } from './guard.ts'
@@ -100,6 +105,7 @@ export const TOOLBOX: Readonly<Record<string, Tool<never>>> = Object.freeze({
   delete_file: deleteFileTool as Tool<never>,
   git_diff: gitDiffTool as Tool<never>,
   exec: execTool as Tool<never>,
+  windows_run: windowsRunTool as Tool<never>,
   list_agents: listAgentsTool as Tool<never>,
   create_agent: createAgentTool as Tool<never>,
   delegate_task: delegateTaskTool as Tool<never>,

@@ -456,6 +456,28 @@ REA lit un binaire n'importe où ; Midgaard ne peut pas vérifier un chemin dans
 des arguments dont il ignore le sens (docs/SLICE8.md, décision 8). C'est dit à
 l'humain quand il coche un outil.
 
+## `windows_run` : un script sur la VM, approuvé à chaque fois (Slice 9)
+
+`windows.ts` ne connaît ni SSH, ni la base : il parle à un `WindowsPort` que
+le daemon pose pour un Developer dont le profil a une VM (5.3d). Le port
+recopie le worktree dans le dossier jetable de la tâche sur la VM, lance le
+script, puis ferme la connexion — une par appel.
+
+| Règle | Pourquoi |
+|---|---|
+| Sans `ToolContext.windows`, refus | Fermé par défaut, comme le navigateur et les outils MCP |
+| **Une approbation à chaque appel** ; aucune liste blanche `exec` ne s'y applique | Chaque commande sur la VM est un acte humain (docs/SLICE9.md, décision 11) |
+| L'humain lit la VM (identifiant, adresse, compte, empreinte) **et le script exact** | C'est de ce détail figé que l'empreinte de l'approbation est tirée |
+| `run` **revérifie la VM** : redéclarée autrement, rien ne tourne | On lance ce qui a été approuvé, ou rien, comme `exec` revérifie son binaire |
+| Délai borné par l'échéance de la tâche | Un script ne fait pas durer une tâche au-delà de son `timeout_s` |
+| Résultat **toujours** `untrusted`, code de sortie porté | La sortie vient d'une VM où un worktree écrit par l'agent a tourné |
+| Script borné à 3 000 caractères, avec le conseil d'écrire un `.ps1` | `cmd.exe` borne la ligne de commande ; un long script passe par un fichier du worktree, recopié |
+
+Ce que cet outil **n'est pas** : une frontière. La VM n'est pas une sandbox,
+et un échantillon n'y va **jamais** — ni copié, ni lancé (docs/SLICE9.md,
+décisions 9 et 12). La copie du worktree écarte `.git` et les échantillons ;
+c'est le daemon qui le branche (5.3d).
+
 ## `submit_result` : la fin est un acte
 
 Une boucle qui s'arrêterait sur « le modèle n'a demandé aucun outil » s'arrêterait

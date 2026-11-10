@@ -134,7 +134,68 @@ export interface ToolContext {
    * **refusent** — fermé par défaut, comme {@link ToolContext.browser}.
    */
   mcp?: McpPort | undefined
+  /**
+   * La VM Windows de la tâche (Slice 9, étape 5.3). Posé par le daemon pour un
+   * Developer dont le profil a une VM, et pour lui seul. Absent,
+   * `windows_run` **refuse** — fermé par défaut, comme {@link ToolContext.mcp}.
+   */
+  windows?: WindowsPort | undefined
   log: (...a: unknown[]) => void
+}
+
+/** La VM visée par une tâche, telle que l'humain l'approuve. */
+export interface WindowsTarget {
+  /** Identifiant de la VM déclarée (`harness windows add`). */
+  id: string
+  /** Adresse et port joints. */
+  address: string
+  port: number
+  /** Compte Windows. */
+  username: string
+  /** Empreinte d'hôte épinglée, `SHA256:…`. */
+  fingerprint: string
+}
+
+/** Ce que rend un script lancé sur la VM. */
+export interface WindowsRunOutcome {
+  /** Code de sortie ; `null` si le script n'a pas fini (délai, annulation, coupure). */
+  code: number | null
+  stdout: string
+  stderr: string
+  stdoutBytes: number
+  stderrBytes: number
+  timedOut: boolean
+  cancelled: boolean
+  durationMs: number
+  /** Ce qui a été copié du worktree avant le script : fichiers, octets, écartés. */
+  copied: { files: number; bytes: number; skipped: number }
+}
+
+/**
+ * La VM d'une tâche, et **tout** ce qu'elle peut en faire.
+ *
+ * Le port est lié à une tâche et à sa VM. Il exécute et ne décide rien : la
+ * politique — une approbation à chaque script — est celle de `windows_run`.
+ * Chaque appel ouvre sa connexion, recopie le worktree dans le dossier de la
+ * tâche sur la VM, lance le script, et ferme (décision du 2026-11-10).
+ */
+export interface WindowsPort {
+  /** La VM telle que déclarée **maintenant** : relue pour vérifier qu'elle n'a pas changé depuis l'approbation. */
+  target(): WindowsTarget | null
+  /**
+   * Recopie le worktree sur la VM, puis lance le script exact.
+   *
+   * @throws {ToolError} si la VM est injoignable, refuse la clé, présente une
+   *         autre empreinte, ou si la copie échoue : rien n'a tourné
+   */
+  run(
+    script: string,
+    options: {
+      timeoutMs: number
+      signal?: AbortSignal | undefined
+      onOutput?: ((stream: 'stdout' | 'stderr', chunk: Buffer) => void) | undefined
+    },
+  ): Promise<WindowsRunOutcome>
 }
 
 /** Ce que l'agent voit de la page après une action. Écrit par la page : **non fiable**. */
