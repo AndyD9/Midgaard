@@ -439,3 +439,14 @@ pas), résultat `untrusted`. `test:unit` (811), `test:orchestrator` (6),
 `typecheck` verts en local. **CI trois plateformes à confirmer.** Reste
 l'**essai réel** de bout en bout (étape 7), qui donnera aussi le plafond de
 sous-tâches `hunt`.
+
+### Étape 7 — l'essai réel (à lancer)
+
+Prêt mais non lancé : il demande une clé Venice, une cible et du budget API,
+donc il revient à l'auteur. Le **guide prêt à lancer** est
+[docs/SLICE10-ESSAI.md](SLICE10-ESSAI.md) : mise en place (fournisseur,
+modèles, playbooks, préfixes), lancement sur une cible **JavaScript d'abord**
+puis **binaire/PE**, ce qu'on observe (vue terminal, approbations, événements
+`finding.*`), la liste de contrôle (la porte a tenu, le rapport n'a que des
+tracés, le coût égale l'écart du solde, aucun échantillon exécuté) et la mesure
+du plafond `hunt`. Le récit de l'essai viendra ici même clore la slice.
