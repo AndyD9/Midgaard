@@ -399,8 +399,10 @@ sa prose, donc il ne peut ni oublier ni inventer un finding. Ferme la boucle de
 la porte. Prouvé dans `tests/unit/findings.test.ts` (les trois formats, le
 déterminisme, l'outil n'inclut que les tracés). `test:unit` (811),
 `test:orchestrator` (6), `typecheck` verts en local, **CI trois plateformes à
-confirmer**. Reste l'essai réel de bout en bout (étape 7), qui donnera aussi le
-plafond de sous-tâches `hunt`.
+confirmer**. Reste l'essai réel de bout en bout (étape 7) : il demande une clé
+Venice, une cible et du budget, donc il revient à l'auteur — le guide prêt à
+lancer est [docs/SLICE10-ESSAI.md](docs/SLICE10-ESSAI.md) (mise en place,
+cible JavaScript puis binaire/PE, liste de contrôle, mesure du plafond `hunt`).
 
 ## Slice 9 en cours — des agents experts (Python, reverse, règles Windows)
 
