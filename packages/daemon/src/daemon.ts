@@ -43,6 +43,7 @@ import { installation } from './installation.ts'
 import { AgentEngine } from './engines/agent.ts'
 import { BrowserSessions } from './browsers.ts'
 import { McpSessions } from './mcp-sessions.ts'
+import { WindowsSessions } from './windows-sessions.ts'
 import type { HostGuard } from '@midgaard/browser'
 import type { ProviderServiceDeps } from './providers.ts'
 import { createRequestHandler } from './http.ts'
@@ -186,6 +187,9 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
   // Les serveurs MCP des tâches (Slice 8) : lancés au départ d'une tâche dont
   // le profil en a, fermés à sa fin, et tous à l'arrêt du daemon.
   const mcp = new McpSessions({ store, config, vault, env: options.env ?? {}, log })
+  // Les VM Windows des tâches (Slice 9, étape 5.3) : pour un Developer dont le
+  // profil a une VM, une connexion par script, le dossier effacé à la fin.
+  const windows = new WindowsSessions({ store, config, vault, log })
 
   // Researcher, Developer, Orchestrator et Navigator partagent la boucle : une
   // instance du même moteur par type de profil. Seul le Developer crée un
@@ -201,6 +205,7 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
         env: options.env ?? {},
         browsers,
         mcp,
+        windows,
       }),
     )
   }
@@ -292,6 +297,7 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
     // par la garde des processus, comme après un `SIGKILL`.
     void browsers.closeAll('the harness stopped')
     void mcp.closeAll()
+    windows.closeAll()
     stream.close()
     server.closeAllConnections()
     server.close()

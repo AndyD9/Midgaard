@@ -36,10 +36,11 @@ import { createRedactor, harnessCommand, isTerminal, type Usage } from '@midgaar
 import { agentIdentity, commitAll, createWorktree, diffWorktree, inspectRepository, WorkspaceError } from '@midgaard/workspace'
 import { createAdapter, envVarFor, type ModelCapabilities } from '@midgaard/providers'
 import { resolveApiKey, type SecretVault } from '@midgaard/secrets'
-import { ASK_PARENT, BROWSER_TOOLS, VISION_TOOLS, type Tool, type ToolContext } from '@midgaard/tools'
+import { ASK_PARENT, BROWSER_TOOLS, VISION_TOOLS, WINDOWS_RUN, type Tool, type ToolContext } from '@midgaard/tools'
 import type { BrowserSessions } from '../browsers.ts'
 import { MCP_CAPABLE_KINDS } from '../agents.ts'
 import type { McpSessions } from '../mcp-sessions.ts'
+import type { WindowsSessions } from '../windows-sessions.ts'
 import { composeSystemPrompt, loadPlaybooks, playbooksDirOf } from '../playbooks.ts'
 import { execRulesForTask } from '../workspaces.ts'
 import { removeTaskSamples, samplesContext, verifySamples } from '../samples.ts'
@@ -158,6 +159,11 @@ export interface AgentEngineDeps {
    * serveurs MCP échoue au départ, en le disant.
    */
   mcp?: McpSessions | undefined
+  /**
+   * Les VM Windows des tâches (Slice 9, étape 5.3). Absent, un profil qui a une
+   * VM ne reçoit pas `windows_run`, et l'outil refuse.
+   */
+  windows?: WindowsSessions | undefined
 }
 
 /** État d'une tâche en vol dans ce processus. */
@@ -406,6 +412,19 @@ export class AgentEngine implements TaskEngine {
             payload: { message: `préfixe exec écarté, chaque commande qu'il couvrait attendra un humain : ${i.argv.join(' ')} — ${i.reason}`, note: true },
           })
         }
+
+        // La VM Windows du profil (Slice 9, étape 5.3) : posée seulement pour un
+        // Developer qui a un worktree et une VM attachée. Le worktree est
+        // recopié sur la VM avant chaque script (jamais `.git`, jamais un
+        // échantillon). `windows_run` est ajouté à la liste d'outils plus bas,
+        // comme `ask_parent` pour une sous-tâche.
+        if (agent.windows_host && this.deps.windows) {
+          ready.tools = { ...ready.tools, windows: this.deps.windows.portFor(task.id, agent.windows_host, workspace.worktree_path, ready.redact) }
+          ctx.bus.record(task.id, null, {
+            type: 'agent.message',
+            payload: { message: `VM Windows « ${agent.windows_host} » : windows_run disponible, chaque script approuvé`, note: true },
+          })
+        }
       }
 
       // Les serveurs MCP du profil (Slice 8) se lancent **en `preparing`**,
@@ -487,6 +506,10 @@ export class AgentEngine implements TaskEngine {
       // se faire refuser lui coûterait une étape pour rien. La note le dit,
       // avec son motif.
       let tools = task.parent_task_id ? [...agent.tools, ASK_PARENT] : agent.tools
+      // `windows_run` n'est offert qu'à une tâche dont le port est posé — un
+      // Developer avec worktree et VM. Ajouté ici, pas au profil, pour qu'un
+      // Developer sans VM ne le voie jamais (comme `ask_parent`).
+      if (ready.tools.windows && !tools.includes(WINDOWS_RUN)) tools = [...tools, WINDOWS_RUN]
       const blind = tools.filter((t) => VISION_TOOLS.includes(t))
       if (blind.length > 0 && !ready.tools.vision?.enabled) {
         tools = tools.filter((t) => !VISION_TOOLS.includes(t))
@@ -536,6 +559,9 @@ export class AgentEngine implements TaskEngine {
       // Les serveurs MCP aussi : aucun processus d'une tâche finie ne doit
       // pouvoir écrire pendant le commit de son travail.
       await this.deps.mcp?.endTask(task.id)
+      // Le dossier de la tâche sur la VM est effacé avant la conclusion : une
+      // tâche finie ne laisse rien sur la VM (Slice 9).
+      await this.deps.windows?.endTask(task.id)
       // Les échantillons aussi, avant la conclusion : une tâche vue finie n'a
       // plus de copie de malware sous `samplesDir`.
       this.dropSamples(task)
@@ -552,6 +578,7 @@ export class AgentEngine implements TaskEngine {
       // Filet pour le chemin d'erreur : sans effet si la session est déjà close.
       await this.deps.browsers?.endTask(task.id, 'the task ended').catch(() => {})
       await this.deps.mcp?.endTask(task.id).catch(() => {})
+      await this.deps.windows?.endTask(task.id).catch(() => {})
       this.running.delete(task.id)
       // Filet des chemins d'arrêt anticipé (échec de préparation, refus) :
       // sans effet si le dossier est déjà parti.

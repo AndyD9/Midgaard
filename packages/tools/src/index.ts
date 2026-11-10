@@ -86,6 +86,9 @@ export const DELEGATION_TOOLS = [
 /** Nom de l'outil terminal, que la boucle intercepte. */
 export const SUBMIT_RESULT = 'submit_result'
 
+/** Nom de l'outil qui lance un script sur la VM Windows (Slice 9), ajouté à une tâche qui a une VM. */
+export const WINDOWS_RUN = 'windows_run'
+
 /**
  * Tous les outils. Ceux de la Slice 2 lisent ; ceux de la Slice 3 écrivent dans
  * le worktree de la tâche et refusent partout ailleurs (`ToolContext.writable`) ;

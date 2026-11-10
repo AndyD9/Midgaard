@@ -70,6 +70,8 @@ export {
   windowsKeyRef,
 } from './windows-hosts.ts'
 export type { WindowsServiceDeps } from './windows-hosts.ts'
+export { WindowsSessions, WINDOWS_RUN_CONNECT_MS, windowsPathOf, worktreeUploadExclude } from './windows-sessions.ts'
+export type { WindowsSessionsDeps } from './windows-sessions.ts'
 export type { PythonEnvOutcome } from './python-env.ts'
 export { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'
 export { WS_PATH } from './ws.ts'

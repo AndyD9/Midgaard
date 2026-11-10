@@ -21,7 +21,8 @@ soit le nombre de sessions Claude Code ouvertes.
 | `mcp-sessions.ts` | Les serveurs MCP des tâches : lancés au départ, fermés à la fin, tous fermés à l'arrêt |
 | `playbooks.ts` | Playbooks (Slice 9) : lister le dossier, attacher à un profil, lire au départ d'une tâche et composer la consigne |
 | `samples.ts` | Échantillons d'une tâche (Slice 9) : copie en lecture seule, transmission par nom, vérification au départ, effacement |
-| `windows-hosts.ts` | VM Windows de test (Slice 9) : clé générée au coffre, empreinte épinglée, test qui fait répondre PowerShell, retrait |
+| `windows-hosts.ts` | VM Windows de test (Slice 9) : clé générée au coffre, empreinte épinglée, test qui fait répondre PowerShell, retrait qui détache les profils |
+| `windows-sessions.ts` | La VM d'une tâche (Slice 9, étape 5.3) : une connexion par script, worktree recopié, dossier effacé en fin de tâche |
 | `python-env.ts` | `uv sync --locked` proposé par le harness au départ d'un Developer, approuvé une fois (Slice 9) |
 | `http.ts` | Routeur de l'API locale |
 | `ws.ts` | Diffusion temps réel et **reprise sans trou** après coupure |
@@ -302,8 +303,32 @@ fingerprint_required`) et normalisée (`invalid_fingerprint` sinon) ; changer
 l'adresse, le port, le compte, l'empreinte ou la clé efface le dernier test.
 `POST /api/windows/:id/test` ouvre une session épinglée et fait exécuter un
 script PowerShell (`-EncodedCommand`), qui rend les versions de PowerShell et
-de Windows. Aucune VM n'est encore attachée à un profil : l'outil qui s'en
-servira est la sous-étape 5.3.
+de Windows.
+
+### La VM d'une tâche (étape 5.3)
+
+Un profil `developer` porte une VM (`windows_host`, `PUT
+/api/agents/:id/windows`, étape 5.3a) ; `setAgentWindowsHost` refuse tout
+autre type, et le retrait d'une VM la détache des profils qui la portaient.
+
+Pour une tâche d'un tel profil, le moteur pose le port `windows_run`
+(`windows-sessions.ts`) et **ajoute l'outil à la liste de la tâche** — pas au
+profil, comme `ask_parent` : un Developer sans VM ne le voit jamais. Chaque
+appel (décision du 2026-11-10) :
+
+- ouvre **une** connexion à l'hôte épinglé, clé lue au coffre ;
+- recopie le worktree sous `~/midgaard/tasks/<tâche>/work` (`@midgaard/remote`,
+  étape 5.3b), **jamais `.git`** ; les échantillons n'y sont pas, ils vivent
+  sous `samplesDir`, hors du worktree ;
+- lance le script dans `work` (un `Set-Location` en préambule), sortie en
+  direct, résultat non fiable ;
+- ferme la connexion.
+
+À la fin de la tâche, `endTask` ouvre une connexion, efface le dossier de la
+tâche (sous sa racine permise, sans suivre un lien) et ferme — au mieux,
+journalisé, jamais bloquant. Ce que Windows fait des processus d'une
+connexion coupée reste à constater sur un vrai Windows (sous-étape 5.4) : ce
+module ferme la connexion, il ne prétend pas tuer ce qu'elle a lancé.
 
 ## La liste blanche `exec` à préfixes (Slice 9)
 
