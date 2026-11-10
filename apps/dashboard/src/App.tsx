@@ -32,6 +32,7 @@ import { useHarness } from '@/lib/useHarness'
 import { speaker } from '@/lib/thread'
 import { cn } from '@/lib/utils'
 import { McpServersCard } from './components/McpServersCard'
+import { WindowsHostsCard } from './components/WindowsHostsCard'
 import { ProvidersCard } from './components/ProvidersCard'
 import { AgentsCard } from './components/AgentsCard'
 import { BrowserPanel, browserSources } from './components/BrowserPanel'
@@ -326,6 +327,7 @@ export function App() {
                     <ProvidersCard onChanged={() => setProvidersRev((n) => n + 1)} />
                     <AgentsCard key={providersRev} editable />
                     <McpServersCard />
+                    <WindowsHostsCard />
                   </div>
                 ) : task ? (
                   <TaskInspector

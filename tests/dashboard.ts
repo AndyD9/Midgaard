@@ -65,6 +65,9 @@
  *  - D19 les playbooks aux Profils (Slice 9, étape 6) : une case cochée
  *    attache le playbook **en base** ; décochée, le détache ; le profil
  *    simulé n'en a pas.
+ *  - D21 les VM Windows aux Profils (Slice 9, étape 6) : une VM déclarée est
+ *    montrée (jamais testée), s'attache au Developer **en base** puis se
+ *    détache ; un profil non-Developer n'a pas de sélecteur.
  *  - D20 une clé se dépose depuis les Profils, sans terminal : champ masqué,
  *    vidé après l'envoi, clé absente de la page et de l'API ; le fournisseur
  *    la reçoit pourtant (relue au coffre) ; une clé remplacée l'est vraiment ;
@@ -1124,6 +1127,54 @@ await scenario(outcomes, 'D20 une clé se dépose aux Profils : masquée, jamais
     await daemonJson(rt, '/api/providers/cle-ui', { method: 'DELETE' })
     provider.server.close()
   }
+})
+
+// --- D20 ---------------------------------------------------------------------
+
+await scenario(outcomes, 'D21 les VM Windows aux Profils : attacher au Developer, puis détacher', async () => {
+  // Une VM déclarée en base (empreinte de forme valide, jamais testée ici) :
+  // la déclaration réelle, avec clé et empreinte, reste à la CLI.
+  const declared = await daemonJson(rt, '/api/windows', {
+    method: 'POST',
+    body: JSON.stringify({
+      id: 'vm1',
+      host: '192.168.64.5',
+      username: 'analyste',
+      fingerprint: 'SHA256:u69lh1Bfp8f+5ZprLkeJC5KFo5xCDWa6llexR9QkiU4',
+    }),
+  })
+  if (declared.status !== 200) return { verdict: 'FAIL', detail: `déclaration refusée : ${JSON.stringify(declared.body)}` }
+
+  const attached = async () => (await daemonJson<{ agent: Agent }>(rt, '/api/agents/developer')).body.agent.windows_host
+  await page.goto(`${rt.dashboard_url}#/agents`, { waitUntil: 'domcontentloaded' })
+  // Un rechargement après la déclaration : les cartes ne s'auto-rafraîchissent
+  // pas (comme celle des serveurs MCP), et le scénario précédent peut laisser la
+  // page déjà sur #/agents — un `goto` de même URL ne remonterait rien.
+  await page.reload({ waitUntil: 'domcontentloaded' })
+
+  // La carte en lecture montre la VM déclarée, jamais testée.
+  await page.getByTestId('windows-host-vm1').waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+  if (!/jamais testée/.test((await page.getByTestId('windows-test-badge-vm1').textContent()) ?? '')) {
+    return { verdict: 'FAIL', detail: 'une VM jamais testée n’est pas dite telle' }
+  }
+
+  // Seul le Developer a un sélecteur ; le Researcher n'en a pas (une VM Windows
+  // est pour le profil qui a un worktree).
+  if ((await page.getByTestId('agent-windows-select-researcher').count()) !== 0) {
+    return { verdict: 'FAIL', detail: 'un profil non-Developer se voit proposer une VM' }
+  }
+
+  // Attacher la VM au Developer, puis vérifier en base.
+  await page.getByTestId('agent-windows-select-developer').selectOption('vm1')
+  if (!(await until(async () => (await attached()) === 'vm1'))) return { verdict: 'FAIL', detail: 'VM non attachée au Developer en base' }
+
+  // Détacher : « aucune » remet windows_host à null.
+  await page.getByTestId('agent-windows-select-developer').selectOption('')
+  if (!(await until(async () => (await attached()) === null))) return { verdict: 'FAIL', detail: 'VM toujours attachée en base' }
+
+  // Retirer la VM pour ne rien laisser aux scénarios suivants.
+  await daemonJson(rt, '/api/windows/vm1', { method: 'DELETE' })
+  return { verdict: 'PASS', detail: 'vm1 montrée jamais testée, attachée au Developer puis détachée ; le Researcher n’a pas de sélecteur' }
 })
 
 await scenario(outcomes, 'D7 la perte de la WebSocket se voit, et le retour aussi', async () => {

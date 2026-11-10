@@ -34,8 +34,8 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Bot, Save } from 'lucide-react'
-import type { Agent, AgentLimits, McpServerView, PlaybookSummary, ProviderConfig } from '@midgaard/contracts'
-import { ApiError, fetchAgents, fetchMcpServers, fetchPlaybooks, fetchProviders, setAgentLimits, setAgentMcp, setAgentPlaybooks, updateAgent } from '@/lib/api'
+import type { Agent, AgentLimits, McpServerView, PlaybookSummary, ProviderConfig, WindowsHostView } from '@midgaard/contracts'
+import { ApiError, fetchAgents, fetchMcpServers, fetchPlaybooks, fetchProviders, fetchWindows, setAgentLimits, setAgentMcp, setAgentPlaybooks, setAgentWindows, updateAgent } from '@/lib/api'
 import { disabledReason } from '@/lib/agents'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
@@ -51,6 +51,8 @@ interface Loaded {
   mcp: McpServerView[]
   /** Playbooks du dossier ; vide si la liste n'a pas pu être lue. */
   playbooks: PlaybookSummary[]
+  /** VM Windows déclarées ; vide si la liste n'a pas pu être lue. */
+  windows: WindowsHostView[]
   pricing: { updated_at: string; models: number }
 }
 
@@ -71,10 +73,18 @@ export function AgentsCard({ editable = false }: { editable?: boolean }) {
       fetchProviders(),
       fetchMcpServers().catch(() => ({ servers: [] })),
       fetchPlaybooks().catch(() => ({ dir: '', playbooks: [] })),
+      fetchWindows().catch(() => ({ hosts: [] })),
     ])
-      .then(([a, p, m, pb]) => {
+      .then(([a, p, m, pb, w]) => {
         if (!abandoned) {
-          setData({ agents: a.agents, providers: p.providers, pricing: p.pricing, mcp: m.servers, playbooks: pb.playbooks })
+          setData({
+            agents: a.agents,
+            providers: p.providers,
+            pricing: p.pricing,
+            mcp: m.servers,
+            playbooks: pb.playbooks,
+            windows: w.hosts,
+          })
         }
       })
       .catch(() => {})
@@ -153,6 +163,11 @@ export function AgentsCard({ editable = false }: { editable?: boolean }) {
                 agent.playbooks.length > 0 && (
                   <p className="text-xs text-muted">Playbooks : {agent.playbooks.join(', ')}</p>
                 )
+              )}
+              {editable && agent.kind === 'developer' ? (
+                <WindowsEditor agent={agent} hosts={data.windows} onSaved={load} />
+              ) : (
+                agent.windows_host && <p className="text-xs text-muted">VM Windows : {agent.windows_host}</p>
               )}
             </li>
           ))}
@@ -407,6 +422,64 @@ function PlaybooksEditor({ agent, playbooks, onSaved }: { agent: Agent; playbook
           <span className={p.unusable_reason ? 'font-mono text-waiting line-through' : 'font-mono'}>{p.id}</span>
         </label>
       ))}
+      {message && <span className={message.ok ? 'text-done' : 'text-danger'}>{message.text}</span>}
+    </div>
+  )
+}
+
+/**
+ * La VM Windows d'un profil Developer (Slice 9) : un sélecteur « aucune / vm1 /
+ * … », réglé par `PUT /api/agents/:id/windows`. Seul le Developer en reçoit
+ * une — c'est son worktree qui part sur la VM. Sans VM déclarée, la carte « VM
+ * Windows de test » dit comment en ajouter une ; ici on le rappelle.
+ */
+function WindowsEditor({ agent, hosts, onSaved }: { agent: Agent; hosts: WindowsHostView[]; onSaved: () => void }) {
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function choose(id: string): Promise<void> {
+    setSaving(true)
+    setMessage(null)
+    try {
+      await setAgentWindows(agent.id, id || null)
+      setMessage({ ok: true, text: id ? 'VM attachée — pour les tâches à venir' : 'VM détachée' })
+      onSaved()
+    } catch (e) {
+      setMessage({ ok: false, text: e instanceof ApiError && e.reason ? e.reason : (e as Error).message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (hosts.length === 0) {
+    return (
+      <p className="text-xs text-muted" data-testid={`agent-windows-${agent.id}`}>
+        VM Windows : aucune déclarée — <code className="font-mono">npm run harness -- windows add</code> (voir la carte ci-dessous).
+      </p>
+    )
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs" data-testid={`agent-windows-${agent.id}`}>
+      <label htmlFor={`windows-${agent.id}`} className="text-muted">
+        VM Windows :
+      </label>
+      <select
+        id={`windows-${agent.id}`}
+        className="rounded border border-border bg-surface px-1.5 py-1 font-mono"
+        value={agent.windows_host ?? ''}
+        disabled={saving}
+        onChange={(e) => void choose(e.target.value)}
+        data-testid={`agent-windows-select-${agent.id}`}
+      >
+        <option value="">aucune</option>
+        {hosts.map((h) => (
+          <option key={h.id} value={h.id}>
+            {h.id}
+          </option>
+        ))}
+      </select>
+      <span className="text-muted">— son worktree y est recopié avant chaque script approuvé</span>
       {message && <span className={message.ok ? 'text-done' : 'text-danger'}>{message.text}</span>}
     </div>
   )

@@ -31,6 +31,7 @@ import type {
   TaskWorkspaceResponse,
   ToolCall,
   UpdateAgentRequest,
+  WindowsHostsResponse,
 } from '@midgaard/contracts'
 
 /** Jeton d'API, en mémoire uniquement. */
@@ -287,6 +288,22 @@ export function fetchPlaybooks(): Promise<PlaybooksResponse> {
 /** Les playbooks d'un profil, liste complète et ordonnée (`PUT /api/agents/:id/playbooks`). */
 export function setAgentPlaybooks(agentId: string, playbooks: string[]): Promise<{ agent: Agent }> {
   return api(`/api/agents/${encodeURIComponent(agentId)}/playbooks`, { method: 'PUT', body: JSON.stringify({ playbooks }) })
+}
+
+/**
+ * Les VM Windows de test déclarées (Slice 9), avec leur dernier test et les
+ * commandes à lancer sur la VM. Aucune clé privée : seulement la clé publique.
+ */
+export function fetchWindows(): Promise<WindowsHostsResponse> {
+  return api('/api/windows')
+}
+
+/**
+ * La VM d'un profil (`PUT /api/agents/:id/windows`) : un identifiant de VM, ou
+ * `null` pour la détacher. Seul un profil Developer en reçoit une.
+ */
+export function setAgentWindows(agentId: string, host: string | null): Promise<{ agent: Agent }> {
+  return api(`/api/agents/${encodeURIComponent(agentId)}/windows`, { method: 'PUT', body: JSON.stringify({ host }) })
 }
 
 /**
