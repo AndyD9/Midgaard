@@ -67,7 +67,11 @@ distribuée. Il faut [Rust](https://rustup.rs) (`cargo`) pour la construire.
 ```bash
 npm run desktop:build  # une fois, et après chaque mise à jour du clone ou de Node
 npm run desktop        # ouvre la fenêtre ; démarre le daemon au besoin
+npm run desktop:bundle # facultatif : un .dmg (macOS) ou un installeur .exe (Windows) à double-cliquer
 ```
+
+L'application emballée reste liée à ce clone et à son Node : elle ne se
+copie pas sur une autre machine.
 
 Détail et garanties : [apps/desktop/README.md](apps/desktop/README.md).
 

@@ -43,6 +43,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run build` | Compile les paquets et le dashboard |
 | `npm run desktop:build` | Construit la coque Tauri (`apps/desktop`, Rust requis) ; facultatif |
 | `npm run desktop` | Ouvre la fenêtre desktop du dashboard, démarre le daemon au besoin |
+| `npm run desktop:bundle` | Emballe la coque en `.dmg` (macOS) ou installeur `.exe` (Windows, **pas encore essayé**) à lancer d'un double-clic ; reste liée au clone et à son Node, ni signée ni distribuée |
 | `npm run test:desktop` | ~2 min la première fois — les tests Rust de la coque (adresse du dashboard) |
 | `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `approve`, `reject` ; `--home <dossier>` avant la commande vise un autre runtime |
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho |

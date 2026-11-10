@@ -41,9 +41,11 @@
     "test:ui": "node --conditions=midgaard-dev tests/dashboard.ts",
     "test:orchestrator": "node --conditions=midgaard-dev tests/orchestrator.ts",
     "test:live": "node --conditions=midgaard-dev tests/live-agent.ts",
-    "test:live-vision": "node --conditions=midgaard-dev tests/live-vision.ts"
+    "test:live-vision": "node --conditions=midgaard-dev tests/live-vision.ts",
+    "desktop:bundle": "node apps/desktop/bundle.ts"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4",
     "@types/node": "^24.19.2",
     "playwright": "^1.64.1",
     "typescript": "^7.0.2"
