@@ -42,6 +42,18 @@ describe('execPrefixRefusal — ce qui est accepté', () => {
     ['cargo', 'test'],
     ['ruff', 'check'],
     ['sigma', 'check'],
+    // Outils d'analyse en lecture seule (Slice 10) : une option en tête est
+    // acceptée, parce qu'ils ne font que lire et imprimer.
+    ['objdump', '-d'],
+    ['objdump', '-d', '--no-show-raw-insn'],
+    ['nm', '-C'],
+    ['nm', '--dynamic'],
+    ['strings', '-n', '8'],
+    ['readelf', '-h'],
+    ['readelf', '-a'],
+    ['size', '-A'],
+    ['od', '-A', 'x'],
+    ['/usr/bin/objdump', '-d'],
   ]
   for (const argv of accepted) {
     it(argv.join(' '), () => assert.equal(execPrefixRefusal(argv), null))
@@ -76,6 +88,15 @@ describe('execPrefixRefusal — ce qui est refusé, avec son motif', () => {
     [['git', '-c'], /option/],
     [['npm', '--prefix'], /option/],
     [['bash', '-c'], /option/],
+    // Les outils d'analyse écartés de la safelist (Slice 10) : option-first
+    // refusée, car leurs options peuvent lancer du code ou écrire un fichier.
+    [['rg', '-n'], /option/], // --pre lance une commande par fichier
+    [['file', '-C'], /option/], // -C compile un fichier magique nommé
+    [['xxd', '-r'], /option/], // -r reconstruit un binaire vers un fichier
+    // Un outil en lecture seule reste refusé en chemin relatif (fichier du worktree).
+    [['./objdump', '-d'], /chemin relatif/],
+    // Et à un seul mot : un préfixe « objdump » couvrirait tout objdump.
+    [['objdump'], /seul mot/],
     // Les exécuteurs : le programme qu'ils lancent est jugé à son tour.
     [['uv', 'run'], /exécuteur/],
     [['npm', 'exec'], /exécuteur/],
