@@ -474,6 +474,47 @@ dans ton dépôt, puis commit.
 
 ---
 
+## La VM Windows de test (Slice 9)
+
+Préparer la VM, une fois, dans un **PowerShell administrateur** de la VM :
+
+1. le serveur OpenSSH, s'il n'est pas installé :
+   `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0`, puis
+   `Set-Service -Name sshd -StartupType Automatic` et `Start-Service sshd` ;
+2. son empreinte, à recopier dans `--fingerprint` :
+   `ssh-keygen.exe -lf "$env:ProgramData\ssh\ssh_host_ed25519_key.pub"` ;
+3. après `npm run harness -- windows add`, les deux lignes qu'elle affiche, qui
+   posent la clé de Midgaard (`npm run harness -- windows key` les redonne).
+
+Ces commandes seront exécutées telles quelles par la CI sur un vrai Windows
+à la sous-étape 5.5 ; d'ici là, elles n'y ont pas tourné.
+
+### `windows add` : « l'empreinte d'hôte est exigée »
+
+Midgaard ne fait pas confiance au premier contact : l'empreinte se lit sur la
+console de la VM (point 2 ci-dessus). « empreinte illisible » : il faut
+`SHA256:` suivi de 43 caractères, ou la ligne entière de `ssh-keygen -lf` ;
+une empreinte MD5 est refusée.
+
+### `windows test` : ce que dit l'échec
+
+- **« l'hôte présente l'empreinte …, pas celle épinglée »** : rien n'a été
+  envoyé. Compare avec la console de la VM. Si elle a été réinstallée (ses
+  clés d'hôte ont changé), redéclare son empreinte avec `windows add <id>
+  --fingerprint "…"` ; sinon, ce n'est pas ta VM qui a répondu ;
+- **« l'hôte refuse la clé de Midgaard »** : la clé publique n'est pas posée,
+  ou pas au bon endroit. Pour un compte administrateur, Windows ne lit que
+  `administrators_authorized_keys`, et l'ignore si d'autres que les
+  administrateurs et SYSTEM peuvent y écrire — d'où la ligne `icacls` ;
+- **« injoignable »** : VM éteinte, `sshd` arrêté, mauvaise adresse, ou le
+  pare-feu de la VM ferme le port 22 ;
+- **« PowerShell n'a pas répondu »** : la connexion est établie ; la sortie
+  d'erreur citée dit pourquoi ;
+- **« clé absente du coffre »** : le coffre a été vidé ou changé ;
+  `windows add <id> --new-key`, puis pose la nouvelle clé.
+
+---
+
 ## Les serveurs MCP des agents
 
 ### `npm run harness -- mcp add` : « programme introuvable ou non exécutable »

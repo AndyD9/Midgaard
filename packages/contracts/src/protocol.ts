@@ -87,9 +87,13 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *  - 19 : Slice 9, étape 4 — une tâche porte `samples`, que le serveur MCP
  *        et le dashboard valident, et `POST /api/tasks` les accepte. Un
  *        daemon de protocole 18 ignorerait le champ : la tâche partirait sans
- *        ses échantillons, et sans que `exec` sache lesquels refuser.
+ *        ses échantillons, et sans que `exec` sache lesquels refuser ;
+ *  - 20 : Slice 9, étape 5.2 — les routes `/api/windows` (VM Windows de
+ *        test : déclaration, clé générée au coffre, test, retrait). Un daemon
+ *        de protocole 19 répondrait 404 à `harness windows` : la CLI doit le
+ *        faire remplacer.
  */
-export const PROTOCOL_VERSION = 19
+export const PROTOCOL_VERSION = 20
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({

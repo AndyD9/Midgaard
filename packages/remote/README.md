@@ -28,6 +28,15 @@ session.close()                                        // idempotente, ne lève 
 | Sortie bornée | Début (8 Kio) et fin (32 Kio) gardés, le reste compté ; chaque morceau rendu à `onOutput` |
 | La copie ne suit jamais un lien | `lstat` : un lien (vers `~/.ssh`, par exemple) est écarté et nommé. Au-delà de 20 000 fichiers ou 256 Mio, refus **avant** toute copie |
 
+## PowerShell
+
+`powershellCommand(script)` rend `powershell.exe -NoProfile -NonInteractive
+-ExecutionPolicy Bypass -EncodedCommand <base64 UTF-16LE>`. Win32-OpenSSH
+remet la commande au shell de l'hôte (`cmd.exe` par défaut), qui a ses
+propres règles de guillemets : encodé, le script n'est relu par personne
+avant PowerShell, et ce qui tourne est exactement ce qui a été montré.
+`scriptOfPowershellCommand` fait le chemin inverse (tests, hôte factice).
+
 ## Les refus
 
 `RemoteError.kind` : `fingerprint_mismatch`, `auth_failed` (la clé

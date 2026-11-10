@@ -16,6 +16,9 @@
  *  - `sleep <ms>` attend, puis sort avec 0 — sauf si le canal est fermé avant,
  *    ce que `closedEarly` compte ;
  *  - `flood <n>` écrit `n` octets ;
+ *  - `powershell.exe … -EncodedCommand <b64>` : le script décodé est noté
+ *    (`scripts`), et l'hôte répond comme un Windows 11 à `$PSVersionTable` —
+ *    deux lignes, version de PowerShell puis de Windows ;
  *  - toute autre commande sort avec 127.
  *
  * Le SFTP est adossé à un vrai dossier (`root`) : ouvrir, écrire, fermer,
@@ -25,6 +28,7 @@ import { closeSync, mkdirSync, openSync, statSync, writeSync } from 'node:fs'
 import { join, normalize } from 'node:path'
 import type { AddressInfo } from 'node:net'
 import ssh2 from 'ssh2'
+import { scriptOfPowershellCommand } from '@midgaard/remote'
 
 const { STATUS_CODE } = ssh2.utils.sftp
 
@@ -37,6 +41,8 @@ export interface FakeSshServer {
   authAttempts: number
   /** Commandes reçues, dans l'ordre. */
   commands: string[]
+  /** Scripts PowerShell reçus, décodés. */
+  scripts: string[]
   /** Commandes dont le canal a été fermé par le client avant leur fin. */
   closedEarly: number
   /** Dossier où le SFTP écrit. */
@@ -59,6 +65,7 @@ export async function startFakeSshServer(authorizedKey: string, root: string): P
   const state = {
     authAttempts: 0,
     commands: [] as string[],
+    scripts: [] as string[],
     closedEarly: 0,
   }
 
@@ -114,6 +121,12 @@ export async function startFakeSshServer(authorizedKey: string, root: string): P
           else if (verb === 'sleep') setTimeout(() => finish(0), Number(arg))
           else if (verb === 'flood') {
             channel.write(Buffer.alloc(Number(arg), 'x'))
+            finish(0)
+          } else if (verb === 'powershell.exe') {
+            const script = scriptOfPowershellCommand(info.command)
+            if (script === null) return finish(64)
+            state.scripts.push(script)
+            channel.write('5.1.26100.4202\r\nMicrosoft Windows NT 10.0.26100.0\r\n')
             finish(0)
           } else finish(127)
         })
@@ -184,6 +197,9 @@ export async function startFakeSshServer(authorizedKey: string, root: string): P
     },
     get commands() {
       return state.commands
+    },
+    get scripts() {
+      return state.scripts
     },
     get closedEarly() {
       return state.closedEarly

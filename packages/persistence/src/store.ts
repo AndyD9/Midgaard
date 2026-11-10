@@ -34,6 +34,8 @@ import {
   type HarnessConfig,
   type InputRequest,
   type McpServer,
+  type WindowsHost,
+  type WindowsTest,
   type McpTest,
   type McpTool,
   type ProviderConfig,
@@ -1281,6 +1283,82 @@ export class HarnessStore {
     )
   }
 
+  // --- VM Windows de test (Slice 9) -----------------------------------------
+
+  /**
+   * Déclare ou met à jour une VM. Sa clé **privée** n'est jamais ici : le
+   * daemon l'a déjà rangée au coffre.
+   *
+   * Le dernier test est effacé dès que l'adresse, le port, le compte,
+   * l'empreinte ou la clé changent : il ne dirait plus rien de ce qu'on joint.
+   */
+  upsertWindowsHost(input: {
+    id: string
+    name: string
+    host: string
+    port: number
+    username: string
+    fingerprint: string
+    publicKey: string
+  }): WindowsHost {
+    const before = this.getWindowsHost(input.id)
+    const same =
+      before !== null &&
+      before.host === input.host &&
+      before.port === input.port &&
+      before.username === input.username &&
+      before.fingerprint === input.fingerprint &&
+      before.public_key === input.publicKey
+    const now = new Date().toISOString()
+    this.db
+      .prepare(
+        `INSERT INTO windows_hosts
+           (id, name, host, port, username, fingerprint, public_key, created_at, updated_at, last_test_json)
+         VALUES (:id, :name, :host, :port, :username, :fingerprint, :public_key, :now, :now, NULL)
+         ON CONFLICT(id) DO UPDATE SET
+           name = :name, host = :host, port = :port, username = :username, fingerprint = :fingerprint,
+           public_key = :public_key, updated_at = :now,
+           last_test_json = CASE WHEN :same = 1 THEN last_test_json ELSE NULL END`,
+      )
+      .run({
+        id: input.id,
+        name: input.name,
+        host: input.host,
+        port: input.port,
+        username: input.username,
+        fingerprint: input.fingerprint,
+        public_key: input.publicKey,
+        now,
+        same: same ? 1 : 0,
+      })
+    return this.getWindowsHost(input.id)!
+  }
+
+  getWindowsHost(id: string): WindowsHost | null {
+    const found = row<WindowsHostRow>(this.db.prepare('SELECT * FROM windows_hosts WHERE id = :id').get({ id }))
+    return found ? toWindowsHost(found) : null
+  }
+
+  /** VM déclarées, dans l'ordre de déclaration. */
+  listWindowsHosts(): WindowsHost[] {
+    return rows<WindowsHostRow>(this.db.prepare('SELECT * FROM windows_hosts ORDER BY created_at ASC, id ASC').all()).map(
+      toWindowsHost,
+    )
+  }
+
+  /** Enregistre un « Tester la connexion ». @returns `null` si la VM n'existe plus */
+  recordWindowsTest(id: string, test: WindowsTest): WindowsHost | null {
+    const info = this.db
+      .prepare('UPDATE windows_hosts SET last_test_json = :t, updated_at = :at WHERE id = :id')
+      .run({ id, t: JSON.stringify(test), at: test.at })
+    return info.changes === 1 ? this.getWindowsHost(id) : null
+  }
+
+  /** Retire une VM. Sa clé est au coffre : c'est au daemon de l'effacer. @returns `false` si elle n'existait pas */
+  deleteWindowsHost(id: string): boolean {
+    return this.db.prepare('DELETE FROM windows_hosts WHERE id = :id').run({ id }).changes === 1
+  }
+
   // --- Serveurs MCP (Slice 8) ---------------------------------------------
 
   /**
@@ -1552,6 +1630,34 @@ function toCreatedAgent(row: CreatedAgentRow): CreatedAgent {
     mcp_servers: JSON.parse(row.mcp_servers_json) as string[],
     limits: JSON.parse(row.limits_json) as AgentLimits,
     created_at: row.created_at,
+  }
+}
+
+interface WindowsHostRow {
+  id: string
+  name: string
+  host: string
+  port: number
+  username: string
+  fingerprint: string
+  public_key: string
+  created_at: string
+  updated_at: string
+  last_test_json: string | null
+}
+
+function toWindowsHost(row: WindowsHostRow): WindowsHost {
+  return {
+    id: row.id,
+    name: row.name,
+    host: row.host,
+    port: row.port,
+    username: row.username,
+    fingerprint: row.fingerprint,
+    public_key: row.public_key,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    last_test: row.last_test_json ? (JSON.parse(row.last_test_json) as WindowsTest) : null,
   }
 }
 

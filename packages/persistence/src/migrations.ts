@@ -420,6 +420,30 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE tasks ADD COLUMN samples_json TEXT NOT NULL DEFAULT '[]';
     `,
   },
+  {
+    version: 17,
+    label: 'Slice 9 — VM Windows de test',
+    sql: `
+      -- Les VM Windows déclarées par l'humain. La clé privée n'est PAS ici :
+      -- générée par le daemon, elle va au coffre, sous une référence dérivée
+      -- de l'identifiant ; la base ne garde que la clé publique, à poser sur la
+      -- VM, et l'empreinte d'hôte épinglée, recopiée depuis sa console.
+      -- last_test_json est effacé quand l'adresse, le compte, l'empreinte ou la
+      -- clé changent : il ne dirait plus rien de la nouvelle déclaration.
+      CREATE TABLE windows_hosts (
+        id             TEXT PRIMARY KEY,
+        name           TEXT NOT NULL,
+        host           TEXT NOT NULL,
+        port           INTEGER NOT NULL,
+        username       TEXT NOT NULL,
+        fingerprint    TEXT NOT NULL,
+        public_key     TEXT NOT NULL,
+        created_at     TEXT NOT NULL,
+        updated_at     TEXT NOT NULL,
+        last_test_json TEXT
+      );
+    `,
+  },
 ]
 
 // Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',

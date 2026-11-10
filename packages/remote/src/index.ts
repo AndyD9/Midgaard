@@ -7,3 +7,4 @@ export { generateKeyPair, fingerprintOf, fingerprintOfPublicKey, normalizeFinger
 export type { GeneratedKeyPair } from './keys.ts'
 export { RemoteError, RemoteSession, UPLOAD_MAX_BYTES, UPLOAD_MAX_FILES } from './connection.ts'
 export type { RemoteErrorKind, RemoteRunOptions, RemoteRunResult, RemoteTarget, UploadSummary } from './connection.ts'
+export { POWERSHELL, powershellCommand, scriptOfPowershellCommand } from './powershell.ts'

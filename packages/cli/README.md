@@ -22,6 +22,11 @@ harness mcp                   # serveurs MCP déclarés, et leur dernier test
 harness mcp add <id> [--env NOM=v]… [--secret-env NOM]… -- <programme> [arguments…]
 harness mcp test <id>         # lance le serveur et relit son catalogue
 harness mcp tools <id>        # outils libres, changés, ou approuvés à chaque appel
+harness windows               # VM Windows de test, et leur dernier test
+harness windows add <id> --host H --user U --fingerprint "SHA256:…" [--port 22] [--new-key]
+harness windows test <id>     # joint l'hôte épinglé, fait répondre PowerShell
+harness windows key <id>      # redonne la clé publique et la commande qui la pose
+harness windows remove <id>
 harness mcp allow <id> [--yes] (--read-only | <outil>…)
 harness mcp revoke <id> <outil>…
 harness mcp remove <id>
@@ -94,6 +99,28 @@ qui a accès au shell de l'utilisateur — Claude Code avec son outil Bash, par
 exemple — peut passer `--yes`, comme il pourrait lancer `harness approve`. La
 frontière reste la même qu'à la Slice 0 : les permissions de Claude Code sur le
 shell, que l'utilisateur accorde commande par commande.
+
+## `windows` : la VM Windows de test (Slice 9, étape 5.2)
+
+`windows add` déclare une VM ; c'est le **daemon** qui génère sa clé ed25519,
+dédiée, et la range au coffre. La CLI n'en voit que la moitié publique, et
+affiche les deux lignes PowerShell qui la posent pour un compte
+administrateur (`administrators_authorized_keys`, droits réservés aux
+administrateurs et à SYSTEM, désignés par leur SID : leur nom change avec la
+langue de Windows).
+
+**L'empreinte d'hôte est exigée à la première déclaration** : Midgaard ne
+fait pas confiance au premier contact. Sans `--fingerprint`, la CLI refuse et
+donne la commande qui la lit sur la console de la VM (`ssh-keygen.exe -lf
+…ssh_host_ed25519_key.pub`), et celles qui installent le serveur OpenSSH s'il
+manque. La ligne entière de `ssh-keygen -lf` est acceptée telle quelle.
+
+`windows test` joint l'hôte **épinglé** avec la clé du coffre et fait
+répondre PowerShell (version de PowerShell et de Windows) ; une autre
+empreinte est refusée sans rien envoyer, et la CLI dit laquelle a été vue.
+`--new-key` remplace la clé : l'ancienne ne sert plus, la nouvelle est à
+poser. `windows remove` efface la clé du coffre ; sa moitié publique reste
+sur la VM, à retirer à la main.
 
 ## `mcp` : déclarer un serveur, cocher ce qu'on a lu (Slice 8)
 

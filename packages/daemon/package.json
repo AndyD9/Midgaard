@@ -28,6 +28,7 @@
     "@midgaard/mcp-client": "*",
     "@midgaard/persistence": "*",
     "@midgaard/providers": "*",
+    "@midgaard/remote": "*",
     "@midgaard/secrets": "*",
     "@midgaard/tools": "*",
     "@midgaard/workspace": "*",

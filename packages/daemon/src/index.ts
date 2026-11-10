@@ -60,6 +60,15 @@ export {
 } from './samples.ts'
 export type { StagedSamples, VerifiedSample } from './samples.ts'
 export { preparePythonEnv, UV_SYNC_TIMEOUT_S } from './python-env.ts'
+export {
+  WINDOWS_TEST_SCRIPT,
+  deleteWindowsHost,
+  testWindowsHost,
+  upsertWindowsHost,
+  windowsHostView,
+  windowsKeyRef,
+} from './windows-hosts.ts'
+export type { WindowsServiceDeps } from './windows-hosts.ts'
 export type { PythonEnvOutcome } from './python-env.ts'
 export { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'
 export { WS_PATH } from './ws.ts'

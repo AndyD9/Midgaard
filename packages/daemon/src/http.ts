@@ -56,6 +56,11 @@
  * | POST | `/api/mcp/:id/test` | « Tester la connexion » : lance le serveur, lit son catalogue | 200, 404 |
  * | POST | `/api/mcp/:id/allow` | Coche des outils du catalogue, avec leur empreinte | 200, 400, 404, 409 |
  * | POST | `/api/mcp/:id/revoke` | Décoche des outils | 200, 400, 404 |
+ * | GET  | `/api/windows` | VM Windows déclarées, clé **publique** et commandes à lancer sur la VM | 200 |
+ * | POST | `/api/windows` | Déclare une VM : clé générée au coffre, empreinte épinglée | 200, 400, 500 |
+ * | GET  | `/api/windows/:id` | Une VM | 200, 404 |
+ * | DELETE | `/api/windows/:id` | Retire une VM et efface sa clé du coffre | 200, 404 |
+ * | POST | `/api/windows/:id/test` | Joint l'hôte épinglé et fait répondre PowerShell | 200, 404 |
  * | GET  | `/api/approvals` | Demandes en attente | 200 |
  * | POST | `/api/approvals/:id/approve` | Décision humaine | 200, 404, 409 |
  * | POST | `/api/approvals/:id/reject` | Décision humaine | 200, 404, 409 |
@@ -81,6 +86,7 @@ import {
   updateAgentRequestSchema,
   upsertMcpServerRequestSchema,
   upsertProviderRequestSchema,
+  upsertWindowsHostRequestSchema,
   type HarnessConfig,
   type Health,
 } from '@midgaard/contracts'
@@ -113,6 +119,7 @@ import { setAgentLimits, setAgentMcpServers, updateAgentModel } from './agents.t
 import { listPlaybooks, playbooksDirOf, setAgentPlaybooks } from './playbooks.ts'
 import { checkProjectDir } from './project-dir.ts'
 import { stageSamples, type StagedSamples } from './samples.ts'
+import { deleteWindowsHost, testWindowsHost, upsertWindowsHost, windowsHostView } from './windows-hosts.ts'
 
 /** Taille maximale d'un corps de requête, contre l'épuisement mémoire. */
 const MAX_BODY_BYTES = 64 * 1024
@@ -239,6 +246,7 @@ export function createRequestHandler(deps: HttpDeps) {
       if (section === 'agents') return handleAgents(deps, res, method, id, action, req)
       if (section === 'providers') return handleProviders(deps, res, method, id, action, req)
       if (section === 'mcp') return handleMcp(deps, res, method, id, action, req)
+      if (section === 'windows') return handleWindows(deps, res, method, id, action, req)
       if (section === 'playbooks' && !id) {
         if (method !== 'GET') return send(res, 405, { error: 'method_not_allowed' })
         const dir = playbooksDirOf(deps.config)
@@ -318,6 +326,54 @@ async function handleMcp(
     return 'error' in outcome ? refuse(outcome) : send(res, 200, { server: outcome })
   }
 
+  return send(res, 405, { error: 'method_not_allowed' })
+}
+
+/**
+ * Routes `/api/windows…` (Slice 9) : VM Windows déclarées par l'humain. La
+ * clé privée ne figure dans **aucune** réponse : le daemon la génère et la
+ * garde au coffre ; seule la clé publique sort, avec la commande qui la pose.
+ */
+async function handleWindows(
+  deps: HttpDeps,
+  res: ServerResponse,
+  method: string,
+  id: string | undefined,
+  action: string | undefined,
+  req: IncomingMessage,
+): Promise<void> {
+  const refuse = (r: ProviderRefusal) => send(res, r.status, { error: r.error, ...r.detail })
+  if (!id) {
+    if (method === 'GET') return send(res, 200, { hosts: deps.store.listWindowsHosts().map(windowsHostView) })
+    if (method === 'POST') {
+      const parsed = upsertWindowsHostRequestSchema.safeParse(await readJson(req))
+      if (!parsed.success) return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
+      const outcome = await upsertWindowsHost(deps.providers, parsed.data)
+      return 'error' in outcome ? refuse(outcome) : send(res, 200, { host: outcome })
+    }
+    return send(res, 405, { error: 'method_not_allowed' })
+  }
+  if (!action) {
+    if (method === 'GET') {
+      const host = deps.store.getWindowsHost(id)
+      return host ? send(res, 200, { host: windowsHostView(host) }) : send(res, 404, { error: 'windows_host_not_found' })
+    }
+    if (method === 'DELETE') {
+      const outcome = await deleteWindowsHost(deps.providers, id)
+      return 'error' in outcome ? refuse(outcome) : send(res, 200, outcome)
+    }
+    return send(res, 405, { error: 'method_not_allowed' })
+  }
+  if (method === 'POST' && action === 'test') {
+    // Un test peut durer jusqu'au délai de PowerShell : l'abandon du client
+    // ferme le canal.
+    const aborter = new AbortController()
+    res.on('close', () => {
+      if (!res.writableFinished) aborter.abort()
+    })
+    const outcome = await testWindowsHost(deps.providers, id, aborter.signal)
+    return 'error' in outcome ? refuse(outcome) : send(res, 200, { host: outcome })
+  }
   return send(res, 405, { error: 'method_not_allowed' })
 }
 

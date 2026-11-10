@@ -168,8 +168,8 @@ Chaque point a été lu dans le code ou au catalogue, pas supposé.
 | # | Sous-étape | État |
 |---|---|---|
 | 5.1 | Le paquet `remote` : connexion `ssh2`, empreinte comparée **avant** toute authentification, exécution avec sortie en flux, SFTP, fermeture ; tests contre un hôte factice en processus | **fait** — 10 tests, deux défauts introduits vus échouer |
-| 5.2 | La déclaration : table des hôtes (migration), routes `/api/windows`, `harness windows add` (clé générée au coffre, empreinte recopiée, commande PowerShell donnée), `test`, `remove`, `attach`/`detach` à un profil | à faire |
-| 5.3 | L'outil `windows_run` : script PowerShell approuvé à chaque fois (hôte et texte exacts), dossier jetable de la tâche sur la VM, worktree recopié avant chaque commande (jamais `.git`, jamais un échantillon), sortie en direct expurgée et non fiable, délai et annulation, dossier effacé en fin de tâche | à faire |
+| 5.2 | La déclaration : table des hôtes (migration), routes `/api/windows`, `harness windows add` (clé générée au coffre, empreinte recopiée, commande PowerShell donnée), `test`, `key`, `remove` | **fait** — 9 tests, quatre défauts introduits vus échouer |
+| 5.3 | L'attache d'une VM à un profil (`attach`/`detach`, venue de 5.2) et l'outil `windows_run` : script PowerShell approuvé à chaque fois (hôte et texte exacts), dossier jetable de la tâche sur la VM, worktree recopié avant chaque commande (jamais `.git`, jamais un échantillon), sortie en direct expurgée et non fiable, délai et annulation, dossier effacé en fin de tâche | à faire |
 | 5.4 | Aucun processus ne survit : **constater d'abord** ce que Win32-OpenSSH fait d'une session coupée, en comptant les processus de l'hôte ; puis, s'il le faut, un lanceur qui pose un Job Object tué à sa fermeture | à faire |
 | 5.5 | La CI : un poste Windows GitHub active OpenSSH Server, pose la clé **par la commande que donne la CLI** (ce qui prouve la consigne), se joint lui-même ; `test:windows` — exécution, empreinte fausse refusée, daemon tué net, processus comptés sur l'hôte | à faire |
 
@@ -473,4 +473,50 @@ Trouvé en chemin : côté serveur, `ssh2` ne signale pas la fermeture d'un
 canal par le client sur le canal (`close`) mais par `finish`, ou `close` de
 la session ; l'hôte factice écoute les deux. Ce que Windows fait des
 processus d'une session coupée reste à constater (5.4).
+
+### Étape 5.2 — la déclaration d'une VM (2026-11-07)
+
+Ce qui existe désormais : la table `windows_hosts` (migration 17,
+`PROTOCOL_VERSION` 20), les routes `/api/windows` (lister, déclarer, lire,
+tester, retirer), `harness windows` (`add`, `test`, `key`, `remove`), et
+`powershellCommand` dans `remote`, qui fait voyager un script en
+`-EncodedCommand` : `cmd.exe`, shell par défaut de Win32-OpenSSH, ne le relit
+pas, et ce qui tourne est exactement ce qui a été montré.
+
+- **La clé est générée par le daemon**, déposée au coffre **avant** que la VM
+  soit écrite en base, et n'en sort jamais : la base, les réponses et la CLI
+  n'ont que la clé publique. `--new-key` l'écrase au coffre.
+- **L'empreinte est exigée à la première déclaration** (la ligne de
+  `ssh-keygen -lf` est lue telle quelle) ; la CLI, sans elle, refuse **et**
+  donne la commande qui la lit sur la VM.
+- **Les commandes données à l'humain** sont dans `contracts/src/windows.ts`,
+  une seule copie : la pose de la clé pour un administrateur
+  (`administrators_authorized_keys`, `icacls` qui désigne les groupes par
+  leur **SID** — leur nom change avec la langue de Windows), la lecture de
+  l'empreinte, l'installation de `sshd`. **Aucune n'a encore tourné sur un
+  vrai Windows** : la CI les exécutera telles quelles en 5.5.
+- **Changer ce qu'on joint efface le dernier test** : adresse, port, compte,
+  empreinte ou clé.
+
+**Un écart au découpage** : l'attache d'une VM à un profil passe en 5.3, avec
+l'outil `windows_run`. Attachée sans outil pour s'en servir, elle aurait
+décrit à l'humain une capacité qui n'existe pas encore.
+
+Preuves : `tests/unit/windows-hosts.test.ts` (9 tests, vrai daemon, hôte
+factice qui répond désormais à PowerShell et note le script reçu) : refus
+sans empreinte ou illisible ; clé au coffre, **ni en base ni au journal** —
+le journal du daemon capturé, la base lue octet pour octet ; test réussi,
+script arrivé intact ; empreinte fausse refusée **sans tentative
+d'authentification** ; nouvelle clé qui ne sert plus à l'ancienne ; retrait
+qui efface la clé du coffre ; CLI qui refuse sans empreinte et dit comment
+la lire. **Quatre défauts introduits ont été vus échouer** : empreinte non
+exigée, clé privée écrite au journal, nouvelle clé ignorée, dernier test
+jamais effacé. Le deuxième est d'abord **passé** : la clé PEM a un retour à
+la ligne tous les 70 caractères, qui coupait le morceau cherché ; la
+recherche se fait désormais sans blancs.
+
+`test:wait` (protocole 20) a échoué **une fois** sur un scénario que la
+sortie gardée ne nommait pas — seule sa dernière ligne avait été conservée —,
+puis a passé ses 13 scénarios à la relance. Non expliqué, et noté comme tel ;
+une suite se relance désormais avec son journal entier.
 

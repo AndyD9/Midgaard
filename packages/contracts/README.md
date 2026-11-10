@@ -18,6 +18,7 @@ MCP, la CLI, les tests et (pour les types) le dashboard.
 | `agent.ts` | Profils d'agents exécutants : modèle, outils, limites |
 | `provider.ts` | Configuration des fournisseurs de modèles ; la clé n'y est qu'une référence au coffre |
 | `usage.ts` | Consommation et coût, toujours avec sa provenance (`cost_source`) |
+| `windows.ts` | VM Windows de test (Slice 9) : déclaration, test, et les commandes données à l'humain (`windowsInstallCommands`, `WINDOWS_FINGERPRINT_COMMAND`, `WINDOWS_SSHD_COMMANDS`) |
 | `samples.ts` | Échantillons d'une tâche (Slice 9) : forme (`taskSampleSchema`), bornes, `sampleNameFor` |
 | `exec-allow.ts` | Liste blanche `exec` : `execPrefixRefusal` (quel préfixe est refusé, et pourquoi — Slice 9), `execRuleMatches`, `programFamily` |
 | `workspace.ts` | Worktree d'un agent écrivant, et ce qui y manque (travail non commité, sous-modules) ; arbre et contenu des fichiers d'une tâche (Slice 6) |

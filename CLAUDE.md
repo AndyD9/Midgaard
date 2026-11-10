@@ -48,6 +48,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run harness -- workspaces` | Worktrees : `remove`, `clean` — la branche reste toujours |
 | `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme ; `--prefix` couvre tout ce qui suit, jamais un interpréteur nu), `revoke` |
 | `npm run harness -- playbooks` | Playbooks du clone : `attach`, `detach` (à un profil) — savoir métier ajouté à la consigne, relu au départ de chaque tâche |
+| `npm run harness -- windows` | VM Windows de test : `add` (clé générée au coffre, **empreinte recopiée depuis la console de la VM**, commande PowerShell qui pose la clé), `test` (PowerShell répond), `key`, `remove` |
 | `npm run harness -- mcp` | Serveurs MCP : `add` (programme résolu, testé dans la foulée), `test`, `tools`, `allow` (avertit, confirme), `revoke`, `remove`, `attach`/`detach` (à un profil) |
 | `npm run test:unit` | ~15 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git), navigateur (vrai Chromium), client MCP (vrai serveur stdio, processus comptés) |
 | `npm run test:vault` | ~1 s — les coffres seuls, sur le coffre réel de la machine |
@@ -358,7 +359,13 @@ d'hôte **recopiée depuis la VM**, clé **générée et dédiée**, outil
 faite : le paquet `remote` (`packages/remote`) — empreinte comparée pendant
 l'échange de clés, **aucune tentative d'authentification** vers un hôte à la
 mauvaise empreinte (compté par l'hôte factice `tests/fake-ssh-server.ts`),
-copie qui ne suit jamais un lien.
+copie qui ne suit jamais un lien. 5.2 faite : la déclaration (migration
+17, `PROTOCOL_VERSION` 20, `/api/windows`, `harness windows`) — clé générée
+par le daemon, **au coffre avant la base**, jamais dans une réponse ni au
+journal ; empreinte **exigée** ; commandes PowerShell données à l'humain dans
+`contracts/src/windows.ts`, groupes désignés par SID, **pas encore exécutées
+sur un vrai Windows** (5.5). L'attache à un profil passe en 5.3, avec
+`windows_run`.
 
 ## Slice 8 en cours — des serveurs MCP pour les agents, des agents créés à la volée
 

@@ -21,6 +21,7 @@ soit le nombre de sessions Claude Code ouvertes.
 | `mcp-sessions.ts` | Les serveurs MCP des tâches : lancés au départ, fermés à la fin, tous fermés à l'arrêt |
 | `playbooks.ts` | Playbooks (Slice 9) : lister le dossier, attacher à un profil, lire au départ d'une tâche et composer la consigne |
 | `samples.ts` | Échantillons d'une tâche (Slice 9) : copie en lecture seule, transmission par nom, vérification au départ, effacement |
+| `windows-hosts.ts` | VM Windows de test (Slice 9) : clé générée au coffre, empreinte épinglée, test qui fait répondre PowerShell, retrait |
 | `python-env.ts` | `uv sync --locked` proposé par le harness au départ d'un Developer, approuvé une fois (Slice 9) |
 | `http.ts` | Routeur de l'API locale |
 | `ws.ts` | Diffusion temps réel et **reprise sans trou** après coupure |
@@ -287,6 +288,22 @@ opération qui dit que c'est le harness qui la lance ; refuser arrête la
 tâche, comme tout refus. `--locked` n'écrit jamais `uv.lock` ; sans
 `uv.lock`, rien n'est proposé et la timeline le dit. Le `.venv` créé dans le
 worktree reste hors du diff : `uv` y pose un `.gitignore`.
+
+## Les VM Windows de test (Slice 9, étape 5.2)
+
+`windows-hosts.ts` suit le chemin des fournisseurs : **le coffre d'abord, la
+base ensuite**. `POST /api/windows` génère une clé ed25519 dédiée
+(`@midgaard/remote`) à la première déclaration ou sur `new_key`, la dépose
+au coffre sous `windows.<empreinte du dossier runtime>.<id>`, puis écrit la
+VM en base avec sa clé **publique** seule. Aucune réponse, aucune ligne du
+journal ne porte la clé privée — les tests lisent la base et le journal pour
+le vérifier. L'empreinte d'hôte est exigée à la déclaration (`400
+fingerprint_required`) et normalisée (`invalid_fingerprint` sinon) ; changer
+l'adresse, le port, le compte, l'empreinte ou la clé efface le dernier test.
+`POST /api/windows/:id/test` ouvre une session épinglée et fait exécuter un
+script PowerShell (`-EncodedCommand`), qui rend les versions de PowerShell et
+de Windows. Aucune VM n'est encore attachée à un profil : l'outil qui s'en
+servira est la sous-étape 5.3.
 
 ## La liste blanche `exec` à préfixes (Slice 9)
 

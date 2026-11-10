@@ -15,6 +15,7 @@ import { agentLimits, agents, pricing, providers } from './providers.ts'
 import { exec, workspaces } from './workspaces.ts'
 import { mcp } from './mcp.ts'
 import { playbooks } from './playbooks.ts'
+import { windows } from './windows.ts'
 import { desktop } from './desktop.ts'
 import { extractHome } from './args.ts'
 import { bold, dim, setAdviceHome } from './ui.ts'
@@ -58,6 +59,14 @@ ${bold('Serveurs MCP des agents')}
                         Donne les outils du serveur aux agents d'un profil (researcher, developer, navigator)
   mcp detach <id> <profil>
                         Les leur retire
+
+${bold('VM Windows de test (clé générée au coffre, empreinte recopiée depuis la VM)')}
+  windows               VM déclarées, et ce que dit leur dernier test
+  windows add <id> --host H --user U --fingerprint "SHA256:…" [--port 22] [--new-key]
+                        Déclare une VM : génère sa clé, donne la commande qui la pose sur la VM
+  windows test <id>     Joint l'hôte épinglé et fait répondre PowerShell
+  windows key <id>      Redonne la clé publique et la commande qui la pose
+  windows remove <id>   Retire une VM et efface sa clé du coffre
 
 ${bold('Playbooks (savoir métier ajouté à la consigne d\'un profil)')}
   playbooks             Playbooks du clone, leur taille, et les profils qui les ont
@@ -144,6 +153,8 @@ export async function run(argv: string[]): Promise<number> {
       return mcp(config, rest)
     case 'playbooks':
       return playbooks(config, rest)
+    case 'windows':
+      return windows(config, rest)
     case 'pricing':
       return pricing(config, rest)
     case 'workspaces':
