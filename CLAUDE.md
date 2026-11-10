@@ -260,6 +260,17 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   une copie de même contenu, ou le passe à un chargeur, émulateur, shell ou
   interpréteur (Python seulement en position de script). Un orchestrateur ne
   transmet que **ses** échantillons, par nom — jamais un chemin du disque.
+- **Une commande sur la VM Windows est un acte approuvé, à chaque fois**
+  (Slice 9, étape 5.3). `windows_run` n'est offert qu'à un Developer dont le
+  profil a une VM (`windows_host`, Developer seul), et ajouté à la **tâche**,
+  pas au profil (comme `ask_parent`). Aucune liste blanche ne s'y applique ;
+  l'humain lit la VM et le script exact, et `run` revérifie la VM — redéclarée
+  autrement, rien ne tourne. Le worktree est recopié avant chaque script
+  (**jamais `.git`**, jamais un échantillon : ils ne sont pas dans le
+  worktree), dans `~/midgaard/tasks/<tâche>/work` ; le dossier est **effacé en
+  fin de tâche**, sous sa racine permise, sans jamais traverser un lien. Une
+  connexion par script, rien d'ouvert pendant une approbation. Ce que Windows
+  fait des processus d'une connexion coupée reste à constater (5.4).
 - **Aucune sous-tâche ne survit à son parent.** Un parent en
   `cancel_requested` ou dans un statut final emporte ses sous-tâches actives ;
   le vérifier en **comptant les tâches actives en base**. Profondeur 1 : un
@@ -373,7 +384,18 @@ sur un vrai Windows** (5.5). L'attache à un profil passe en 5.3, avec
 `windows_run`. 5.1 et 5.2 vertes en CI sur trois plateformes (passage
 `42791814211`), après deux corrections trouvées par la CI Windows : une paire
 ed25519 sur 256 mal formée par `ssh2`, et l'hôte factice qui créait un dossier
-`C:`.
+`C:`. 5.3 faite (migration 18, `PROTOCOL_VERSION` 21), en cinq : l'attache
+d'une VM à un profil **Developer** seul (`windows_host`, `PUT
+/api/agents/:id/windows`, `harness windows attach`/`detach` ; le retrait d'une
+VM la détache des profils) ; le dossier de tâche dans `remote` (`remoteTaskDir`,
+`replaceTree`, `removeTree` qui ne traverse jamais un lien ni ne sort de sa
+racine) ; l'outil `windows_run` derrière un `WindowsPort` ; son branchement
+(`WindowsSessions`, l'outil ajouté à la tâche et non au profil, le dossier
+effacé en fin de tâche) ; la doc. Verte en CI sur trois plateformes, après
+relance d'un poste coupé par un aléa d'infra (runner macOS absent, redémarrage
+du daemon sous Windows — fragilité connue, pas de la slice). Restent 5.4
+(survie des processus) et 5.5 (CI Windows avec sshd, jonctions NTFS), qui
+demandent un vrai Windows.
 
 ## Slice 8 en cours — des serveurs MCP pour les agents, des agents créés à la volée
 

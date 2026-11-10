@@ -159,7 +159,7 @@ Chaque point a été lu dans le code ou au catalogue, pas supposé.
 | 2 | Le savoir : `sigma`, `yara`, `pe-static`, `powershell`, `windows-hardening`, relus par l'auteur | fait (exemples validés, relus par l'auteur) |
 | 3 | La liste blanche à préfixes : migration, règle des interpréteurs, CLI, avertissement (le dashboard, qui ne montre pas encore la liste blanche, à l'étape 6) | **fait** — 70 tests unitaires et V14 ; trois défauts introduits vus échouer ; verte en CI sur trois plateformes (passages `42398543114`, `42398543220`, `42398543196`) |
 | 4 | L'environnement Python du worktree (`uv sync` proposé au départ) et les échantillons en lecture seule, jamais exécutés | **fait** — 17 tests unitaires, V15 et V16 ; quatre défauts introduits vus échouer ; verte en CI sur trois plateformes (passages `42402763315`, `42402763377`), après une relance Windows : une manche de `test:lock` a échoué une fois, sans journal (voir le récit) |
-| 5 | La VM Windows : déclaration, empreinte d'hôte, copie jetable, commande approuvée, Job Object ; CI Windows avec sshd | à faire |
+| 5 | La VM Windows : déclaration, empreinte d'hôte, copie jetable, commande approuvée, Job Object ; CI Windows avec sshd | **en cours** — 5.1 à 5.3 faites (déclaration, attache, `windows_run`) ; restent 5.4 (survie des processus) et 5.5 (CI Windows avec sshd), qui demandent un vrai Windows |
 | 6 | Le dashboard : playbooks aux Profils, liste blanche `exec` du dépôt (préfixes compris), VM, échantillons d'une tâche | à faire |
 | 7 | Preuves (`test:security`, CI trois plateformes) et essai réel : une règle Sigma, une règle YARA et un script PowerShell vérifiés sur la VM par un modèle *uncensored* ; le PE via REA après l'essai de la Slice 8 | à faire |
 
@@ -169,7 +169,7 @@ Chaque point a été lu dans le code ou au catalogue, pas supposé.
 |---|---|---|
 | 5.1 | Le paquet `remote` : connexion `ssh2`, empreinte comparée **avant** toute authentification, exécution avec sortie en flux, SFTP, fermeture ; tests contre un hôte factice en processus | **fait** — 10 tests, deux défauts introduits vus échouer |
 | 5.2 | La déclaration : table des hôtes (migration), routes `/api/windows`, `harness windows add` (clé générée au coffre, empreinte recopiée, commande PowerShell donnée), `test`, `key`, `remove` | **fait** — 9 tests, quatre défauts introduits vus échouer ; 5.1 et 5.2 vertes en CI sur trois plateformes (passage `42791814211`), après deux corrections trouvées par la CI Windows |
-| 5.3 | L'attache d'une VM à un profil (`attach`/`detach`, venue de 5.2) et l'outil `windows_run` : script PowerShell approuvé à chaque fois (hôte et texte exacts), dossier jetable de la tâche sur la VM, worktree recopié avant chaque commande (jamais `.git`, jamais un échantillon), sortie en direct expurgée et non fiable, délai et annulation, dossier effacé en fin de tâche | à faire |
+| 5.3 | L'attache d'une VM à un profil (`attach`/`detach`, venue de 5.2) et l'outil `windows_run` : script PowerShell approuvé à chaque fois (hôte et texte exacts), dossier jetable de la tâche sur la VM, worktree recopié avant chaque commande (jamais `.git`, jamais un échantillon), sortie en direct expurgée et non fiable, délai et annulation, dossier effacé en fin de tâche | **fait** — découpée en cinq (a : l'attache, migration 18, `PROTOCOL_VERSION` 21 ; b : le dossier de tâche dans `remote` ; c : l'outil ; d : le branchement ; e : la doc), chacune verte en CI sur trois plateformes, après relance d'un poste coupé par un aléa d'infra (runner macOS absent, redémarrage du daemon sous Windows) |
 | 5.4 | Aucun processus ne survit : **constater d'abord** ce que Win32-OpenSSH fait d'une session coupée, en comptant les processus de l'hôte ; puis, s'il le faut, un lanceur qui pose un Job Object tué à sa fermeture | à faire |
 | 5.5 | La CI : un poste Windows GitHub active OpenSSH Server, pose la clé **par la commande que donne la CLI** (ce qui prouve la consigne), se joint lui-même ; `test:windows` — exécution, empreinte fausse refusée, daemon tué net, processus comptés sur l'hôte | à faire |
 
@@ -538,3 +538,67 @@ nommé `C:`, que Windows refuse. Il traduit désormais une lettre de lecteur en
 dossier (`C/…`) ; le code de copie, lui, envoie la forme qu'attend le SFTP de
 Windows.
 
+
+### Étape 5.3 — l'attache, le dossier de tâche, `windows_run` (2026-11-10)
+
+Quatre décisions prises avec l'auteur avant d'écrire : **un profil Developer
+seul** reçoit une VM (c'est son worktree qui part dessus), **une au plus** par
+profil, **un script en ligne** d'au plus 3 000 caractères (`-EncodedCommand` ;
+plus long, un `.ps1` du worktree), **une connexion par commande** (rien
+d'ouvert pendant qu'une approbation attend). L'étape a été découpée en cinq,
+chacune commitée et verte en CI à part.
+
+**5.3a — l'attache.** Un profil porte `windows_host` (migration 18,
+`PROTOCOL_VERSION` 21), posé par l'humain seul : `PUT
+/api/agents/:id/windows`, `harness windows attach` / `detach`, et `windows
+list` qui montre les profils de chaque VM. `setAgentWindowsHost` refuse tout
+autre type que `developer` (`409`) et une VM non déclarée (`404`, avec la
+liste) ; détacher est toujours permis. Le **retrait d'une VM la détache
+d'abord des profils** et les nomme : une VM redéclarée sous le même nom ne se
+retrouve pas attachée sans l'humain. Un agent créé hérite de la VM de son
+profil de base. 4 tests ; deux défauts introduits vus échouer (contrôle du
+type, retrait qui ne détache pas).
+
+**5.3b — le dossier de tâche, dans `remote`.** `remoteTaskDir(home, taskId)`
+donne `<home>/midgaard/tasks/<tâche>/work`, `<home>` lu par SFTP (aucune
+supposition sur `C:\`), l'identifiant exigé en UUID. `replaceTree` efface
+`work` puis recopie : un fichier retiré du worktree disparaît de la VM.
+`removeTree` vérifie, **avant tout effacement**, que la cible est strictement
+sous la racine permise, que la racine et les dossiers intermédiaires ne sont
+pas des liens, et lit chaque entrée par `lstat` — un lien est retiré lui-même,
+jamais parcouru. 7 tests ; deux défauts vus échouer (`stat` au lieu de
+`lstat`, contrôle de la racine retiré).
+
+**5.3c — l'outil `windows_run`.** Dans `tools`, derrière un `WindowsPort`
+(comme le navigateur et les serveurs MCP) : fermé par défaut, une approbation
+à chaque appel (aucune liste blanche ne s'y applique), l'humain lit la VM et
+le script exact dont l'empreinte de l'approbation est tirée, et `run`
+revérifie la VM — redéclarée autrement, rien ne tourne. Délai borné par
+l'échéance, résultat non fiable. 7 tests avec un faux port ; deux défauts vus
+échouer (politique sans approbation, contrôle de la VM changée retiré).
+
+**5.3d — le branchement.** `WindowsSessions` (daemon) relie les trois : pour
+une tâche d'un Developer à VM et worktree, le moteur pose le port et **ajoute
+`windows_run` à la liste d'outils de la tâche**, pas au profil (comme
+`ask_parent`). Chaque appel ouvre une connexion, recopie le worktree (jamais
+`.git` ; les échantillons ne sont pas dans le worktree), lance le script dans
+`work`, ferme. `endTask` efface le dossier de la tâche en fin de tâche, au
+mieux. 6 tests avec un vrai store, un vrai coffre et l'hôte factice ; un
+défaut vu échouer (`endTask` qui n'efface rien). `test:developer` (16
+scénarios) reste vert : le branchement est inerte pour une tâche sans VM.
+
+**5.3e — la documentation** : ce récit, `CLAUDE.md`, les README des paquets
+`remote`, `tools` et `daemon`, et `docs/DEPANNAGE.md`.
+
+**Un aléa de CI, pas de la slice.** Deux passages de suite ont eu un poste
+coupé : le runner macOS jamais alloué sur la 5.3c (15 min en file, zéro
+étape), et Windows sur la 5.3d — `test:developer` a échoué à V6 (le daemon ne
+redémarre pas), puis le processus est resté suspendu jusqu'au timeout de 30
+min du job. Les deux sont passés à la relance du seul poste coupé. La
+fragilité du redémarrage du daemon sous Windows est connue (voir les manches
+ratées de `test:lock` et `test:wait` plus haut) ; rien de la 5.3 ne la cause.
+
+**Reste à constater, sur un vrai Windows.** La survie des processus d'une
+connexion coupée (5.4) et ce que le SFTP de Win32-OpenSSH dit d'une **jonction
+NTFS** (le refus de traverser un lien n'est prouvé que contre des liens POSIX)
+se mesurent sur une vraie machine, avec la CI de la 5.5.

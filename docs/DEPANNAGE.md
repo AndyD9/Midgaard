@@ -513,6 +513,35 @@ une empreinte MD5 est refusée.
 - **« clé absente du coffre »** : le coffre a été vidé ou changé ;
   `windows add <id> --new-key`, puis pose la nouvelle clé.
 
+### Attacher une VM à un profil, et `windows_run`
+
+`npm run harness -- windows attach <vm> <profil>` donne la VM à un profil, à
+partir de la tâche suivante. Seul un profil **Developer** l'accepte (c'est son
+worktree qui part sur la VM) ; un autre type est refusé avec son motif, et une
+VM non déclarée aussi, avec la liste des VM connues. Une au plus par profil :
+en attacher une autre la remplace, et la CLI le dit. `windows detach <profil>`
+la retire. `windows list` montre les profils de chaque VM. Retirer une VM
+(`windows remove`) la détache d'abord des profils qui la portaient.
+
+L'outil `windows_run` n'apparaît qu'aux tâches d'un Developer **qui a une VM**,
+et chaque script y est approuvé (VM et texte exacts). Ce que dit un échec à
+l'agent, et à la timeline :
+
+- **« the Windows VM changed since the script was approved »** : la VM a été
+  redéclarée (adresse, compte ou empreinte) entre l'approbation et l'exécution.
+  Rien n'a tourné : réapprouve le script sur la VM telle qu'elle est ;
+- **« the Windows VM … is no longer declared »** : la VM a été retirée pendant
+  la tâche. Rattache-la (`windows attach`) pour les tâches suivantes ;
+- **« no key for the Windows VM … in the vault »** : le coffre a été vidé ou
+  changé. `windows add <id> --new-key`, puis pose la nouvelle clé ;
+- **injoignable, clé refusée, autre empreinte** : mêmes causes que pour
+  `windows test` ci-dessus — la copie du worktree et le script ne partent pas.
+
+Le dossier de la tâche sur la VM (`~/midgaard/tasks/<tâche>`) est effacé à la
+fin de la tâche. Une VM éteinte à ce moment-là l'empêche : le daemon le
+journalise sans bloquer la tâche, et le dossier restera jusqu'au prochain
+nettoyage ou à la main.
+
 ---
 
 ## Les serveurs MCP des agents
