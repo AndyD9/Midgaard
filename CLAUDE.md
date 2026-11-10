@@ -382,9 +382,17 @@ seule** `READ_ONLY_ANALYSIS` (`exec-allow.ts`) accepte une option en tête pour
 impriment, sans exécuter de code ni écrire. `rg` (`--pre`), `file` (`-C`) et
 `xxd` (`-r`) en sont **écartés** et restent approuvés au coup par coup. Aucun
 outil neuf, aucune migration, aucun `PROTOCOL_VERSION`. Prouvé dans
-`tests/unit/exec-prefix.test.ts`. `test:unit` (805), `test:ui` (19),
-`typecheck` verts en local, **CI trois plateformes à confirmer**. Restent le
-routage par profils (5), le `report` (6) et l'essai réel (7).
+`tests/unit/exec-prefix.test.ts`. Étape 5 faite : le **routage par profils**
+(décision E, pas de YAML). L'injection des playbooks est agnostique au type et
+`setAgentPlaybooks` n'exclut que le simulé, donc l'**orchestrateur porte des
+playbooks** : il pilote `recon`/`validate`/`trace`/`report` sur un modèle
+capable, et `hunt` va au `researcher` sur `deepseek-v4-1-flash-uncensored`
+(playbook `hunt`, hérité par `create_agent`). Commandes `playbooks attach` dans
+`docs/SLICE10.md`, modèle réglé aux Profils du dashboard ; plafond de
+sous-tâches `hunt` (`MIDGAARD_MAX_ACTIVE_SUBTASKS`) à mesurer à l'essai réel.
+Aucun code neuf ; `tests/unit/playbooks.test.ts` verrouille que l'orchestrateur
+accepte des playbooks. `test:unit` (806), `typecheck` verts en local, **CI trois
+plateformes à confirmer**. Restent le `report` (6) et l'essai réel (7).
 
 ## Slice 9 en cours — des agents experts (Python, reverse, règles Windows)
 

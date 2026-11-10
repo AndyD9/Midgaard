@@ -8,7 +8,7 @@ d'information sur ce qui se passe, une *dialogue box* vers l'orchestrateur
 conservée), et — pour le reverse — des **outils d'analyse en lecture seule**,
 l'exécution dynamique restant **confinée à la seule VM Windows**.
 
-**État : ouverte, étapes 1 à 4 faites.** Posée le 2026-11-10 à la demande de l'auteur,
+**État : ouverte, étapes 1 à 5 faites.** Posée le 2026-11-10 à la demande de l'auteur,
 après lecture de deux références qu'il a proposées :
 [baby-naptime](https://github.com/faizann24/baby-naptime) (implémentation
 ouverte de *Project Naptime* de Google — boucle d'agent avec `CodeBrowser`,
@@ -371,3 +371,43 @@ toujours refusés avec leur motif, `./objdump` refusé en chemin relatif).
 `test:unit` (805), `typecheck` verts en local ; `test:developer` (V14) et la CI
 trois plateformes à confirmer. Restent le routage par profils (5), le `report`
 (6) et l'essai réel (7).
+
+### Étape 5 — le routage par profils (2026-11-10)
+
+Décision E : le routage se fait par l'**attache à des profils**, pas par un
+YAML. Constaté avant d'écrire : l'injection des playbooks
+(`engines/agent.ts`) est **agnostique au type** de profil, et `setAgentPlaybooks`
+n'exclut que le profil simulé — donc l'**orchestrateur peut porter des
+playbooks**. Le pipeline tient alors sans code neuf :
+
+- **l'orchestrateur** pilote `recon`, `validate`, `trace`, `report` (il lit le
+  projet, tient les outils de findings et assemble) → ses quatre playbooks, sur
+  un **modèle capable** ;
+- l'étape **`hunt`**, déléguée en parallèle à des exécutants, va sur le profil
+  **`researcher`** avec le modèle **rapide** `deepseek-v4-1-flash-uncensored`
+  (déjà tarifé) et le playbook `hunt` ; un agent créé par `create_agent` depuis
+  `researcher` en hérite.
+
+C'est l'équivalent du `model-routing.yaml` de harness-kit, réalisé par la
+configuration. Les commandes exactes (depuis le clone) :
+
+```
+npm run harness -- playbooks attach recon orchestrator
+npm run harness -- playbooks attach validate orchestrator
+npm run harness -- playbooks attach trace orchestrator
+npm run harness -- playbooks attach report orchestrator
+npm run harness -- playbooks attach hunt researcher
+```
+
+Le modèle d'un profil se règle aux **Profils** du dashboard (`#/agents`,
+éprouvé par D10) : l'orchestrateur sur un modèle capable, le `researcher` sur
+`deepseek-v4-1-flash-uncensored`. Le **plafond de sous-tâches `hunt`**
+(`MIDGAARD_MAX_ACTIVE_SUBTASKS`, défaut 4) reste à fixer **par la mesure** d'un
+`hunt` réel à concurrence croissante — c'est l'étape 7, l'essai réel, qui le
+donnera ; on ne le fige pas d'avance.
+
+Prouvé que le fait porteur tient : `tests/unit/playbooks.test.ts` attache un
+playbook à l'orchestrateur (200), là où le simulé est refusé (409) ;
+l'injection elle-même est déjà couverte pour un profil quelconque. **Aucun
+code, aucune migration.** `test:unit` (806), `typecheck` verts en local.
+Restent le `report` (6) et l'essai réel (7).

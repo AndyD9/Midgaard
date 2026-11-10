@@ -295,6 +295,20 @@ describe('les playbooks dans un vrai daemon', () => {
     assert.deepEqual(daemon.store.getAgent(RESEARCHER_AGENT_ID)!.playbooks, [], 'un refus ne doit rien avoir écrit')
   })
 
+  it('l\'orchestrateur peut porter des playbooks : le routage du pipeline (Slice 10)', async () => {
+    // Le pipeline met recon/validate/trace/report côté orchestrateur (il les
+    // pilote et tient les outils de findings) et hunt côté exécutant rapide.
+    // Cela ne tient que si l'orchestrateur peut, lui, porter des playbooks :
+    // seul le profil simulé en est privé.
+    const set = await api<{ agent: Agent }>('/api/agents/orchestrator/playbooks', 'PUT', { playbooks: ['sigma'] })
+    assert.equal(set.status, 200, JSON.stringify(set.body))
+    assert.deepEqual(set.body.agent.playbooks, ['sigma'])
+    // L'injection elle-même est agnostique au type (testée pour le researcher
+    // ci-dessous) : la prouver ici pour l'orchestrateur n'ajoute rien. On rend
+    // le profil à son état nu pour ne pas peser sur les tests suivants.
+    await api('/api/agents/orchestrator/playbooks', 'PUT', { playbooks: [] })
+  })
+
   it('ce que reçoit le modèle est le playbook, après les règles, et la timeline cite son SHA-256', async () => {
     const set = await api<{ agent: Agent }>('/api/agents/researcher/playbooks', 'PUT', { playbooks: ['sigma', 'sigma'] })
     assert.equal(set.status, 200, JSON.stringify(set.body))
