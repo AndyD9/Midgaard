@@ -26,16 +26,49 @@ export interface GeneratedKeyPair {
   publicKey: string
 }
 
+/** Tirages au plus avant d'abandonner : un échec sur 256 rend huit échecs de suite impossibles en pratique. */
+const KEYGEN_ATTEMPTS = 8
+
 /**
- * Génère une paire ed25519 dédiée.
+ * Vrai si une paire est **utilisable** : les deux moitiés se relisent, la
+ * publique dérivée de la privée est celle annoncée, et une signature de la
+ * privée se vérifie par la publique.
+ *
+ * Pourquoi la vérifier : `ssh2` 1.17 rend **une paire ed25519 sur 256 mal
+ * formée** — quand le premier octet de la clé vaut zéro, il le retire comme
+ * pour un grand entier, et la clé annonce 31 octets au lieu de 32 (`AAAAH…`
+ * au lieu de `AAAAI…`). Ni la publique ni la privée ne se relisent alors.
+ * Constaté en CI sous Windows, puis mesuré : 67 sur 20 000.
+ */
+export function isUsableKeyPair(pair: GeneratedKeyPair): boolean {
+  const pub = ssh2.utils.parseKey(pair.publicKey)
+  const priv = ssh2.utils.parseKey(pair.privateKey)
+  if (pub instanceof Error || priv instanceof Error) return false
+  const a = Array.isArray(pub) ? pub[0]! : pub
+  const b = Array.isArray(priv) ? priv[0]! : priv
+  if (Buffer.compare(a.getPublicSSH(), b.getPublicSSH()) !== 0) return false
+  const message = Buffer.from('midgaard key check')
+  const signature = b.sign(message)
+  return signature instanceof Buffer && a.verify(message, signature) === true
+}
+
+/**
+ * Génère une paire ed25519 dédiée, **vérifiée** ({@link isUsableKeyPair}) :
+ * une paire mal formée est jetée et tirée de nouveau.
  *
  * @param comment commentaire de la clé publique (`midgaard-<vm>`) : c'est
  *                lui qui permet de la reconnaître, et de la retirer, dans le
  *                fichier des clés autorisées de la VM
+ * @throws si aucun des tirages n'est utilisable — ce qui dirait une panne de
+ *         la bibliothèque, pas un mauvais tirage
  */
 export function generateKeyPair(comment: string): GeneratedKeyPair {
-  const pair = ssh2.utils.generateKeyPairSync('ed25519', { comment })
-  return { privateKey: pair.private, publicKey: pair.public.trim() }
+  for (let i = 0; i < KEYGEN_ATTEMPTS; i++) {
+    const raw = ssh2.utils.generateKeyPairSync('ed25519', { comment })
+    const pair = { privateKey: raw.private, publicKey: raw.public.trim() }
+    if (isUsableKeyPair(pair)) return pair
+  }
+  throw new Error(`aucune paire ed25519 utilisable en ${KEYGEN_ATTEMPTS} tirages`)
 }
 
 /** Empreinte OpenSSH d'un blob de clé publique (le format « wire » SSH). */

@@ -520,3 +520,15 @@ sortie gardée ne nommait pas — seule sa dernière ligne avait été conservé
 puis a passé ses 13 scénarios à la relance. Non expliqué, et noté comme tel ;
 une suite se relance désormais avec son journal entier.
 
+**La CI a trouvé un défaut de `ssh2`** au premier passage de 5.2 (passage
+`42786775241`, Windows) : le `before` de `remote.test.ts` levait « Malformed
+OpenSSH public key » sur une clé qu'il venait de générer. Mesuré ensuite :
+**une paire ed25519 sur 256** sort de `ssh2.utils.generateKeyPairSync` mal
+formée — premier octet nul retiré, 31 octets annoncés au lieu de 32 —, et ni
+la publique ni la privée ne se relisent (67 sur 20 000). Le daemon aurait pu
+donner à une VM, une fois sur 256, une clé que rien ne lirait.
+`generateKeyPair` relit désormais chaque paire, compare la publique dérivée
+de la privée, vérifie une signature, et tire de nouveau sinon ; un test
+provoque une paire mal formée pour éprouver le contrôle, puis en tire 2 000
+— vu échouer sans le contrôle.
+

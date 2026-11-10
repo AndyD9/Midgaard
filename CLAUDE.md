@@ -273,6 +273,11 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
   contient un octet non-ASCII, sans le signaler, et deviner à la relecture est
   impossible (`abcdef` est les deux à la fois). On ne dépose donc que de l'ASCII
   imprimable (`mg1:` + base64).
+- **`ssh2` rend une paire ed25519 sur 256 mal formée** (premier octet nul
+  retiré, 31 octets au lieu de 32) : ni la publique ni la privée ne se
+  relisent. `generateKeyPair` (`packages/remote`) relit et signe chaque paire,
+  et retire sinon. Vu en CI sous Windows, simple malchance du tirage : le
+  défaut est sur toutes les plateformes.
 - **`String.replace` passe le texte entier après les groupes de capture.** Le
   confondre avec un groupe fait chercher tout le document dans le seul motif
   trouvé — l'expurgation ne remplaçait alors rien.

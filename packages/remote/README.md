@@ -50,6 +50,16 @@ remplissage — constaté identique à `ssh-keygen -lf`. `normalizeFingerprint`
 accepte la ligne entière de `ssh-keygen -lf` ou la forme nue, et refuse
 une empreinte MD5.
 
+## Une paire sur 256 mal formée
+
+`ssh2` 1.17 rend **une paire ed25519 sur 256 inutilisable** : quand le
+premier octet de la clé vaut zéro, il le retire comme pour un grand entier,
+et la clé annonce 31 octets au lieu de 32 (`AAAAH…` au lieu de `AAAAI…`) ;
+ni la publique ni la privée ne se relisent. `generateKeyPair` relit donc
+chaque paire, compare la publique à celle que donne la privée, vérifie une
+signature (`isUsableKeyPair`), et tire de nouveau sinon. Trouvé par la CI
+Windows au premier passage de 5.2, puis mesuré : 67 paires sur 20 000.
+
 ## Dépendance
 
 `ssh2` (pur JavaScript). Ses modules natifs facultatifs (`cpu-features`,

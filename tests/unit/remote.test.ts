@@ -19,9 +19,11 @@ import {
   RemoteSession,
   fingerprintOfPublicKey,
   generateKeyPair,
+  isUsableKeyPair,
   normalizeFingerprint,
   type RemoteTarget,
 } from '@midgaard/remote'
+import ssh2 from 'ssh2'
 import { startFakeSshServer, type FakeSshServer } from '../fake-ssh-server.ts'
 
 /**
@@ -49,6 +51,21 @@ describe('empreintes', () => {
 
   it('calcule l\'empreinte comme ssh-keygen', () => {
     assert.equal(fingerprintOfPublicKey(KNOWN_KEY), KNOWN_FP)
+  })
+
+  it('écarte une paire mal formée par ssh2, et n\'en rend jamais une', () => {
+    // ssh2 1.17 rend une paire sur 256 mal formée (premier octet nul retiré) :
+    // on en provoque une pour éprouver le contrôle, puis on tire assez de
+    // paires pour qu'une seule, sans contrôle, échoue presque sûrement.
+    let bad: { privateKey: string; publicKey: string } | null = null
+    for (let i = 0; i < 20_000 && !bad; i++) {
+      const raw = ssh2.utils.generateKeyPairSync('ed25519', { comment: 'x' })
+      const pair = { privateKey: raw.private, publicKey: raw.public.trim() }
+      if (!isUsableKeyPair(pair)) bad = pair
+    }
+    assert.ok(bad, 'aucune paire mal formée en 20 000 tirages : le défaut de ssh2 a disparu ?')
+    assert.match(bad.publicKey, /^ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAH/, 'la clé annonce 31 octets au lieu de 32')
+    for (let i = 0; i < 2_000; i++) assert.ok(isUsableKeyPair(generateKeyPair('midgaard-test')))
   })
 
   it('génère une clé ed25519 dédiée, commentée', () => {
