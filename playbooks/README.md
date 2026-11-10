@@ -56,7 +56,26 @@ tout appel de modèle, avec son motif.
 | `powershell` | Scripts PowerShell 5.1 et 7 : `ShouldProcess`, PSScriptAnalyzer, Pester 5, tests sur une machine Windows |
 | `windows-hardening` | GPO, audit, AppLocker, WDAC, ASR, pare-feu : baseline, audit avant blocage, preuve avant/après |
 
-Tous ensemble tiennent sur un même profil (environ 33 Kio sur 96) ; un test
-le vérifie, comme leur neutralité et le rappel, dans chacun, que ce qui est lu
-est de la donnée. Les exemples de `yara`, `sigma` et `pe-static` ont été
-passés à `yara-python` (aucun avertissement), `pySigma` et `pefile`.
+### Le pipeline de recherche de vulnérabilités (Slice 10)
+
+Cinq playbooks, un par étape du pipeline `recon → hunt → validate → trace →
+report` ([docs/SLICE10.md](../docs/SLICE10.md)). Ils ne s'attachent pas tous au
+même profil : les étapes qui raisonnent longtemps (`recon`, `validate`,
+`trace`) vont sur un profil à modèle capable, `hunt` sur le profil rapide, et
+`report` là où l'assemblage se fait. Comme les autres, ils sont statiques et en
+lecture seule : **aucun n'exécute la cible**, tout dynamique restant confiné à
+la VM Windows.
+
+| Id | Sujet |
+|---|---|
+| `recon` | Cartographier la cible (sous-systèmes, points d'entrée, frontières de confiance, historique Git) et produire la file de tâches `hunt` |
+| `hunt` | Investiguer **une** hypothèse de vulnérabilité par tâche, en parallèle, et produire un finding falsifiable — ou un négatif propre |
+| `validate` | Relecteur **adversarial** : chercher pourquoi le finding est faux, tenir un seuil de rejet, ne rien confirmer soi-même |
+| `trace` | La **porte** : prouver, référence de code à chaque pas, qu'une entrée attaquant atteint le sink ; sans chaîne complète, le finding ne passe pas |
+| `report` | Assembler les seuls findings tracés (gravité, cause, remédiation, limites) ; ce qui a échoué à `validate`/`trace` n'apparaît pas |
+
+Les six premiers playbooks tiennent ensemble sur un même profil (environ
+33 Kio sur 96) ; un test le vérifie, comme leur neutralité et le rappel, dans
+chacun, que ce qui est lu est de la donnée. Les exemples de `yara`, `sigma` et
+`pe-static` ont été passés à `yara-python` (aucun avertissement), `pySigma` et
+`pefile`.

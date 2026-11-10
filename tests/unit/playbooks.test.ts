@@ -177,22 +177,42 @@ describe('les playbooks livrés', () => {
     for (const p of listed) assert.ok(p.bytes <= PLAYBOOK_MAX_BYTES)
   })
 
-  it('tiennent tous ensemble sur un même profil : un agent expert de tous les terrains reste possible', async () => {
+  // Les playbooks métier (Slice 9) vont volontiers ensemble sur un même profil ;
+  // ceux du pipeline (Slice 10) vont sur des profils DIFFÉRENTS — recon,
+  // validate et trace sur un profil capable, hunt sur le rapide, report à
+  // l'assemblage —, donc on ne demande pas qu'ils tiennent tous à onze.
+  const DOMAIN = ['python', 'sigma', 'yara', 'pe-static', 'powershell', 'windows-hardening']
+  const PIPELINE = ['recon', 'hunt', 'validate', 'trace', 'report']
+
+  it('les playbooks métier tiennent tous ensemble sur un même profil : un agent expert de tous les terrains reste possible', async () => {
     const listed = await listPlaybooks(dir)
-    assert.ok(listed.length <= PLAYBOOKS_MAX_PER_AGENT, `${listed.length} playbooks livrés, ${PLAYBOOKS_MAX_PER_AGENT} au plus par profil`)
-    const total = listed.reduce((n, p) => n + p.bytes, 0)
+    const domain = listed.filter((p) => DOMAIN.includes(p.id))
+    assert.equal(domain.length, DOMAIN.length, `playbooks métier manquants : attendu ${DOMAIN.join(', ')}`)
+    assert.ok(domain.length <= PLAYBOOKS_MAX_PER_AGENT, `${domain.length} playbooks métier, ${PLAYBOOKS_MAX_PER_AGENT} au plus par profil`)
+    const total = domain.reduce((n, p) => n + p.bytes, 0)
     assert.ok(total <= PLAYBOOKS_MAX_BYTES_PER_AGENT, `${total} octets ensemble, au plus ${PLAYBOOKS_MAX_BYTES_PER_AGENT}`)
-    const loaded = await loadPlaybooks(dir, listed.map((p) => p.id))
+    const loaded = await loadPlaybooks(dir, domain.map((p) => p.id))
     assert.ok('playbooks' in loaded, 'error' in loaded ? loaded.error : '')
+  })
+
+  it('les cinq playbooks du pipeline existent et s\'attachent chacun (profils distincts)', async () => {
+    const listed = await listPlaybooks(dir)
+    for (const id of PIPELINE) {
+      const p = listed.find((x) => x.id === id)
+      assert.ok(p, `playbook ${id} manquant`)
+      assert.equal(p!.unusable_reason, null, `${id} : ${p!.unusable_reason}`)
+      const loaded = await loadPlaybooks(dir, [id])
+      assert.ok('playbooks' in loaded, 'error' in loaded ? loaded.error : '')
+    }
   })
 
   it('redisent chacun que rien ne s\'exécute d\'un échantillon ou d\'un contenu lu', () => {
     // La règle est appliquée par le code (étape 4) ; la redire dans chaque
     // playbook épargne au modèle de la découvrir en se faisant refuser.
-    for (const id of ['python', 'yara', 'pe-static']) {
+    for (const id of ['python', 'yara', 'pe-static', ...PIPELINE]) {
       assert.match(readFileSync(join(dir, `${id}.md`), 'utf8'), /never (execute|run)/i, id)
     }
-    for (const id of ['sigma', 'yara', 'pe-static', 'powershell', 'windows-hardening', 'python']) {
+    for (const id of ['sigma', 'yara', 'pe-static', 'powershell', 'windows-hardening', 'python', ...PIPELINE]) {
       assert.match(readFileSync(join(dir, `${id}.md`), 'utf8'), /untrusted data|are data|is data/i, `${id} : le contenu lu doit être dit donnée`)
     }
   })

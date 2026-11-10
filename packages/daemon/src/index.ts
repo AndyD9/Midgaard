@@ -7,7 +7,7 @@
 export { startDaemon, defaultDashboardDir } from './daemon.ts'
 export type { Daemon, StartOptions } from './daemon.ts'
 export { EventBus } from './bus.ts'
-export { TaskManager, STEPS_TOTAL, APPROVAL_STEP, MAX_CREATED_AGENTS } from './task-manager.ts'
+export { TaskManager, STEPS_TOTAL, APPROVAL_STEP, MAX_CREATED_AGENTS, MAX_FINDINGS } from './task-manager.ts'
 export type { Refusal, TaskView } from './task-manager.ts'
 export { SimulatedEngine } from './engines/simulated.ts'
 export { keyCommand, visionOf } from './engines/agent.ts'

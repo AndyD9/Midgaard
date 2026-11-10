@@ -455,6 +455,39 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE agents ADD COLUMN windows_host TEXT;
     `,
   },
+  {
+    version: 19,
+    label: 'Slice 10 — les findings d\'un arbre d\'orchestrateur',
+    sql: `
+      -- Une vulnérabilité candidate, suivie dans l'arbre d'un orchestrateur.
+      -- tree_task_id est la tâche racine (l'orchestrateur), posée par le daemon
+      -- seul : un finding appartient à un arbre, comme un agent créé (Slice 8),
+      -- et aucun autre arbre ne le voit. Pas de clé étrangère : l'arbre est
+      -- borné par le daemon, et un finding survit à la lecture de l'historique
+      -- même si sa tâche racine est purgée un jour.
+      --
+      -- status va de 'open' (record_finding) à 'rejected' (reject_finding) ou
+      -- 'trace_confirmed' (confirm_trace). C'est confirm_trace, et lui seul, qui
+      -- pose 'trace_confirmed' avec threat_model et une chaîne taint_path_json
+      -- non vide : la porte de traçage est mécanique, pas une consigne.
+      CREATE TABLE findings (
+        id              TEXT PRIMARY KEY,
+        tree_task_id    TEXT NOT NULL,
+        title           TEXT NOT NULL,
+        vuln_class      TEXT NOT NULL,
+        sink            TEXT NOT NULL,
+        source          TEXT NOT NULL,
+        evidence        TEXT NOT NULL,
+        status          TEXT NOT NULL DEFAULT 'open',
+        reject_reason   TEXT,
+        threat_model    TEXT,
+        taint_path_json TEXT NOT NULL DEFAULT '[]',
+        created_at      TEXT NOT NULL,
+        updated_at      TEXT NOT NULL
+      );
+      CREATE INDEX findings_tree_idx ON findings(tree_task_id);
+    `,
+  },
 ]
 
 // Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',

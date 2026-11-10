@@ -750,6 +750,10 @@ export class AgentEngine implements TaskEngine {
         // tout autre profil qui recevrait `delegate_task` par erreur se verrait
         // refuser l'outil, sans approbation à la place.
         delegation: agent.kind === 'orchestrator' ? ctx.delegationFor(task.id, redact) : undefined,
+        // Le port de findings suit la même règle (Slice 10) : posé pour le seul
+        // orchestrateur, sur l'arbre dont il est la racine. Les outils de
+        // findings refusent sans lui, comme ceux de la délégation.
+        findings: agent.kind === 'orchestrator' ? ctx.findingsFor(task.id, redact) : undefined,
         // Le navigateur n'est posé que pour un profil qui a ses outils
         // (Slice 7) : fermé par défaut, comme la délégation.
         browser: hasBrowser(agent.tools) ? this.deps.browsers?.portFor(task.id, redact) : undefined,

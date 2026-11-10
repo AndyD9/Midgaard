@@ -115,6 +115,9 @@ export const EVENT_TYPES = [
   'browser.opened',
   'browser.closed',
   'agent.created',
+  'finding.recorded',
+  'finding.rejected',
+  'finding.trace_confirmed',
 ] as const
 export type EventType = (typeof EVENT_TYPES)[number]
 

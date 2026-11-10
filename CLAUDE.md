@@ -334,8 +334,8 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 
 ## Slice 10 décidée — spécialisation sécurité (pipeline à portes, vue terminal)
 
-Posée le 2026-11-10 avec l'auteur, **non ouverte** : elle s'ouvre **après la
-Slice 9** (5.4, 5.5), dont elle dépend pour le volet dynamique. Objectif :
+Posée le 2026-11-10 avec l'auteur, **ouverte, étape 1 faite** ; le volet
+dynamique s'ouvre **après la Slice 9** (5.4, 5.5), dont il dépend. Objectif :
 pousser Midgaard vers un harness de recherche de vulnérabilités — un **pipeline
 à étapes et à portes** (`recon → hunt → validate → trace → report`) porté par
 cinq **playbooks** de plus, une **vue terminal** temps réel (moins d'UI, plus de
@@ -353,7 +353,24 @@ statique et en lecture seule. Le pipeline de harness-kit mappe déjà sur
 l'existant (playbooks, revue adversariale, délégation parallèle, limites par
 profil) : on n'importe **aucune architecture**, seulement du savoir d'étape et
 une porte de traçage. Décisions, découpage en sept étapes et questions
-ouvertes : [docs/SLICE10.md](docs/SLICE10.md).
+ouvertes : [docs/SLICE10.md](docs/SLICE10.md). Les quatre questions ouvertes
+ont été tranchées : statut `trace_confirmed` mécanique, préfixes `exec`
+(`rg`/`objdump`/`nm`/`strings`) plutôt qu'un `CodeBrowser` neuf, vue terminal
+dans le dashboard, `hunt` sur `deepseek-v4-1-flash-uncensored`. Étape 1 faite :
+les cinq playbooks du pipeline (`recon`, `hunt`, `validate`, `trace`, `report`)
+dans `playbooks/`, statiques et en lecture seule, attachables tels quels (la
+mécanique de la Slice 9 suffit). Étape 2 faite : la **porte de traçage
+mécanique** — les *findings* de première classe dans l'arbre d'un orchestrateur
+(migration 19, `PROTOCOL_VERSION` 22, événements `finding.*`, port `FindingsPort`
+et outils `record_finding`/`reject_finding`/`confirm_trace`/`list_findings`).
+Le daemon ne pose `trace_confirmed` que par `confirm_trace` (chaîne d'au moins
+deux pas, modèle de menace ; un finding rejeté ne se confirme pas), et
+`list_findings('trace_confirmed')` ne rend jamais un finding non confirmé :
+seul ce statut entre dans le rapport. Prouvé par `tests/unit/findings.test.ts`
+(vrai daemon, effets lus en base) ; `test:unit` (786), `test:orchestrator`,
+`test:security` et `typecheck` verts en local, **CI trois plateformes à
+confirmer**. Restent la vue terminal (étape 3), les préfixes `exec` (étape 4),
+le routage par profils (5), le `report` (6) et l'essai réel (7).
 
 ## Slice 9 en cours — des agents experts (Python, reverse, règles Windows)
 

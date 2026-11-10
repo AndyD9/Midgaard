@@ -24,6 +24,7 @@ import {
   sendMessageTool,
   waitForTaskTool,
 } from './delegation.ts'
+import { confirmTraceTool, listFindingsTool, recordFindingTool, rejectFindingTool } from './findings.ts'
 import { askParentTool } from './ask.ts'
 import { readImageTool } from './image.ts'
 import {
@@ -34,6 +35,7 @@ import {
 export type {
   Tool, ToolContext, HttpPolicy, PreparedOperation,
   CreateAgentRequest, CreatedAgentInfo, DelegableAgent, DelegateRequest, DelegationPort, DelegationRefusal, SubtaskAwaiting, SubtaskState, WaitStop,
+  ConfirmTraceInput, FindingsPort, FindingsRefusal,
   BrowserCapture, BrowserNoSession, BrowserPageView, BrowserPlannedInput, BrowserPort, BrowserSessionInfo,
   WindowsPort, WindowsRunOutcome, WindowsTarget,
 } from './types.ts'
@@ -83,6 +85,14 @@ export const DELEGATION_TOOLS = [
   'list_agents', 'create_agent', 'delegate_task', 'wait_for_task', 'cancel_task', 'send_message', 'accept_result',
 ] as const
 
+/**
+ * Outils de findings (Slice 10) : réservés au profil `orchestrator`, ils portent
+ * la porte de traçage du pipeline. Ils refusent sans `ToolContext.findings`.
+ */
+export const FINDING_TOOLS = [
+  'record_finding', 'reject_finding', 'confirm_trace', 'list_findings',
+] as const
+
 /** Nom de l'outil terminal, que la boucle intercepte. */
 export const SUBMIT_RESULT = 'submit_result'
 
@@ -116,6 +126,10 @@ export const TOOLBOX: Readonly<Record<string, Tool<never>>> = Object.freeze({
   cancel_task: cancelTaskTool as Tool<never>,
   send_message: sendMessageTool as Tool<never>,
   accept_result: acceptResultTool as Tool<never>,
+  record_finding: recordFindingTool as Tool<never>,
+  reject_finding: rejectFindingTool as Tool<never>,
+  confirm_trace: confirmTraceTool as Tool<never>,
+  list_findings: listFindingsTool as Tool<never>,
   ask_parent: askParentTool as Tool<never>,
   browser_open: browserOpenTool as Tool<never>,
   browser_screenshot: browserScreenshotTool as Tool<never>,

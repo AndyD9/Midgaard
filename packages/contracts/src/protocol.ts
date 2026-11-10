@@ -97,8 +97,15 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *        `PUT /api/agents/:id/windows` l'attache ou le détache. Un daemon de
  *        protocole 20 rendrait des profils sans le champ, et répondrait 404
  *        à `harness windows attach`.
+ *  - 22 : Slice 10, étape 2 — les *findings* de première classe dans l'arbre
+ *        d'un orchestrateur (table `findings`, événements `finding.*`, outils
+ *        `record_finding`/`reject_finding`/`confirm_trace`/`list_findings`).
+ *        La porte de traçage est mécanique : seul `confirm_trace`, avec une
+ *        chaîne source→sink complète, mène à `trace_confirmed`, et seul ce
+ *        statut entre dans le rapport. Un daemon de protocole 21 ignorerait ces
+ *        outils et la table.
  */
-export const PROTOCOL_VERSION = 21
+export const PROTOCOL_VERSION = 22
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({
