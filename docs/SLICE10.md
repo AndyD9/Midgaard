@@ -8,7 +8,7 @@ d'information sur ce qui se passe, une *dialogue box* vers l'orchestrateur
 conservée), et — pour le reverse — des **outils d'analyse en lecture seule**,
 l'exécution dynamique restant **confinée à la seule VM Windows**.
 
-**État : ouverte, étapes 1 à 3 faites.** Posée le 2026-11-10 à la demande de l'auteur,
+**État : ouverte, étapes 1 à 4 faites.** Posée le 2026-11-10 à la demande de l'auteur,
 après lecture de deux références qu'il a proposées :
 [baby-naptime](https://github.com/faizann24/baby-naptime) (implémentation
 ouverte de *Project Naptime* de Google — boucle d'agent avec `CodeBrowser`,
@@ -341,3 +341,33 @@ dialogue box, l'aller-retour atelier ↔ terminal). Verts en local :
 `test:unit` (790), `test:ui` (19), `typecheck`. **CI trois plateformes à
 confirmer.** Restent les préfixes `exec` (étape 4), le routage par profils (5),
 le `report` (6) et l'essai réel (7).
+
+### Étape 4 — la navigation de code par préfixes `exec` (2026-11-10)
+
+Décision C : des préfixes `exec` bornés plutôt qu'un outil neuf. **Un point dur
+trouvé avant de coder** : la règle de la Slice 9 (`execPrefixRefusal`) refuse
+« une option juste après le programme » (pour bloquer `git -c`, `node -e`), or
+`objdump -d`, `nm -C`, `strings -n` sont tous **option-first** — ils étaient
+donc refusés comme préfixes. Soumis à l'auteur, qui a tranché pour une
+**safelist lecture seule**.
+
+`READ_ONLY_ANALYSIS` (`packages/contracts/src/exec-allow.ts`) : pour
+`objdump`, `nm`, `strings`, `readelf`, `size`, `od` — et eux seuls — un préfixe
+peut commencer par une option. Le critère est **strict** : ils lisent un fichier
+et impriment, aucune de leurs options n'exécute un programme ni n'écrit un
+fichier. **Écartés délibérément** bien qu'utiles : `rg` (`--pre`/`--hostname-bin`
+lancent une commande), `file` (`-C` compile un fichier magique nommé), `xxd`
+(`-r` écrit un binaire) — leur préfixe sans approbation pourrait lancer du code
+ou écrire hors du worktree ; ils restent approuvés au coup par coup. Le reste de
+la règle ne bouge pas : un chemin relatif (`./objdump`) et un seul mot
+(`objdump`) sont toujours refusés, et le daemon rejuge au départ de chaque
+tâche.
+
+Aucun outil neuf, aucune migration, aucun `PROTOCOL_VERSION` (la règle est
+loin du protocole serveur↔daemon ; un durcissement passé devient un
+assouplissement, pas une rupture). Prouvé dans `tests/unit/exec-prefix.test.ts`
+(les six outils en option-first acceptés, `rg`/`file`/`xxd` en option-first
+toujours refusés avec leur motif, `./objdump` refusé en chemin relatif).
+`test:unit` (805), `typecheck` verts en local ; `test:developer` (V14) et la CI
+trois plateformes à confirmer. Restent le routage par profils (5), le `report`
+(6) et l'essai réel (7).

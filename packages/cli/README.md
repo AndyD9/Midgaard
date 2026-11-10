@@ -91,7 +91,12 @@ python -m pytest` libère `python -m pytest -k foo`. Le préfixe est jugé
 juste après le programme (`git -c`, `node -e`), un chemin relatif (un fichier
 du worktree), un shell, un interpréteur, un lanceur (`env`, `xargs`, `find`)
 sont refusés, Python hors de `python -m <module>` aussi, et un exécuteur
-(`uv run`, `npx`) doit nommer un programme acceptable à son tour. L'avertissement
+(`uv run`, `npx`) doit nommer un programme acceptable à son tour. **Exception
+(Slice 10)** : les outils d'analyse en lecture seule — `objdump`, `nm`,
+`strings`, `readelf`, `size`, `od` — acceptent une option en tête
+(`exec allow --prefix -- objdump -d`), parce qu'ils ne font que lire et
+imprimer. `rg`, `file` et `xxd` en sont écartés : leurs options peuvent lancer
+une commande (`rg --pre`) ou écrire un fichier (`file -C`, `xxd -r`). L'avertissement
 dit ce que la règle ne sait pas : un argument ajouté peut faire tourner un autre
 programme (`tar --to-command`, `rsync -e`). `exec list` montre un préfixe
 suivi de `…`, et dit celui que le moteur écarterait. Le daemon rejuge tout.

@@ -374,10 +374,17 @@ séquence globale, porte la dialogue box vers l'orchestrateur (le `Composer` du
 chat), **lit** le même flux WebSocket (le daemon ne change pas), et retire toute
 séquence d'échappement (couleur comprise, teinte par CSS) ;
 `apps/dashboard/src/lib/stream.ts` est pur et testé, `D19` de `test:ui` couvre
-la vue. `test:unit` (790), `test:ui` (19), `test:orchestrator`, `test:security`
-et `typecheck` verts en local, **CI trois plateformes à confirmer**. Restent les
-préfixes `exec` (étape 4), le routage par profils (5), le `report` (6) et
-l'essai réel (7).
+la vue. Étape 4 faite : la navigation de code par **préfixes `exec` bornés**.
+Point dur trouvé et tranché avec l'auteur : `execPrefixRefusal` (Slice 9)
+refusait les préfixes option-first (`objdump -d`), donc une **safelist lecture
+seule** `READ_ONLY_ANALYSIS` (`exec-allow.ts`) accepte une option en tête pour
+`objdump`/`nm`/`strings`/`readelf`/`size`/`od` seulement — ils lisent et
+impriment, sans exécuter de code ni écrire. `rg` (`--pre`), `file` (`-C`) et
+`xxd` (`-r`) en sont **écartés** et restent approuvés au coup par coup. Aucun
+outil neuf, aucune migration, aucun `PROTOCOL_VERSION`. Prouvé dans
+`tests/unit/exec-prefix.test.ts`. `test:unit` (805), `test:ui` (19),
+`typecheck` verts en local, **CI trois plateformes à confirmer**. Restent le
+routage par profils (5), le `report` (6) et l'essai réel (7).
 
 ## Slice 9 en cours — des agents experts (Python, reverse, règles Windows)
 

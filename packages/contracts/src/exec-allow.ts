@@ -54,6 +54,25 @@ export const INTERPRETER_FAMILIES: ReadonlySet<string> = new Set([
 export const PYTHON_FAMILIES: ReadonlySet<string> = new Set(['python', 'pythonw', 'py', 'pypy'])
 
 /**
+ * Outils d'analyse **en lecture seule** (Slice 10, étape 4) : ils lisent un
+ * fichier et **impriment** le résultat, un point c'est tout. Aucune de leurs
+ * options n'exécute un autre programme ni n'écrit un fichier — c'est le critère,
+ * et il est strict. Pour eux seuls, un préfixe peut commencer par une option
+ * (`objdump -d`, `nm -C`, `strings -n`) : la navigation et le triage d'un
+ * binaire se font ainsi, sans une approbation par appel, sans pour autant
+ * ouvrir la porte à du code.
+ *
+ * **Écartés délibérément**, bien qu'utiles : `rg` (son `--pre`/`--hostname-bin`
+ * lance une commande par fichier), `file` (`-C` compile un fichier magique
+ * nommé), `xxd` (`-r` reconstruit un binaire vers un fichier nommé). Leur
+ * préfixe sans approbation pourrait lancer du code ou écrire hors du worktree ;
+ * ils restent sous la règle normale, approuvés au coup par coup.
+ */
+export const READ_ONLY_ANALYSIS: ReadonlySet<string> = new Set([
+  'objdump', 'nm', 'strings', 'readelf', 'size', 'od',
+])
+
+/**
  * Lanceurs : leur rôle est de faire tourner un **autre** programme, nommé dans
  * leurs arguments (`env X=1 prog`, `xargs prog`, `find . -exec prog`). Leurs
  * options rendent ce programme impossible à repérer sûrement : refusés comme
@@ -178,10 +197,13 @@ export function execPrefixRefusal(argv: readonly string[]): string | null {
     return `un préfixe d'un seul mot couvrirait tout « ${argv[0]} » (${argv[0]} install, ${argv[0]} exec…) : ajoute au moins une sous-commande ou un argument.`
   }
   const second = argv[1]!
+  const head = programFamily(argv[0]!)
   // Python a sa propre règle (`-m <module>` seulement), au motif plus précis ;
-  // partout ailleurs une option en tête change ce que fait le programme avant
-  // même sa sous-commande.
-  if (second.startsWith('-') && !PYTHON_FAMILIES.has(programFamily(argv[0]!))) {
+  // les outils d'analyse en lecture seule (objdump, nm, strings…) acceptent une
+  // option en tête, puisqu'ils ne font que lire et imprimer ; partout ailleurs
+  // une option en tête change ce que fait le programme avant même sa
+  // sous-commande, et peut lui faire lancer du code (git -c, node -e).
+  if (second.startsWith('-') && !PYTHON_FAMILIES.has(head) && !READ_ONLY_ANALYSIS.has(head)) {
     return `« ${second} » est une option placée juste après le programme : elle changerait ce qu'il fait (git -c, node -e). Commence par une sous-commande ou un argument nommé, ou ajoute une entrée exacte.`
   }
   return judgeProgram(argv, 0)
