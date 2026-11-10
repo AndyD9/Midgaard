@@ -1167,6 +1167,7 @@ await scenario(outcomes, 'D21 la vue terminal rejoue le flux de l’arbre, avec 
     .catch(() => false)
   if (!back) return { verdict: 'FAIL', detail: 'le retour à l’atelier n’a pas eu lieu' }
   return { verdict: 'PASS', detail: 'flux en lignes, dialogue box présente, aller-retour atelier ↔ terminal' }
+})
 
 await scenario(outcomes, 'D7 la perte de la WebSocket se voit, et le retour aussi', async () => {
   if (!daemon?.pid) return { verdict: 'FAIL', detail: 'pas de daemon à arrêter' }
