@@ -21,6 +21,7 @@ import type {
   Health,
   McpServerResponse,
   McpServersResponse,
+  PlaybooksResponse,
   ProviderConfig,
   Task,
   TaskEvent,
@@ -238,6 +239,19 @@ export function setAgentLimits(agentId: string, limits: Partial<AgentLimits>): P
 /** Les serveurs MCP d'un profil, liste complète (`PUT /api/agents/:id/mcp`). */
 export function setAgentMcp(agentId: string, servers: string[]): Promise<{ agent: Agent }> {
   return api(`/api/agents/${encodeURIComponent(agentId)}/mcp`, { method: 'PUT', body: JSON.stringify({ servers }) })
+}
+
+/**
+ * Les playbooks du dossier du clone (Slice 9), avec leur empreinte et le motif
+ * d'un refus. Aucun contenu : seulement des noms, des tailles et des SHA-256.
+ */
+export function fetchPlaybooks(): Promise<PlaybooksResponse> {
+  return api('/api/playbooks')
+}
+
+/** Les playbooks d'un profil, liste complète et ordonnée (`PUT /api/agents/:id/playbooks`). */
+export function setAgentPlaybooks(agentId: string, playbooks: string[]): Promise<{ agent: Agent }> {
+  return api(`/api/agents/${encodeURIComponent(agentId)}/playbooks`, { method: 'PUT', body: JSON.stringify({ playbooks }) })
 }
 
 /**

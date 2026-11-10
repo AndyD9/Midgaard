@@ -62,6 +62,9 @@
  *  - D18 les limites d'un profil se règlent aux Profils (Slice 8) : un
  *    relèvement demande confirmation — refusée, rien ne change ; acceptée,
  *    la limite change **en base** —, un abaissement non.
+ *  - D19 les playbooks aux Profils (Slice 9, étape 6) : une case cochée
+ *    attache le playbook **en base** ; décochée, le détache ; le profil
+ *    simulé n'en a pas.
  *
  * Playwright est employé en **bibliothèque**, pas en lanceur : les suites de ce
  * dépôt ont leur forme (`scenario`, `summarize`, verdicts), et ajouter un second
@@ -1018,6 +1021,35 @@ await scenario(outcomes, 'D18 les limites d’un profil : un relèvement se conf
   if (!lowered) return { verdict: 'FAIL', detail: 'abaissement non enregistré' }
   if (prompted) return { verdict: 'FAIL', detail: 'un abaissement a demandé confirmation' }
   return { verdict: 'PASS', detail: `timeout_s ${before.timeout_s} → ${raised} : refusé puis confirmé ; retour à ${before.timeout_s} sans confirmation` }
+})
+
+// --- D19 ---------------------------------------------------------------------
+
+await scenario(outcomes, 'D19 les playbooks aux Profils : une case cochée attache le playbook', async () => {
+  const attached = async () => (await daemonJson<{ agent: Agent }>(rt, '/api/agents/researcher')).body.agent.playbooks
+  if ((await attached()).length !== 0) return { verdict: 'FAIL', detail: 'le Researcher a déjà des playbooks' }
+  await page.goto(`${rt.dashboard_url}#/agents`, { waitUntil: 'domcontentloaded' })
+  const box = page.getByTestId('agent-playbook-researcher-python')
+  await box.waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+  if (await box.isChecked()) return { verdict: 'FAIL', detail: 'python coché sans qu’on l’ait demandé' }
+
+  // Cocher : le playbook est attaché en base, pour les tâches à venir.
+  await box.click()
+  if (!(await until(async () => (await attached()).includes('python')))) {
+    return { verdict: 'FAIL', detail: 'python non attaché au Researcher en base' }
+  }
+
+  // L'orchestrateur a aussi des playbooks (un agent créé en hérite) ; le simulé non.
+  if ((await page.getByTestId('agent-playbooks-simulated').count()) !== 0) {
+    return { verdict: 'FAIL', detail: 'le profil simulé se voit proposer des playbooks' }
+  }
+
+  // Décocher : détaché, sans confirmation.
+  await page.getByTestId('agent-playbook-researcher-python').click()
+  if (!(await until(async () => !(await attached()).includes('python')))) {
+    return { verdict: 'FAIL', detail: 'python toujours attaché en base' }
+  }
+  return { verdict: 'PASS', detail: 'python coché puis décoché au Researcher ; le simulé n’a pas de playbooks' }
 })
 
 await scenario(outcomes, 'D7 la perte de la WebSocket se voit, et le retour aussi', async () => {
