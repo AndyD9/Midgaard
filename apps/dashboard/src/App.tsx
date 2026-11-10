@@ -32,6 +32,7 @@ import { useHarness } from '@/lib/useHarness'
 import { speaker } from '@/lib/thread'
 import { cn } from '@/lib/utils'
 import { McpServersCard } from './components/McpServersCard'
+import { ProvidersCard } from './components/ProvidersCard'
 import { AgentsCard } from './components/AgentsCard'
 import { BrowserPanel, browserSources } from './components/BrowserPanel'
 import { ChatPanel } from './components/ChatPanel'
@@ -90,6 +91,8 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 export function App() {
   const { state, loadEvents, reportError } = useHarness()
   const [view, setView] = useState<View>(viewFromHash)
+  /** Compte les changements de fournisseurs, pour relire la carte des exécutants. */
+  const [providersRev, setProvidersRev] = useState(0)
   const [side, setSide] = useState<'tasks' | 'files'>('tasks')
   const [tabs, setTabs] = useState<FileTab[]>([])
   const [activeTab, setActiveTab] = useState<string>('details')
@@ -318,7 +321,10 @@ export function App() {
                   <NewTaskForm onCreated={select} />
                 ) : view.kind === 'agents' ? (
                   <div className="mx-auto max-w-2xl space-y-4">
-                    <AgentsCard editable />
+                    {/* Un fournisseur ajouté ou retiré active ou désactive des
+                        profils : la carte des exécutants se remonte pour les relire. */}
+                    <ProvidersCard onChanged={() => setProvidersRev((n) => n + 1)} />
+                    <AgentsCard key={providersRev} editable />
                     <McpServersCard />
                   </div>
                 ) : task ? (

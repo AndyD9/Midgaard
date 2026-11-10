@@ -86,6 +86,12 @@ macOS, DPAPI sur Windows, libsecret sur Linux). Elle n'apparaît ni dans la lign
 de commande, ni dans l'historique du shell, ni en base : la base ne garde qu'une
 référence. La commande teste la connexion dans la foulée.
 
+**Sans terminal** : la même chose se fait dans le dashboard, vue « Profils »,
+carte « Fournisseurs » — ajouter un fournisseur, déposer ou remplacer sa clé
+(champ masqué, jamais réaffichée), tester, retirer. Plusieurs clés d'un même
+fournisseur se déclarent sous des identifiants différents (`venice`,
+`venice-perso`) ; chaque profil choisit le sien dans la carte « Exécutants ».
+
 ```bash
 npm run harness -- agents              # qui peut exécuter, et pourquoi pas
 npm run harness -- pricing refresh venice   # relève les tarifs chez le fournisseur

@@ -112,6 +112,21 @@ Trois routes, par le fragment d'URL : `#/tasks/<id>`, `#/new` (formulaire
   *Depuis la Slice 8, les limites s'y règlent aussi*, par leur route à elles
   (`PUT /api/agents/:id/limits`), décision de l'auteur : un relèvement demande
   confirmation, un abaissement non (D18).
+- **La carte « Fournisseurs » déclare un fournisseur et dépose sa clé**, sans
+  terminal (`components/ProvidersCard.tsx`), par la route qu'emploie déjà la
+  CLI (`POST /api/providers`) : le daemon n'a pas changé. La clé se saisit dans
+  un champ masqué que le navigateur ne remplit ni ne retient, part dans le
+  corps de la requête, est **effacée de l'état de la page dès l'envoi**, et ne
+  revient jamais — la carte dit seulement « clé au coffre ». Elle teste dans la
+  foulée, comme la CLI. Deux règles du formulaire (`lib/providers.ts`) : un
+  fournisseur nouveau exige une clé, et **changer l'adresse ou le préréglage
+  exige de la ressaisir** — sinon la clé du coffre partirait vers une adresse
+  que l'humain n'avait pas en tête. Cette seconde règle est celle du
+  formulaire, pas du daemon : la route, elle, accepte une adresse changée sans
+  clé. Retirer efface la clé du coffre, et se confirme. Plusieurs clés d'un
+  même fournisseur : un identifiant par clé. Prouvé par D20 (le faux
+  fournisseur note la clé qu'il **reçoit**, donc relue au coffre) et par
+  `tests/unit/dashboard-providers.test.ts`.
 - **Les tâches sont un arbre** (`lib/tree.ts`) : chaque sous-tâche suit son
   orchestrateur, en retrait, dans l'ordre où il l'a déléguée. La carte
   « Sous-tâches » montre ce qu'il a délégué, celle qu'il attend (d'après le
@@ -157,6 +172,8 @@ qu'une suite qui rougit à chaque retouche de style.
 | `components/NewTaskForm.tsx` | « Nouvelle tâche » : profils actifs seulement, dossier vérifié par le daemon |
 | `components/AgentsCard.tsx` | Exécutants ; en vue « Profils », fournisseur et modèle de chacun |
 | `components/SubtasksCard.tsx` | Sous-tâches d'un orchestrateur, total et budget de l'arbre, agents créés et leur rôle |
+| `components/ProvidersCard.tsx` | Fournisseurs : déclaration, clé déposée au coffre, test, retrait |
+| `lib/providers.ts` | Préréglages, validation d'une saisie de fournisseur, requête — fonctions pures |
 | `components/McpServersCard.tsx` | Serveurs MCP : test, catalogue, outils cochés (Slice 8) |
 | `lib/tree.ts` | Arbre des tâches, total et provenance, budget de l'arbre, agents créés — fonctions pures |
 | `lib/mcp.ts` | Noms d'outils MCP, proposition « lecture seule », avertissement — fonctions pures |

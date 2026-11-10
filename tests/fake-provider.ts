@@ -45,6 +45,12 @@ export interface FakeProvider {
   received: Map<string, { role: string; content: string | null }[]>
   /** Noms des outils proposés à l'agent, par étiquette, au premier tour. */
   tools: Map<string, string[]>
+  /**
+   * En-têtes `Authorization` reçus, dans l'ordre : la clé que le daemon a
+   * réellement présentée — donc relue au coffre —, ce qu'aucune réponse de
+   * l'API ne montre.
+   */
+  authorizations: string[]
 }
 
 /** Rend le tour suivant du scénario de la tâche, au format de `/chat/completions`. */
@@ -119,7 +125,9 @@ export async function startFakeProvider(): Promise<FakeProvider> {
   const systems = new Map<string, string>()
   const received: FakeProvider['received'] = new Map()
   const tools: FakeProvider['tools'] = new Map()
+  const authorizations: string[] = []
   const server = createServer((req, res) => {
+    if (typeof req.headers.authorization === 'string') authorizations.push(req.headers.authorization)
     let raw = ''
     req.on('data', (c) => (raw += c))
     req.on('end', () => {
@@ -131,5 +139,5 @@ export async function startFakeProvider(): Promise<FakeProvider> {
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
   const address = server.address()
   const port = typeof address === 'object' && address ? address.port : 0
-  return { server, url: `http://127.0.0.1:${port}/v1`, scripts, systems, received, tools }
+  return { server, url: `http://127.0.0.1:${port}/v1`, scripts, systems, received, tools, authorizations }
 }
