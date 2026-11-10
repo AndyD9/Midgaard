@@ -72,6 +72,9 @@
  *    vidé après l'envoi, clé absente de la page et de l'API ; le fournisseur
  *    la reçoit pourtant (relue au coffre) ; une clé remplacée l'est vraiment ;
  *    retirer se confirme.
+ *  - D22 la **vue terminal** (Slice 10) : atteinte par le bouton « Flux
+ *    terminal » de l'atelier, elle rejoue le journal de l'arbre en lignes, porte
+ *    la dialogue box vers l'orchestrateur, et le bouton « Atelier → » revient.
  *
  * Playwright est employé en **bibliothèque**, pas en lanceur : les suites de ce
  * dépôt ont leur forme (`scenario`, `summarize`, verdicts), et ajouter un second
@@ -1175,6 +1178,46 @@ await scenario(outcomes, 'D21 les VM Windows aux Profils : attacher au Developer
   // Retirer la VM pour ne rien laisser aux scénarios suivants.
   await daemonJson(rt, '/api/windows/vm1', { method: 'DELETE' })
   return { verdict: 'PASS', detail: 'vm1 montrée jamais testée, attachée au Developer puis détachée ; le Researcher n’a pas de sélecteur' }
+})
+
+// --- D22 ---------------------------------------------------------------------
+
+await scenario(outcomes, 'D22 la vue terminal rejoue le flux de l’arbre, avec la dialogue box', async () => {
+  if (!vue) return { verdict: 'FAIL', detail: 'D2 n’a pas créé de tâche' }
+  const id = vue.task.id
+  // On y arrive par l'atelier, via le bouton « Flux terminal » : c'est le chemin
+  // qu'un humain prend, et il doit exister.
+  await page.goto(`${rt.dashboard_url}#/tasks/${id}`, { waitUntil: 'domcontentloaded' })
+  const toTerminal = page.getByTestId('nav-terminal-view')
+  if (!(await toTerminal.isVisible().catch(() => false))) {
+    return { verdict: 'FAIL', detail: 'pas de bouton « Flux terminal » dans l’atelier' }
+  }
+  await toTerminal.click()
+
+  // La vue montre le flux, en lignes, et au moins une ligne de la tâche simulée
+  // (son démarrage et ses étapes sont au journal).
+  const stream = page.getByTestId('terminal-stream')
+  if (!(await stream.waitFor({ state: 'visible', timeout: UI_TIMEOUT }).then(() => true).catch(() => false))) {
+    return { verdict: 'FAIL', detail: 'le flux terminal ne s’affiche pas' }
+  }
+  const lines = await until(async () => (await page.getByTestId('terminal-line').count()) > 0)
+  if (!lines) return { verdict: 'FAIL', detail: 'aucune ligne dans le flux terminal' }
+
+  // La dialogue box est là (la tâche simulée ne converse pas : elle est fermée,
+  // avec son motif — comme le panneau de chat). Sa présence suffit ; son
+  // comportement d'ouverture est éprouvé par D12.
+  const hasComposer = (await page.getByTestId('chat-input').count()) > 0 || (await page.getByTestId('chat-closed').count()) > 0
+  if (!hasComposer) return { verdict: 'FAIL', detail: 'pas de dialogue box dans la vue terminal' }
+
+  // Retour à l'atelier par le bouton de la vue.
+  await page.getByTestId('terminal-to-workbench').click()
+  const back = await page
+    .getByTestId('tab-details')
+    .waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+    .then(() => true)
+    .catch(() => false)
+  if (!back) return { verdict: 'FAIL', detail: 'le retour à l’atelier n’a pas eu lieu' }
+  return { verdict: 'PASS', detail: 'flux en lignes, dialogue box présente, aller-retour atelier ↔ terminal' }
 })
 
 await scenario(outcomes, 'D7 la perte de la WebSocket se voit, et le retour aussi', async () => {
