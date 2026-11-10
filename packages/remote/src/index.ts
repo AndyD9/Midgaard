@@ -5,6 +5,8 @@
  */
 export { generateKeyPair, fingerprintOf, fingerprintOfPublicKey, isUsableKeyPair, normalizeFingerprint } from './keys.ts'
 export type { GeneratedKeyPair } from './keys.ts'
-export { RemoteError, RemoteSession, UPLOAD_MAX_BYTES, UPLOAD_MAX_FILES } from './connection.ts'
-export type { RemoteErrorKind, RemoteRunOptions, RemoteRunResult, RemoteTarget, UploadSummary } from './connection.ts'
+export { RemoteError, RemoteSession, REMOVE_MAX_ENTRIES, UPLOAD_MAX_BYTES, UPLOAD_MAX_FILES } from './connection.ts'
+export type { RemoteErrorKind, RemoteRunOptions, RemoteRunResult, RemoteTarget, RemoveSummary, UploadSummary } from './connection.ts'
+export { REMOTE_TASK_ID_PATTERN, isStrictlyUnder, remoteTaskDir } from './task-dir.ts'
+export type { RemoteTaskDir } from './task-dir.ts'
 export { POWERSHELL, powershellCommand, scriptOfPowershellCommand } from './powershell.ts'

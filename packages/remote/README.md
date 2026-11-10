@@ -28,6 +28,41 @@ session.close()                                        // idempotente, ne lève 
 | Sortie bornée | Début (8 Kio) et fin (32 Kio) gardés, le reste compté ; chaque morceau rendu à `onOutput` |
 | La copie ne suit jamais un lien | `lstat` : un lien (vers `~/.ssh`, par exemple) est écarté et nommé. Au-delà de 20 000 fichiers ou 256 Mio, refus **avant** toute copie |
 
+## Le dossier d'une tâche (étape 5.3b)
+
+```ts
+const where = remoteTaskDir(await session.homeDir(), task.id)  // chemins seulement, aucun appel
+await session.replaceTree(worktree, where.work, where.base, exclude) // efface work, puis recopie
+await session.removeTree(where.dir, where.base)                // fin de tâche
+```
+
+| Chemin | Rôle |
+|---|---|
+| `<home>/midgaard` (`base`) | Racine permise : **rien n'est jamais effacé hors d'elle** |
+| `<home>/midgaard/tasks/<tâche>` (`dir`) | Dossier de la tâche, effacé à sa fin |
+| `<home>/midgaard/tasks/<tâche>/work` (`work`) | Copie du worktree, refaite en entier avant chaque commande |
+
+`<home>` est ce que le SFTP rend pour `.` (`/C:/Users/<compte>` sous
+Windows) : aucune supposition sur `C:\`. L'identifiant de tâche doit être un
+UUID — ni `..`, ni séparateur, ni lettre de lecteur.
+
+`removeTree` vérifie trois choses **avant** le premier effacement :
+
+1. le dossier visé est **strictement** sous la racine permise (la racine
+   elle-même, un voisin au même préfixe ou un `..` sont refusés sans rien
+   envoyer ; la casse est ignorée, comme sous Windows) ;
+2. la racine et chaque dossier intermédiaire sont de vrais dossiers, pas des
+   liens : un lien posé là désignerait un autre endroit du disque ;
+3. chaque entrée est lue par `lstat` : un lien est retiré **lui-même**, nommé
+   dans le bilan, jamais parcouru.
+
+Au-delà de 100 000 entrées, l'effacement s'arrête et le dit.
+
+**Reste à constater sur un vrai Windows (5.5)** : ce que le SFTP de
+Win32-OpenSSH dit d'une **jonction** NTFS — lien, ou dossier ? Tant que ce
+n'est pas fait, le point 3 n'est prouvé que contre des liens symboliques
+POSIX, par l'hôte factice.
+
 ## PowerShell
 
 `powershellCommand(script)` rend `powershell.exe -NoProfile -NonInteractive
@@ -70,5 +105,7 @@ d'installation sans accord — et il s'en passe.
 
 `tests/unit/remote.test.ts`, face à `tests/fake-ssh-server.ts` : un hôte
 `ssh2` dans le processus, au petit langage de commandes (`echo`, `stderr`,
-`exit`, `sleep`, `flood`), SFTP adossé à un vrai dossier. Il compte les
-tentatives d'authentification et les canaux fermés avant leur fin.
+`exit`, `sleep`, `flood`), SFTP adossé à un vrai dossier (dossier personnel
+`/C:/Users/<compte>`, `lstat` qui voit les liens, listes, effacements). Il
+compte les tentatives d'authentification, les canaux fermés avant leur fin
+et chaque effacement reçu.

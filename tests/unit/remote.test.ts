@@ -8,6 +8,12 @@
  * bornée, délai, annulation, canal fermé côté hôte ; la copie d'un arbre par
  * SFTP, liens écartés. Ce que Windows fait d'une session coupée n'est pas
  * ici : il faut un vrai Windows (sous-étape 5.4).
+ *
+ * Et le dossier d'une tâche (étape 5.3b) : son chemin sous le dossier
+ * personnel, un identifiant qui n'est pas un UUID refusé ; la recopie qui
+ * fait disparaître un fichier périmé ; un effacement hors de la racine
+ * permise refusé **sans rien envoyer** (compté par l'hôte) ; un lien retiré
+ * lui-même, jamais traversé — le dossier qu'il désigne reste intact.
  */
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs'
@@ -19,8 +25,10 @@ import {
   RemoteSession,
   fingerprintOfPublicKey,
   generateKeyPair,
+  isStrictlyUnder,
   isUsableKeyPair,
   normalizeFingerprint,
+  remoteTaskDir,
   type RemoteTarget,
 } from '@midgaard/remote'
 import ssh2 from 'ssh2'
@@ -73,6 +81,35 @@ describe('empreintes', () => {
     assert.match(pair.publicKey, /^ssh-ed25519 [A-Za-z0-9+/=]+ midgaard-vm-test$/)
     assert.match(pair.privateKey, /^-----BEGIN OPENSSH PRIVATE KEY-----/)
     assert.match(fingerprintOfPublicKey(pair.publicKey), /^SHA256:[A-Za-z0-9+/]{43}$/)
+  })
+})
+
+describe('le chemin du dossier d\'une tâche', () => {
+  const id = '3f2a8c1e-5b7d-4e9f-a1c3-0d2e4f6a8b9c'
+
+  it('vit sous le dossier personnel, dans midgaard/tasks', () => {
+    assert.deepEqual(remoteTaskDir('/C:/Users/analyste', id), {
+      base: '/C:/Users/analyste/midgaard',
+      tasks: '/C:/Users/analyste/midgaard/tasks',
+      dir: `/C:/Users/analyste/midgaard/tasks/${id}`,
+      work: `/C:/Users/analyste/midgaard/tasks/${id}/work`,
+    })
+  })
+
+  it('refuse un identifiant qui n\'est pas un UUID, et un dossier personnel relatif', () => {
+    for (const bad of ['../../Windows', `${id}/..`, 'C:', '', id.toUpperCase()]) {
+      assert.throws(() => remoteTaskDir('/C:/Users/analyste', bad), (e: unknown) => e instanceof RemoteError, bad)
+    }
+    assert.throws(() => remoteTaskDir('C:/Users/analyste', id), RemoteError)
+  })
+
+  it('« strictement sous » : jamais la racine elle-même, ni un voisin au même préfixe', () => {
+    assert.equal(isStrictlyUnder('/C:/U/midgaard/tasks/x', '/C:/U/midgaard'), true)
+    assert.equal(isStrictlyUnder('/C:/U/MIDGAARD/tasks', '/C:/U/midgaard'), true, 'Windows ignore la casse')
+    assert.equal(isStrictlyUnder('/C:/U/midgaard', '/C:/U/midgaard'), false)
+    assert.equal(isStrictlyUnder('/C:/U/midgaard/', '/C:/U/midgaard'), false)
+    assert.equal(isStrictlyUnder('/C:/U/midgaard-old/x', '/C:/U/midgaard'), false)
+    assert.equal(isStrictlyUnder('/C:/U/midgaard/../Windows', '/C:/U/midgaard'), false)
   })
 })
 
@@ -192,6 +229,103 @@ describe('une session vers un hôte épinglé', () => {
     } finally {
       session.close()
       rmSync(secret, { recursive: true, force: true })
+    }
+  })
+
+  it('lit le dossier personnel du compte', async () => {
+    const session = await RemoteSession.open(target)
+    try {
+      assert.equal(await session.homeDir(), '/C:/Users/tester')
+    } finally {
+      session.close()
+    }
+  })
+
+  it('recopie le worktree : un fichier retiré en local disparaît de la VM', async () => {
+    const tree = mkdtempSync(join(tmpdir(), 'midgaard-ssh-arbre-'))
+    writeFileSync(join(tree, 'keep.ps1'), 'Get-Date\n')
+    writeFileSync(join(tree, 'stale.ps1'), 'old\n')
+    const session = await RemoteSession.open(target)
+    try {
+      const where = remoteTaskDir(await session.homeDir(), '11111111-2222-4333-8444-555555555555')
+      const first = await session.replaceTree(tree, where.work, where.base)
+      assert.equal(first.files, 2)
+      assert.equal(first.removedBefore.removed, 0, 'rien à effacer la première fois')
+      // Ce qu'une commande précédente aurait laissé, et un fichier retiré du worktree.
+      const remoteWork = join(root, 'C', 'Users', 'tester', 'midgaard', 'tasks', '11111111-2222-4333-8444-555555555555', 'work')
+      mkdirSync(join(remoteWork, 'out'))
+      writeFileSync(join(remoteWork, 'out', 'report.txt'), 'x')
+      rmSync(join(tree, 'stale.ps1'))
+      const second = await session.replaceTree(tree, where.work, where.base)
+      assert.equal(second.files, 1)
+      assert.equal(existsSync(join(remoteWork, 'keep.ps1')), true)
+      assert.equal(existsSync(join(remoteWork, 'stale.ps1')), false, 'le fichier périmé a disparu')
+      assert.equal(existsSync(join(remoteWork, 'out')), false, 'ce qu\'une commande a laissé aussi')
+      // Le dossier de la tâche s'efface en entier à la fin.
+      const end = await session.removeTree(where.dir, where.base)
+      assert.ok(end.removed >= 2)
+      assert.equal(existsSync(join(remoteWork, '..')), false)
+      assert.equal(existsSync(join(root, 'C', 'Users', 'tester', 'midgaard', 'tasks')), true, 'le dossier des tâches reste')
+    } finally {
+      session.close()
+      rmSync(tree, { recursive: true, force: true })
+    }
+  })
+
+  it('refuse d\'effacer hors de la racine permise, sans rien envoyer', async () => {
+    const session = await RemoteSession.open(target)
+    try {
+      const home = await session.homeDir()
+      const where = remoteTaskDir(home, '22222222-2222-4333-8444-555555555555')
+      mkdirSync(join(root, 'C', 'Users', 'tester', 'Documents'), { recursive: true })
+      writeFileSync(join(root, 'C', 'Users', 'tester', 'Documents', 'precieux.txt'), 'x')
+      const removed = server.removed.length
+      for (const [dir, allowed] of [
+        [`${home}/Documents`, where.base],
+        [where.base, where.base],
+        [`${where.base}/../Documents`, where.base],
+        [`${home}/midgaard-old`, where.base],
+      ] as const) {
+        await assert.rejects(session.removeTree(dir, allowed), (e: unknown) => e instanceof RemoteError && /Nothing was removed/.test(e.message), dir)
+      }
+      assert.equal(server.removed.length, removed, 'aucun effacement n\'a atteint l\'hôte')
+      assert.equal(existsSync(join(root, 'C', 'Users', 'tester', 'Documents', 'precieux.txt')), true)
+    } finally {
+      session.close()
+    }
+  })
+
+  // Un lien symbolique se crée sans droits particuliers sous macOS et Linux ;
+  // sous Windows il en faut, et ce que le SFTP de Win32-OpenSSH dit d'une
+  // jonction se constate sur un vrai Windows (5.5), pas avec cet hôte.
+  it('retire un lien lui-même, sans jamais le traverser', { skip: process.platform === 'win32' && 'liens symboliques : 5.5, sur un vrai Windows' }, async () => {
+    const outside = join(root, 'C', 'Users', 'tester', 'Precious')
+    mkdirSync(outside, { recursive: true })
+    writeFileSync(join(outside, 'a.txt'), 'garde-moi')
+    const session = await RemoteSession.open(target)
+    try {
+      const where = remoteTaskDir(await session.homeDir(), '33333333-2222-4333-8444-555555555555')
+      const local = join(root, 'C', 'Users', 'tester', 'midgaard', 'tasks', '33333333-2222-4333-8444-555555555555', 'work')
+      mkdirSync(local, { recursive: true })
+      symlinkSync(outside, join(local, 'vers-precious'))
+      writeFileSync(join(local, 'f.txt'), 'x')
+      const summary = await session.removeTree(where.dir, where.base)
+      assert.deepEqual(summary.links, ['work/vers-precious'], 'le lien est nommé')
+      assert.equal(readFileSync(join(outside, 'a.txt'), 'utf8'), 'garde-moi', 'le dossier désigné est intact')
+      assert.equal(existsSync(join(local, '..')), false, 'le dossier de la tâche est parti')
+
+      // Un lien posé **à la place** du dossier des tâches : refusé avant tout effacement.
+      const tasks = join(root, 'C', 'Users', 'tester', 'midgaard', 'tasks')
+      rmSync(tasks, { recursive: true, force: true })
+      symlinkSync(outside, tasks)
+      const removed = server.removed.length
+      await assert.rejects(session.removeTree(`${where.tasks}/a.txt`, where.base), (e: unknown) =>
+        e instanceof RemoteError && /not a plain directory/.test(e.message))
+      assert.equal(server.removed.length, removed)
+      assert.equal(readFileSync(join(outside, 'a.txt'), 'utf8'), 'garde-moi')
+      rmSync(tasks)
+    } finally {
+      session.close()
     }
   })
 })

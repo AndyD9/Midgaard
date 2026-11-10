@@ -25,8 +25,9 @@
 import { lstat, readdir } from 'node:fs/promises'
 import { join, posix, relative, sep } from 'node:path'
 import ssh2 from 'ssh2'
-import type { ClientChannel, SFTPWrapper } from 'ssh2'
+import type { ClientChannel, SFTPWrapper, Stats } from 'ssh2'
 import { fingerprintOf } from './keys.ts'
+import { isStrictlyUnder } from './task-dir.ts'
 
 /** Pourquoi une connexion a échoué. */
 export type RemoteErrorKind = 'fingerprint_mismatch' | 'auth_failed' | 'unreachable' | 'timeout' | 'protocol'
@@ -85,6 +86,21 @@ export interface UploadSummary {
   /** Chemins relatifs écartés, avec leur motif (lien, type spécial, filtre). */
   skipped: { path: string; reason: string }[]
 }
+
+/** Bilan d'un effacement distant. */
+export interface RemoveSummary {
+  /** Fichiers et dossiers effacés, le dossier visé compris. */
+  removed: number
+  /** Liens retirés **eux-mêmes**, jamais parcourus, en chemins relatifs au dossier visé. */
+  links: string[]
+}
+
+/**
+ * Entrées au plus qu'un effacement parcourt. Plus large que la copie : les
+ * commandes lancées sur la VM peuvent écrire dans le dossier de la tâche.
+ * Au-delà, l'effacement s'arrête et le dit, plutôt que de tourner sans fin.
+ */
+export const REMOVE_MAX_ENTRIES = 100_000
 
 /** Octets conservés au début et à la fin de chaque flux, comme `exec`. */
 const HEAD = 8 * 1024
@@ -338,6 +354,128 @@ export class RemoteSession {
     for (const d of dirs) await this.mkdirp(posix.join(remoteRoot, d))
     for (const f of files) await this.upload(f.local, posix.join(remoteRoot, f.rel))
     return { files: files.length, bytes, skipped }
+  }
+
+  /**
+   * Le dossier personnel du compte, tel que le SFTP le rend pour `.` — sous
+   * Windows, `/C:/Users/<compte>`. C'est sous lui que vivent les dossiers de
+   * tâche (`task-dir.ts`).
+   *
+   * @throws {RemoteError} `protocol` si l'hôte ne rend pas un chemin absolu
+   */
+  async homeDir(): Promise<string> {
+    const sftp = await this.sftp()
+    const home = await new Promise<string>((done, fail) =>
+      sftp.realpath('.', (e, path) => (e ? fail(new RemoteError('protocol', `cannot read the remote home: ${e.message}`)) : done(path))),
+    )
+    if (!home.startsWith('/')) throw new RemoteError('protocol', `the remote home is not an absolute path: ${home}`)
+    return home
+  }
+
+  /** `lstat` distant ; `null` si le chemin n'existe pas. */
+  private async lstatOrNull(path: string): Promise<Stats | null> {
+    const sftp = await this.sftp()
+    return new Promise((done) => sftp.lstat(path, (e, st) => done(e ? null : st)))
+  }
+
+  /**
+   * Efface un dossier distant et tout ce qu'il contient, **sans jamais
+   * suivre un lien**, et seulement sous `allowedRoot`.
+   *
+   * Trois garde-fous, vérifiés avant le premier effacement :
+   *
+   *  1. `remoteDir` est **strictement** sous `allowedRoot` : la racine permise
+   *     elle-même, ou un chemin à côté, est refusé sans rien envoyer ;
+   *  2. `allowedRoot` et chaque dossier entre lui et `remoteDir` sont de vrais
+   *     dossiers, pas des liens : un lien posé là désignerait un autre endroit
+   *     du disque, que l'effacement atteindrait par lui ;
+   *  3. chaque entrée est lue par `lstat` : un lien est retiré **lui-même** et
+   *     nommé dans le bilan, jamais parcouru.
+   *
+   * Ce que le SFTP de Win32-OpenSSH dit d'une **jonction** NTFS (lien ou
+   * dossier ?) reste à constater sur un vrai Windows (sous-étape 5.5) : tant
+   * que ce n'est pas fait, le garde-fou n° 3 n'est prouvé que contre des liens
+   * symboliques POSIX.
+   *
+   * @returns le bilan ; `removed: 0` si le dossier n'existait pas
+   * @throws {RemoteError} `protocol` sur un garde-fou, au-delà de
+   *         {@link REMOVE_MAX_ENTRIES} entrées, ou si l'hôte refuse un effacement
+   */
+  async removeTree(remoteDir: string, allowedRoot: string): Promise<RemoveSummary> {
+    if (!isStrictlyUnder(remoteDir, allowedRoot)) {
+      throw new RemoteError('protocol', `refusing to remove ${remoteDir}: not strictly under ${allowedRoot}. Nothing was removed.`)
+    }
+    const root = posix.normalize(allowedRoot).replace(/\/+$/, '')
+    const target = posix.normalize(remoteDir).replace(/\/+$/, '')
+    // Garde-fou n° 2 : la racine et les dossiers intermédiaires. Un maillon
+    // absent arrête le contrôle — rien en dessous n'existe à effacer.
+    const chain = [root]
+    for (const part of target.slice(root.length + 1).split('/').slice(0, -1)) chain.push(posix.join(chain.at(-1)!, part))
+    for (const dir of chain) {
+      const st = await this.lstatOrNull(dir)
+      if (!st) return { removed: 0, links: [] }
+      if (st.isSymbolicLink() || !st.isDirectory()) {
+        throw new RemoteError('protocol', `refusing to remove under ${dir}: it is not a plain directory. Nothing was removed.`)
+      }
+    }
+
+    const sftp = await this.sftp()
+    const summary: RemoveSummary = { removed: 0, links: [] }
+    let seen = 0
+    const call = (op: 'unlink' | 'rmdir', path: string) =>
+      new Promise<void>((done, fail) =>
+        sftp[op](path, (e) => (e ? fail(new RemoteError('protocol', `cannot remove ${path}: ${e.message}`)) : done())),
+      )
+    const removeEntry = async (path: string, st: Stats): Promise<void> => {
+      if (++seen > REMOVE_MAX_ENTRIES) {
+        throw new RemoteError('protocol', `more than ${REMOVE_MAX_ENTRIES} entries under ${target}: removal stopped`)
+      }
+      if (st.isSymbolicLink()) {
+        // Retiré, jamais parcouru. Un lien vers un dossier peut demander
+        // `rmdir` selon l'hôte : on essaie l'un, puis l'autre.
+        await call('unlink', path).catch(() => call('rmdir', path))
+        summary.links.push(path.slice(target.length + 1) || '.')
+        summary.removed++
+        return
+      }
+      if (st.isDirectory()) {
+        const entries = await new Promise<{ filename: string }[]>((done, fail) =>
+          sftp.readdir(path, (e, list) => (e ? fail(new RemoteError('protocol', `cannot list ${path}: ${e.message}`)) : done(list))),
+        )
+        for (const { filename } of entries) {
+          if (filename === '.' || filename === '..' || filename.includes('/')) continue
+          const child = posix.join(path, filename)
+          // `lstat` à nouveau, plutôt que les attributs de `readdir` : ce
+          // qu'un serveur y met n'est pas garanti par le protocole.
+          const childSt = await this.lstatOrNull(child)
+          if (childSt) await removeEntry(child, childSt)
+        }
+        await call('rmdir', path)
+      } else {
+        await call('unlink', path)
+      }
+      summary.removed++
+    }
+    const st = await this.lstatOrNull(target)
+    if (st) await removeEntry(target, st)
+    return summary
+  }
+
+  /**
+   * Remplace un dossier distant par la copie d'un arbre local : l'ancien est
+   * effacé ({@link removeTree}, sous `allowedRoot`), puis l'arbre recopié
+   * ({@link uploadTree}). Un fichier retiré de l'arbre local disparaît ainsi
+   * du distant, et rien de ce qu'une commande précédente a laissé ne reste.
+   */
+  async replaceTree(
+    localRoot: string,
+    remoteDir: string,
+    allowedRoot: string,
+    exclude?: (relativePath: string) => string | null,
+  ): Promise<UploadSummary & { removedBefore: RemoveSummary }> {
+    const removedBefore = await this.removeTree(remoteDir, allowedRoot)
+    const uploaded = await this.uploadTree(localRoot, remoteDir, exclude)
+    return { ...uploaded, removedBefore }
   }
 
   /** Ferme la session. Idempotente, ne lève pas. */

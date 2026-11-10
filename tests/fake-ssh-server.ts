@@ -22,12 +22,16 @@
  *  - toute autre commande sort avec 127.
  *
  * Le SFTP est adossé à un vrai dossier (`root`) : ouvrir, écrire, fermer,
- * `stat`, `mkdir`. Un chemin qui remonterait au-dessus est refusé. Une lettre
+ * `stat`, `mkdir` ; et, pour le dossier d'une tâche (étape 5.3b), `realpath`
+ * (`.` rend le dossier personnel `/C:/Users/<compte>`, créé au besoin),
+ * `lstat` qui voit les liens sans les suivre, lister un dossier (`.` et `..`
+ * compris, comme OpenSSH), `remove` et `rmdir` — chaque effacement noté dans
+ * `removed`. Un chemin qui remonterait au-dessus est refusé. Une lettre
  * de lecteur en tête (`/C:/…`, la forme du SFTP de Windows) devient un simple
  * dossier (`C/…`) : Windows interdit le deux-points dans un nom de fichier, et
  * l'hôte factice tourne aussi sous Windows en CI — vu échouer ainsi.
  */
-import { closeSync, mkdirSync, openSync, statSync, writeSync } from 'node:fs'
+import { closeSync, lstatSync, mkdirSync, openSync, readdirSync, rmdirSync, statSync, unlinkSync, writeSync } from 'node:fs'
 import { join, normalize } from 'node:path'
 import type { AddressInfo } from 'node:net'
 import ssh2 from 'ssh2'
@@ -48,6 +52,8 @@ export interface FakeSshServer {
   scripts: string[]
   /** Commandes dont le canal a été fermé par le client avant leur fin. */
   closedEarly: number
+  /** Chemins SFTP effacés (`remove`, `rmdir`), dans l'ordre. */
+  removed: string[]
   /** Dossier où le SFTP écrit. */
   root: string
   close(): Promise<void>
@@ -59,7 +65,11 @@ export interface FakeSshServer {
  * @param authorizedKey ligne publique de la seule clé acceptée
  * @param root          dossier réel derrière le SFTP
  */
-export async function startFakeSshServer(authorizedKey: string, root: string): Promise<FakeSshServer> {
+export async function startFakeSshServer(
+  authorizedKey: string,
+  root: string,
+  username = 'tester',
+): Promise<FakeSshServer> {
   const host = ssh2.utils.generateKeyPairSync('ed25519')
   const allowed = ssh2.utils.parseKey(authorizedKey)
   if (allowed instanceof Error) throw allowed
@@ -70,7 +80,10 @@ export async function startFakeSshServer(authorizedKey: string, root: string): P
     commands: [] as string[],
     scripts: [] as string[],
     closedEarly: 0,
+    removed: [] as string[],
   }
+  /** Le dossier personnel du compte, sous la forme du SFTP de Windows. */
+  const home = `/C:/Users/${username}`
 
   /** Chemin réel d'un chemin SFTP, jamais au-dessus de `root`. */
   const real = (path: string): string | null => {
@@ -137,7 +150,17 @@ export async function startFakeSshServer(authorizedKey: string, root: string): P
         session.on('sftp', (acceptSftp) => {
           const sftp = acceptSftp()
           const handles = new Map<number, number>()
+          /** Dossiers ouverts : les entrées qui restent à rendre, `null` une fois tout rendu. */
+          const dirs = new Map<number, { filename: string; longname: string; attrs: ssh2.Attributes }[] | null>()
           let next = 0
+          const handleOf = (id: number) => {
+            const handle = Buffer.alloc(4)
+            handle.writeUInt32BE(id, 0)
+            return handle
+          }
+          const attrsOf = (st: { mode: number; size: number }): ssh2.Attributes => ({
+            mode: st.mode, uid: 0, gid: 0, size: st.size, atime: 0, mtime: 0,
+          })
           sftp.on('OPEN', (reqid, filename) => {
             const path = real(filename)
             if (!path) return sftp.status(reqid, STATUS_CODE.PERMISSION_DENIED)
@@ -145,9 +168,7 @@ export async function startFakeSshServer(authorizedKey: string, root: string): P
               const fd = openSync(path, 'w')
               const id = next++
               handles.set(id, fd)
-              const handle = Buffer.alloc(4)
-              handle.writeUInt32BE(id, 0)
-              sftp.handle(reqid, handle)
+              sftp.handle(reqid, handleOf(id))
             } catch {
               sftp.status(reqid, STATUS_CODE.FAILURE)
             }
@@ -160,23 +181,67 @@ export async function startFakeSshServer(authorizedKey: string, root: string): P
           })
           sftp.on('CLOSE', (reqid, handle) => {
             const id = handle.readUInt32BE(0)
+            if (dirs.delete(id)) return sftp.status(reqid, STATUS_CODE.OK)
             const fd = handles.get(id)
             if (fd !== undefined) closeSync(fd)
             handles.delete(id)
             sftp.status(reqid, STATUS_CODE.OK)
           })
-          const stat = (reqid: number, filename: string) => {
+          // `STAT` suit un lien, `LSTAT` non : c'est ce qui permet d'éprouver
+          // un effacement qui ne doit jamais traverser un lien.
+          const stat = (follow: boolean) => (reqid: number, filename: string) => {
             const path = real(filename)
             try {
               if (!path) throw new Error('outside')
-              const st = statSync(path)
-              sftp.attrs(reqid, { mode: st.mode, uid: 0, gid: 0, size: st.size, atime: 0, mtime: 0 })
+              sftp.attrs(reqid, attrsOf(follow ? statSync(path) : lstatSync(path)))
             } catch {
               sftp.status(reqid, STATUS_CODE.NO_SUCH_FILE)
             }
           }
-          sftp.on('STAT', stat)
-          sftp.on('LSTAT', stat)
+          sftp.on('STAT', stat(true))
+          sftp.on('LSTAT', stat(false))
+          sftp.on('REALPATH', (reqid, filename) => {
+            const resolved = filename === '.' || filename === '' ? home : filename
+            if (resolved === home) mkdirSync(real(home)!, { recursive: true })
+            sftp.name(reqid, [{ filename: resolved, longname: resolved, attrs: {} as ssh2.Attributes }])
+          })
+          sftp.on('OPENDIR', (reqid, filename) => {
+            const path = real(filename)
+            try {
+              if (!path || !statSync(path).isDirectory()) throw new Error('not a directory')
+              const entries = ['.', '..', ...readdirSync(path)].map((name) => ({
+                filename: name,
+                longname: name,
+                attrs: attrsOf(lstatSync(join(path, name))),
+              }))
+              const id = next++
+              dirs.set(id, entries)
+              sftp.handle(reqid, handleOf(id))
+            } catch {
+              sftp.status(reqid, STATUS_CODE.NO_SUCH_FILE)
+            }
+          })
+          sftp.on('READDIR', (reqid, handle) => {
+            const id = handle.readUInt32BE(0)
+            const entries = dirs.get(id)
+            if (entries === undefined) return sftp.status(reqid, STATUS_CODE.FAILURE)
+            if (entries === null) return sftp.status(reqid, STATUS_CODE.EOF)
+            dirs.set(id, null)
+            sftp.name(reqid, entries)
+          })
+          const remove = (op: (p: string) => void) => (reqid: number, filename: string) => {
+            const path = real(filename)
+            if (!path) return sftp.status(reqid, STATUS_CODE.PERMISSION_DENIED)
+            try {
+              op(path)
+              state.removed.push(filename)
+              sftp.status(reqid, STATUS_CODE.OK)
+            } catch {
+              sftp.status(reqid, STATUS_CODE.FAILURE)
+            }
+          }
+          sftp.on('REMOVE', remove(unlinkSync))
+          sftp.on('RMDIR', remove(rmdirSync))
           sftp.on('MKDIR', (reqid, filename) => {
             const path = real(filename)
             if (!path) return sftp.status(reqid, STATUS_CODE.PERMISSION_DENIED)
@@ -207,6 +272,9 @@ export async function startFakeSshServer(authorizedKey: string, root: string): P
     },
     get closedEarly() {
       return state.closedEarly
+    },
+    get removed() {
+      return state.removed
     },
     root,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
