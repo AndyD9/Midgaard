@@ -35,7 +35,7 @@ import { closeSync, lstatSync, mkdirSync, openSync, readdirSync, rmdirSync, stat
 import { join, normalize } from 'node:path'
 import type { AddressInfo } from 'node:net'
 import ssh2 from 'ssh2'
-import { scriptOfPowershellCommand } from '@midgaard/remote'
+import { generateKeyPair, scriptOfPowershellCommand } from '@midgaard/remote'
 
 const { STATUS_CODE } = ssh2.utils.sftp
 
@@ -70,7 +70,13 @@ export async function startFakeSshServer(
   root: string,
   username = 'tester',
 ): Promise<FakeSshServer> {
-  const host = ssh2.utils.generateKeyPairSync('ed25519')
+  // La clé d'hôte passe par `generateKeyPair`, pas par `ssh2.utils`
+  // directement : ssh2 1.17 rend une paire ed25519 sur 256 mal formée, que
+  // `ssh2.Server` ne saurait relire (« Malformed OpenSSH private key »). Le
+  // gardien de `@midgaard/remote` la relit et la rejette. Vu en CI : `test:unit`
+  // démarre plusieurs hôtes factices, et finissait par tirer la mauvaise.
+  const hostPair = generateKeyPair('midgaard-fake-host')
+  const host = { private: hostPair.privateKey, public: hostPair.publicKey }
   const allowed = ssh2.utils.parseKey(authorizedKey)
   if (allowed instanceof Error) throw allowed
   const key = Array.isArray(allowed) ? allowed[0]! : allowed
