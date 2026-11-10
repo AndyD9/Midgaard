@@ -204,6 +204,20 @@ Tests de sécurité ciblés (traversée de chemins, symlinks, injection shell, I
 **Livrable :** installable par un tiers en une commande, scénario de démo du document §12 rejoué sans terminal intégré.
 *Révisé le 2026-11-01 :* pas de publication npm — Midgaard s'installe depuis un clone (`npm ci`, `npm run build`, `npm run init`), et l'essai §12 se joue depuis un clone frais ([SLICE4.md](SLICE4.md)).
 
+### Au-delà de la Slice 4 — slices suivantes
+
+Ce §7 fixe le plan d'origine (Slices 0–4). Le harness a ensuite été étendu par
+des slices verticales supplémentaires, suivies dans `CLAUDE.md` et leur doc
+propre, pas réécrites ici : **Slice 5** (orchestrateur intégré,
+[SLICE5.md](SLICE5.md)), **Slice 6** (atelier façon VS Code,
+[SLICE6.md](SLICE6.md)), **Slice 7** (images et navigateur isolé,
+[SLICE7.md](SLICE7.md)), **Slice 8** (serveurs MCP, agents créés à la volée,
+[SLICE8.md](SLICE8.md)), **Slice 9** (agents experts : Python, reverse, règles
+Windows, [SLICE9.md](SLICE9.md)), **Slice 10** (spécialisation sécurité :
+pipeline à portes `recon → hunt → validate → trace → report`, vue terminal,
+débogueur confiné à la VM Windows — décidée le 2026-11-10, ouverte après la
+Slice 9, [SLICE10.md](SLICE10.md)).
+
 **Total : 28–39 jours.** Le choix d'une boucle maison sur deux providers plutôt que d'un SDK existant coûte environ 5–7 jours de ce total — c'est le prix de l'indépendance vis-à-vis d'un fournisseur, assumé. Ajouter le shell Tauri en P1 coûtera 12–20 jours supplémentaires (PTY/ConPTY, sidecar Node, signature et notarisation), d'où son report.
 
 ---

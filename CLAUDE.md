@@ -3,7 +3,9 @@
 Harness local qui laisse Claude Code déléguer des tâches à des agents exécutants,
 les observer et les soumettre à approbation humaine. **Lire d'abord** :
 [README.md](README.md) (état, commandes), [docs/PLAN.md](docs/PLAN.md) (décisions
-et slices), [docs/SLICE9.md](docs/SLICE9.md) (agents experts : Python, reverse,
+et slices), [docs/SLICE10.md](docs/SLICE10.md) (spécialisation sécurité :
+pipeline à portes, vue terminal, débogueur confiné à la VM ; décidée, après la
+Slice 9), [docs/SLICE9.md](docs/SLICE9.md) (agents experts : Python, reverse,
 règles Windows ; décidée, après l'essai REA), [docs/SLICE8.md](docs/SLICE8.md) (serveurs MCP et agents créés à la
 volée, en cours), [docs/SLICE7.md](docs/SLICE7.md) (images et navigateur isolé, décidée),
 [docs/SLICE6.md](docs/SLICE6.md) (atelier façon VS Code, essais réels),
@@ -329,6 +331,29 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 
 - Dépôt : https://github.com/AndyD9/Midgaard (public).
 - Ne jamais versionner `.mcp.json`, `dist/` ni `~/.midgaard` (jeton du daemon).
+
+## Slice 10 décidée — spécialisation sécurité (pipeline à portes, vue terminal)
+
+Posée le 2026-11-10 avec l'auteur, **non ouverte** : elle s'ouvre **après la
+Slice 9** (5.4, 5.5), dont elle dépend pour le volet dynamique. Objectif :
+pousser Midgaard vers un harness de recherche de vulnérabilités — un **pipeline
+à étapes et à portes** (`recon → hunt → validate → trace → report`) porté par
+cinq **playbooks** de plus, une **vue terminal** temps réel (moins d'UI, plus de
+lignes, dialogue box vers l'orchestrateur conservée) qui **consomme le flux
+WebSocket existant** sans toucher au daemon, et — pour le reverse — des outils
+d'analyse **en lecture seule**. Deux références lues :
+[baby-naptime](https://github.com/faizann24/baby-naptime) (boucle d'agent,
+`CodeBrowser`, `Debugger`, `Reporter`) et
+[harness-kit](https://github.com/ZephrFish/harness-kit) (cinq étapes en
+`SKILL.md` + prompts). **Décision dure tranchée :** baby-naptime exécute
+l'échantillon (compile sans mitigations, GDB, exploit) ; c'est contraire à
+l'invariant « aucun échantillon exécuté, jamais ». Donc **tout dynamique reste
+confiné à la seule VM Windows** (`windows_run`, approuvé) ; le reste est
+statique et en lecture seule. Le pipeline de harness-kit mappe déjà sur
+l'existant (playbooks, revue adversariale, délégation parallèle, limites par
+profil) : on n'importe **aucune architecture**, seulement du savoir d'étape et
+une porte de traçage. Décisions, découpage en sept étapes et questions
+ouvertes : [docs/SLICE10.md](docs/SLICE10.md).
 
 ## Slice 9 en cours — des agents experts (Python, reverse, règles Windows)
 
