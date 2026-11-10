@@ -391,8 +391,16 @@ capable, et `hunt` va au `researcher` sur `deepseek-v4-1-flash-uncensored`
 `docs/SLICE10.md`, modèle réglé aux Profils du dashboard ; plafond de
 sous-tâches `hunt` (`MIDGAARD_MAX_ACTIVE_SUBTASKS`) à mesurer à l'essai réel.
 Aucun code neuf ; `tests/unit/playbooks.test.ts` verrouille que l'orchestrateur
-accepte des playbooks. `test:unit` (806), `typecheck` verts en local, **CI trois
-plateformes à confirmer**. Restent le `report` (6) et l'essai réel (7).
+accepte des playbooks. Étape 6 faite : le **`report` déterministe**. Tranché
+avec l'auteur : un outil `compile_report` (orchestrateur seul) qui lit
+`list('trace_confirmed')` et émet le rapport en `markdown`/`json`/`sarif` par un
+formateur **pur** `formatReport` — le modèle l'inclut tel quel et n'ajoute que
+sa prose, donc il ne peut ni oublier ni inventer un finding. Ferme la boucle de
+la porte. Prouvé dans `tests/unit/findings.test.ts` (les trois formats, le
+déterminisme, l'outil n'inclut que les tracés). `test:unit` (811),
+`test:orchestrator` (6), `typecheck` verts en local, **CI trois plateformes à
+confirmer**. Reste l'essai réel de bout en bout (étape 7), qui donnera aussi le
+plafond de sous-tâches `hunt`.
 
 ## Slice 9 en cours — des agents experts (Python, reverse, règles Windows)
 
