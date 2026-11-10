@@ -136,22 +136,31 @@ Chaque point est lu dans le code ou la doc du dépôt, pas supposé.
    un Researcher ; un besoin dynamique passe par un Developer à VM et
    `windows_run`.
 
-### B. Une porte de traçage, formulée d'abord en playbook
+### B. Une porte de traçage mécanique (`trace_confirmed`)
 
-4. La discipline « un finding non tracé ne passe pas » s'écrit d'abord **dans
-   `validate.md` et `trace.md`** (texte d'humain, zéro code). On ne crée un
-   **statut** ou un champ de tâche (`trace_confirmed`) que si l'essai réel
-   montre que le texte ne suffit pas — même prudence qu'ailleurs : une phrase de
-   doc est une affirmation à prouver, on ne code la contrainte qu'une fois le
-   besoin constaté.
+4. **Décidé le 2026-11-10 : la porte est un statut, pas une simple consigne.**
+   Un finding non tracé jusqu'à une entrée attaquant ne doit pas pouvoir
+   franchir l'étape, et on ne s'en remet pas au texte du playbook pour cela : un
+   champ de tâche (`trace_confirmed`, migration + `PROTOCOL_VERSION`) rend la
+   contrainte **mécanique** dès le départ. `validate.md`/`trace.md` décrivent le
+   *comment* (ce qui compte comme entrée attaquant, la référence de code à
+   chaque pas) ; le daemon impose le *franchissement* : seul un finding
+   `trace_confirmed` entre dans l'étape `report`. C'est le pendant, côté
+   qualité, de l'invariant « la fin d'une tâche est un acte, pas une
+   interprétation » : un modèle qui écrit « c'est tracé » n'a pas tracé.
 
 ### C. Les outils bas niveau de baby-naptime, version lecture seule
 
-5. Un **`CodeBrowser`** (navigation ciblée dans un gros arbre, extraction de
-   segments pertinents) manque pour le reverse sur de gros binaires désassemblés
-   ou de gros dépôts. S'il est livré, c'est un outil **lecture seule** derrière
-   `ToolContext`, sans écriture, soumis aux règles de chemin existantes
-   (`.git` jamais touché, `dev`/`ino` revérifiés à l'ouverture).
+5. **Décidé le 2026-11-10 : pas d'outil `CodeBrowser` neuf.** La navigation et
+   l'extraction (gros arbre, gros binaire désassemblé) se font par **des
+   préfixes `exec` bornés** sur des outils déjà présents — `rg`, `objdump`,
+   `nm`, `strings` — via la liste blanche à préfixes de la Slice 9. On réutilise
+   ainsi l'approbation et le rejugement au départ de tâche existants, sans créer
+   d'outil ni de surface de sécurité. Si un vrai cas montre un besoin que ces
+   préfixes ne couvrent pas (navigation structurée, extraction de segments avec
+   contexte), on rouvrira la question d'un outil lecture seule dédié — jamais en
+   écriture, règles de chemin existantes (`.git` jamais touché, `dev`/`ino`
+   revérifiés à l'ouverture).
 6. Un **`Reporter`** structuré (un finding sourcé → markdown/SARIF/JSON) peut
    être un outil de l'étape `report`, ou rester un simple playbook de format.
    À trancher à l'étape correspondante, pas maintenant.
@@ -160,17 +169,32 @@ Chaque point est lu dans le code ou la doc du dépôt, pas supposé.
 
 ### D. La vue terminal
 
-8. Une **nouvelle vue « terminal »** du dashboard (ou une TUI séparée) devient
-   le mode par défaut de l'observation : flux d'événements en lignes, sortie
-   `exec` en direct, coûts et étapes, **une *dialogue box* vers l'orchestrateur**
-   (le chat `POST /api/tasks/:id/messages` existe déjà, Slice 6). Elle
-   **consomme le flux existant** ; le daemon ne change pas.
+8. **Décidé le 2026-11-10 : une nouvelle vue du dashboard, pas une TUI à part.**
+   Elle devient le mode par défaut de l'observation : flux d'événements en
+   lignes, sortie `exec` en direct, coûts et étapes, **une *dialogue box* vers
+   l'orchestrateur** (le chat `POST /api/tasks/:id/messages` existe déjà,
+   Slice 6). Elle **consomme le flux WebSocket existant** — même bundle, mêmes
+   tests Playwright — et le daemon ne change pas. Une TUI Node hors fenêtre
+   reste possible plus tard si le besoin « hors du dashboard » apparaît à
+   l'usage ; on ne l'écrit pas d'emblée.
 9. Elle garde l'invariant du terminal : **seules les couleurs passent**, aucune
    séquence qui efface, déplace le curseur ou réinitialise — sinon l'humain
    approuve en voyant autre chose que ce qui s'est passé.
 10. L'atelier VS-Code (Slice 6) **reste** pour l'inspection diff/fichiers ; la
     vue terminal ne le remplace pas, elle devient l'entrée par défaut. La coque
     desktop (`apps/desktop`) ne change pas : même origine, aucune capacité Tauri.
+
+### E. Le modèle de `hunt`
+
+11. **Décidé le 2026-11-10 : `hunt` tourne sur `deepseek-v4-1-flash-uncensored`
+    de Venice**, déjà tarifé (`pricing.json`, Slice 9). C'est le modèle
+    « rapide » du pipeline, appelé en parallèle sur des tâches étroites ; les
+    étapes qui raisonnent longtemps (`recon`, `validate`, `trace`) iront sur un
+    profil à modèle plus capable. **Le plafond de sous-tâches par arbre reste à
+    fixer par la mesure** : on relève le coût d'un `hunt` réel à concurrence
+    croissante avant d'arrêter `MIDGAARD_MAX_ACTIVE_SUBTASKS` pour ce profil
+    (défaut actuel : 4). Le routage se fait par **l'attache à des profils**, pas
+    par un YAML de routage (neutralité, décision A.2).
 
 ## Découpage proposé (sept étapes)
 
@@ -181,33 +205,45 @@ pour ce qui touche la VM.
 1. **Les cinq playbooks d'étape** (`recon`, `hunt`, `validate`, `trace`,
    `report`), adaptés reverse/PE/Windows, attachables tout de suite. Verts =
    relus et SHA-256 cités au départ d'une tâche (mécanique déjà testée).
-2. **La porte de traçage en texte** : durcir `validate.md`/`trace.md`, éprouver
-   sur une cible JavaScript puis sur un binaire au volet PE (comme la Slice 9).
+2. **La porte de traçage `trace_confirmed`** : champ de tâche + migration +
+   `PROTOCOL_VERSION`, imposé par le daemon (seul un finding `trace_confirmed`
+   entre dans `report`) ; `validate.md`/`trace.md` en décrivent le *comment*.
+   Éprouvée sur une cible JavaScript puis sur un binaire au volet PE.
 3. **La vue terminal** du dashboard : flux + sortie en direct + dialogue box, en
    lecture seule, séquences réduites aux couleurs. D-tests dans `test:ui`.
-4. **`CodeBrowser` lecture seule** : outil de navigation/extraction, sans
-   écriture, règles de chemin existantes. Tests dans `test:developer`/unitaires.
-5. **Le routage par profils** : poser les profils du pipeline (un capable, un
-   rapide) et documenter l'équivalent de `model-routing.yaml` sans YAML neuf.
+4. **Les préfixes `exec` de navigation** : `rg`/`objdump`/`nm`/`strings` bornés
+   dans la liste blanche (aucun outil neuf). Pas d'étape de code dédiée au-delà
+   des préfixes ; le besoin d'un outil `CodeBrowser` ne se rouvre que sur un cas
+   réel non couvert.
+5. **Le routage par profils** : poser les profils du pipeline — `hunt` sur
+   `deepseek-v4-1-flash-uncensored`, les étapes qui raisonnent sur un modèle
+   plus capable — et documenter l'équivalent de `model-routing.yaml` sans YAML
+   neuf ; fixer le plafond de sous-tâches de `hunt` par la mesure.
 6. **Le `report` structuré** (outil ou playbook de format) : à décider ici.
 7. **L'essai réel de bout en bout** : un pipeline complet sur une vraie cible,
    coût relevé, résultat non fiable (contenu encadré), zéro échantillon exécuté.
    Le volet dynamique, s'il est tenté, passe par `windows_run` seulement.
 
-## Reste à trancher (à l'ouverture)
+## Tranché le 2026-11-10
 
-1. **Vue terminal : dans le dashboard ou TUI à part ?** Une vue web de plus coûte
-   moins (même bundle, même WebSocket, mêmes tests Playwright) qu'une TUI Node
-   séparée à écrire et à tester. Penchant : une vue du dashboard, la TUI plus
-   tard si le besoin « hors fenêtre » apparaît.
-2. **La porte de traçage : texte seul, ou statut `trace_confirmed` ?** Rester en
-   texte tant que l'essai ne prouve pas le contraire (prudence habituelle).
-3. **`CodeBrowser` : nouvel outil, ou préfixes `exec` sur des outils existants**
-   (`rg`, `objdump`, `nm`, `strings` via liste blanche bornée) ? Le second
-   réutilise la liste blanche à préfixes de la Slice 9 et ne crée aucun outil ;
-   à mesurer sur un vrai cas avant de décider.
-4. **Quel modèle pour `hunt` en parallèle ?** Les `deepseek-*-uncensored` de
-   Venice sont déjà tarifés (Slice 9) ; reste à mesurer leur coût à forte
-   concurrence avant de fixer un plafond de sous-tâches par arbre.
-5. **Le `Debugger` dynamique sur VM vaut-il la peine** avant que 5.4/5.5 soient
-   closes ? Non : il dépend d'une VM encore non éprouvée sur un vrai Windows.
+Les quatre questions laissées ouvertes à la rédaction ont été décidées avec
+l'auteur (voir les décisions B, C, D, E ci-dessus) :
+
+1. **Vue terminal → une vue du dashboard**, pas une TUI à part (décision D).
+2. **Porte de traçage → un statut `trace_confirmed` mécanique** dès le départ,
+   imposé par le daemon, pas une simple consigne de playbook (décision B).
+3. **Navigation de code → des préfixes `exec` bornés** (`rg`, `objdump`, `nm`,
+   `strings`), aucun outil `CodeBrowser` neuf tant qu'un cas réel ne l'exige
+   pas (décision C).
+4. **Modèle de `hunt` → `deepseek-v4-1-flash-uncensored`** ; plafond de
+   sous-tâches fixé par la mesure (décision E).
+
+## Reste ouvert (à mesurer ou à l'ouverture)
+
+1. **Le plafond de sous-tâches de `hunt`** : à fixer par la mesure d'un `hunt`
+   réel à concurrence croissante (décision E), pas par avance.
+2. **Le `report` structuré** (étape 6 du découpage) : outil dédié ou simple
+   playbook de format — à décider à cette étape, sur un vrai lot de findings.
+3. **Le `Debugger` dynamique sur VM** : reste **non** pour l'instant — il dépend
+   d'une VM non encore éprouvée sur un vrai Windows (Slice 9, 5.4/5.5). À
+   rouvrir seulement une fois ces sous-étapes closes.
