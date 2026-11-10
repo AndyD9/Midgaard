@@ -8,7 +8,7 @@
   ],
   "extends": "../tsconfig.base.json",
   "compilerOptions": { "rootDir": "..", "outDir": "dist", "noEmit": false },
-  "include": ["**/*.ts", "../apps/dashboard/src/lib/utils.ts", "../apps/dashboard/src/lib/patch.ts", "../apps/dashboard/src/lib/tree.ts", "../apps/dashboard/src/lib/agents.ts", "../apps/dashboard/src/lib/thread.ts", "../apps/dashboard/src/lib/terminal.ts", "../apps/dashboard/src/lib/files.ts", "../apps/dashboard/src/lib/browser.ts", "../apps/dashboard/src/lib/timeline.ts", "../apps/dashboard/src/lib/bundle.ts", "../apps/dashboard/src/lib/mcp.ts", "../apps/dashboard/src/lib/providers.ts"],
+  "include": ["**/*.ts", "../apps/dashboard/src/lib/utils.ts", "../apps/dashboard/src/lib/patch.ts", "../apps/dashboard/src/lib/tree.ts", "../apps/dashboard/src/lib/agents.ts", "../apps/dashboard/src/lib/thread.ts", "../apps/dashboard/src/lib/terminal.ts", "../apps/dashboard/src/lib/stream.ts", "../apps/dashboard/src/lib/files.ts", "../apps/dashboard/src/lib/browser.ts", "../apps/dashboard/src/lib/timeline.ts", "../apps/dashboard/src/lib/bundle.ts", "../apps/dashboard/src/lib/mcp.ts", "../apps/dashboard/src/lib/providers.ts"],
   "exclude": ["dist"],
   "references": [
     { "path": "../packages/contracts" },

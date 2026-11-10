@@ -8,7 +8,7 @@ d'information sur ce qui se passe, une *dialogue box* vers l'orchestrateur
 conservée), et — pour le reverse — des **outils d'analyse en lecture seule**,
 l'exécution dynamique restant **confinée à la seule VM Windows**.
 
-**État : ouverte, étapes 1 et 2 faites.** Posée le 2026-11-10 à la demande de l'auteur,
+**État : ouverte, étapes 1 à 3 faites.** Posée le 2026-11-10 à la demande de l'auteur,
 après lecture de deux références qu'il a proposées :
 [baby-naptime](https://github.com/faizann24/baby-naptime) (implémentation
 ouverte de *Project Naptime* de Google — boucle d'agent avec `CodeBrowser`,
@@ -313,3 +313,31 @@ chaîne trop courte et des quatre outils sans port. Verts en local :
 `test:unit` (786), `test:orchestrator` (6), `test:security` (13), `typecheck`.
 **CI sur trois plateformes à confirmer.** Restent `MAX_FINDINGS` à régler par la
 mesure, le format du `report` (étape 6) et le reste de la vue dashboard.
+
+### Étape 3 — la vue terminal (2026-11-10)
+
+Décision D : une **vue du dashboard**, pas une TUI. Route `#/terminal/<id>`, un
+bouton « Flux terminal » dans la barre d'onglets de l'atelier et un « Atelier → »
+pour revenir. Elle rejoue le journal de **tout l'arbre** (racine + sous-tâches)
+en un flux monospace ordonné par séquence globale, défilement suivi tant qu'on
+ne remonte pas, et porte en pied la **dialogue box** vers l'orchestrateur — le
+même `Composer` que le panneau de chat (exporté), avec le même refus du daemon
+tant qu'il travaille.
+
+Elle **lit** le même flux WebSocket que la timeline et le terminal de
+l'atelier ; le daemon ne change pas. Le formatage est pur et testé
+(`apps/dashboard/src/lib/stream.ts`) : `buildStream` fond l'arbre, étiquette
+chaque sous-tâche par son profil, et `plain` retire **toutes** les séquences
+d'échappement — couleur comprise, puisqu'elle n'est pas interprétée en HTML
+(la teinte est portée par une classe CSS) — et les contrôles qui déplaceraient
+ou effaceraient ce que l'humain lit. C'est l'invariant du terminal de l'atelier
+(Slice 6), tenu ici. Un type d'événement inconnu garde son nom, en sourdine
+(daemon plus récent que la page).
+
+Prouvé par `tests/unit/dashboard-workbench.test.ts` (4 cas purs : `plain`,
+l'ordre et les étiquettes, la sortie `exec` brute et stderr en danger, le type
+inconnu) et par `D19` de `test:ui` (vrai navigateur : le flux en lignes, la
+dialogue box, l'aller-retour atelier ↔ terminal). Verts en local :
+`test:unit` (790), `test:ui` (19), `typecheck`. **CI trois plateformes à
+confirmer.** Restent les préfixes `exec` (étape 4), le routage par profils (5),
+le `report` (6) et l'essai réel (7).

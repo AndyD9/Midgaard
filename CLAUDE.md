@@ -57,7 +57,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:worktrees` | ~8 s — worktrees, écriture et `exec` seuls, sortie en direct et lecture des fichiers d'une tâche comprises (rejoués en CI sur trois plateformes) |
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
-| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer, arbre d'un orchestrateur, atelier (conversation, éditeur, terminal), onglet « Navigateur », rechargement d'une page plus vieille que son daemon, serveurs MCP aux Profils, agents créés et clé d'un fournisseur déposée depuis la carte « Fournisseurs » compris (`npx playwright install chromium` au préalable) |
+| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer, arbre d'un orchestrateur, atelier (conversation, éditeur, terminal), onglet « Navigateur », rechargement d'une page plus vieille que son daemon, serveurs MCP aux Profils, agents créés, clé d'un fournisseur déposée depuis la carte « Fournisseurs » et la vue terminal (D19) compris (`npx playwright install chromium` au préalable) |
 | `npm run test:developer` | ~45 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris, préfixes `exec`, échantillons jamais exécutés, `uv sync` au départ (uv requis pour V16) |
 | `npm run test:orchestrator` | ~10 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL`, conversation qui pilote une revue, `SIGKILL` pendant une attente |
 | `npm run test:security` | ~1 min — PLAN §8.4 de bout en bout : base et journal lus octet pour octet (conversation, questions, propositions et sortie en direct comprises), refus tracés, API sur la seule boucle locale ; le navigateur : saisie sans approbation, adresses privées, aucun Chromium après `SIGKILL`, aucune capture en base ; les serveurs MCP : outil non coché ou changé jamais reçu par le serveur, secret d'un serveur jamais persisté, exécutant créé borné, aucun serveur après `SIGKILL` (`npx playwright install chromium` au préalable) |
@@ -367,10 +367,17 @@ Le daemon ne pose `trace_confirmed` que par `confirm_trace` (chaîne d'au moins
 deux pas, modèle de menace ; un finding rejeté ne se confirme pas), et
 `list_findings('trace_confirmed')` ne rend jamais un finding non confirmé :
 seul ce statut entre dans le rapport. Prouvé par `tests/unit/findings.test.ts`
-(vrai daemon, effets lus en base) ; `test:unit` (786), `test:orchestrator`,
-`test:security` et `typecheck` verts en local, **CI trois plateformes à
-confirmer**. Restent la vue terminal (étape 3), les préfixes `exec` (étape 4),
-le routage par profils (5), le `report` (6) et l'essai réel (7).
+(vrai daemon, effets lus en base). Étape 3 faite : la **vue terminal** du
+dashboard (route `#/terminal/<id>`, bouton « Flux terminal » de l'atelier) —
+elle rejoue le journal de tout l'arbre en lignes monospace ordonnées par
+séquence globale, porte la dialogue box vers l'orchestrateur (le `Composer` du
+chat), **lit** le même flux WebSocket (le daemon ne change pas), et retire toute
+séquence d'échappement (couleur comprise, teinte par CSS) ;
+`apps/dashboard/src/lib/stream.ts` est pur et testé, `D19` de `test:ui` couvre
+la vue. `test:unit` (790), `test:ui` (19), `test:orchestrator`, `test:security`
+et `typecheck` verts en local, **CI trois plateformes à confirmer**. Restent les
+préfixes `exec` (étape 4), le routage par profils (5), le `report` (6) et
+l'essai réel (7).
 
 ## Slice 9 en cours — des agents experts (Python, reverse, règles Windows)
 
