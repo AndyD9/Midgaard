@@ -7,8 +7,8 @@
  * rejoués arrivent après des événements plus récents.
  */
 import {
-  Archive, CircleCheck, CircleSlash, CircleX, Coins, Flag, FolderGit2, FolderX, Hourglass, MessageCircleQuestion,
-  Globe, MessageSquare, MessagesSquare, Play, ShieldCheck, ShieldQuestion, SquareTerminal, TimerOff, User, UserPlus, Wallet, Wrench,
+  Archive, Bug, CircleCheck, CircleSlash, CircleX, Coins, Flag, FolderGit2, FolderX, Hourglass, MessageCircleQuestion,
+  Globe, MessageSquare, MessagesSquare, Play, ShieldCheck, ShieldQuestion, SquareTerminal, Target, TimerOff, User, UserPlus, Wallet, Wrench,
 } from 'lucide-react'
 import type { EventType, TaskEvent } from '@midgaard/contracts'
 import { formatCost, formatDateTime, formatTime } from '@/lib/utils'
@@ -45,6 +45,9 @@ const EVENT_LOOK: Record<EventType, Look> = {
   'browser.opened': { icon: Globe, label: 'Navigateur ouvert', className: 'text-running' },
   'browser.closed': { icon: Globe, label: 'Navigateur fermé', className: 'text-muted' },
   'agent.created': { icon: UserPlus, label: 'Agent créé', className: 'text-running' },
+  'finding.recorded': { icon: Bug, label: 'Finding enregistré', className: 'text-running' },
+  'finding.rejected': { icon: CircleSlash, label: 'Finding rejeté', className: 'text-muted' },
+  'finding.trace_confirmed': { icon: Target, label: 'Finding tracé', className: 'text-done' },
 }
 
 /** Ce qu'attend une tâche en `waiting_input`, dit à l'utilisateur. */

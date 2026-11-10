@@ -8,7 +8,7 @@ d'information sur ce qui se passe, une *dialogue box* vers l'orchestrateur
 conservée), et — pour le reverse — des **outils d'analyse en lecture seule**,
 l'exécution dynamique restant **confinée à la seule VM Windows**.
 
-**État : ouverte, étape 1 faite.** Posée le 2026-11-10 à la demande de l'auteur,
+**État : ouverte, étapes 1 et 2 faites.** Posée le 2026-11-10 à la demande de l'auteur,
 après lecture de deux références qu'il a proposées :
 [baby-naptime](https://github.com/faizann24/baby-naptime) (implémentation
 ouverte de *Project Naptime* de Google — boucle d'agent avec `CodeBrowser`,
@@ -281,3 +281,35 @@ playbooks les décrit. **Aucun code** : la mécanique d'attache, de relecture au
 départ et de citation du SHA-256 existe déjà (Slice 9, étape 1), donc ces
 playbooks sont attachables tels quels. Le statut `trace_confirmed` que `trace`
 et `report` décrivent, lui, reste à écrire (étape 2).
+
+### Étape 2 — la porte de traçage mécanique (2026-11-10)
+
+Les **findings** de première classe dans l'arbre d'un orchestrateur, décision B.
+Migration 19 (table `findings`, scopée à la tâche racine comme les
+`created_agents`), `PROTOCOL_VERSION` 22, trois événements `finding.*`. Un port
+`FindingsPort` posé par le daemon pour le seul orchestrateur (comme la
+délégation), et quatre outils (`packages/tools/src/findings.ts`) :
+
+- `record_finding` → un finding `open` ;
+- `reject_finding` → `rejected`, seulement depuis `open` ;
+- `confirm_trace` → **le seul chemin vers `trace_confirmed`** ; le schéma exige
+  une chaîne d'au moins deux pas (`MIN_TAINT_PATH`) et le modèle de menace, et
+  un finding rejeté ne se confirme pas ;
+- `list_findings` → les findings de l'arbre, `list('trace_confirmed')` étant
+  tout ce que le rapport peut relire.
+
+La porte est mécanique : le daemon ne pose `trace_confirmed` que par
+`confirm_trace`, et `list('trace_confirmed')` ne rend jamais un finding non
+confirmé. Les champs passent par l'expurgation avant d'être persistés (comme un
+objectif délégué), un finding n'appartient qu'à son arbre, et l'orchestrateur
+en hérite les quatre outils et une note de consigne. Le dashboard montre les
+trois événements (Timeline), le reste de la vue est pour l'étape 6.
+
+Prouvé par `tests/unit/findings.test.ts` (8 cas, vrai daemon, effets lus en
+base) : cycle de vie, la porte (`list('trace_confirmed')` n'a que les
+confirmés), rejet/confirmation irréversibles, isolation par arbre, expurgation,
+plafond (`MAX_FINDINGS`), arbre à l'arrêt, et au bord de l'outil le refus d'une
+chaîne trop courte et des quatre outils sans port. Verts en local :
+`test:unit` (786), `test:orchestrator` (6), `test:security` (13), `typecheck`.
+**CI sur trois plateformes à confirmer.** Restent `MAX_FINDINGS` à régler par la
+mesure, le format du `report` (étape 6) et le reste de la vue dashboard.

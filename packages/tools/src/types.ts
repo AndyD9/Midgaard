@@ -16,7 +16,10 @@ import type {
   AgentKind,
   AgentLimits,
   ExecAllowRule,
+  Finding,
+  FindingStatus,
   RequestedLimits,
+  TaintStep,
   TaskResult,
   TaskStatus,
   ToolDecision,
@@ -106,6 +109,16 @@ export interface ToolContext {
    * lancer aucune tâche, donc rien dépenser au nom d'un autre.
    */
   delegation?: DelegationPort | undefined
+  /**
+   * Les findings de l'arbre d'un orchestrateur (Slice 10). Posé par le daemon
+   * pour une tâche `orchestrator`, et pour elle seule — comme
+   * {@link ToolContext.delegation}.
+   *
+   * Absent, les outils de findings **refusent** : enregistrer, rejeter,
+   * confirmer et lister des findings est une capacité de l'orchestrateur, pas
+   * une opération qu'un humain accorderait au coup par coup.
+   */
+  findings?: FindingsPort | undefined
   /**
    * Sortie d'un outil qui dure, **en direct** (Slice 6) : `exec` y passe chaque
    * morceau lu, pour le terminal du dashboard. Posé par la boucle pour **un**
@@ -397,6 +410,49 @@ export type WaitStop = 'ended' | 'awaiting_you' | 'parent_stopping' | 'deadline'
 /** Refus d'une opération de délégation, en anglais : c'est le modèle qui le lit. */
 export interface DelegationRefusal {
   refused: string
+}
+
+/** Refus d'une opération de findings, en anglais : c'est le modèle qui le lit. */
+export interface FindingsRefusal {
+  refused: string
+}
+
+/** Ce qu'un orchestrateur fournit pour confirmer une chaîne de contamination. */
+export interface ConfirmTraceInput {
+  threat_model: string
+  /** La chaîne source→sink ; le daemon exige au moins la source et le sink. */
+  path: TaintStep[]
+}
+
+/**
+ * Ce que le daemon offre à un orchestrateur pour suivre des **findings** dans
+ * son arbre (Slice 10), et **tout** ce qu'il lui offre.
+ *
+ * Le port est lié à la tâche racine de l'arbre : il ne voit, ne juge et ne
+ * confirme que les findings de cet arbre, et c'est lui qui pose leur
+ * `tree_task_id`. La **porte de traçage est ici** : `confirm` est le seul chemin
+ * vers `trace_confirmed`, il exige une chaîne complète, et `list('trace_confirmed')`
+ * est tout ce que le rapport peut relire. Rien ne confirme un finding par du
+ * texte libre — c'est un acte, comme `submit_result`.
+ */
+export interface FindingsPort {
+  /** Enregistre un finding `open`. */
+  record(input: {
+    title: string
+    vuln_class: string
+    sink: string
+    source: string
+    evidence: string
+  }): Finding | FindingsRefusal
+  /** Rejette un finding `open` (étape `validate`), avec un motif. */
+  reject(id: string, reason: string): Finding | FindingsRefusal
+  /**
+   * Confirme la chaîne d'un finding (étape `trace`) : le **seul** chemin vers
+   * `trace_confirmed`. Refuse un finding déjà rejeté ou d'un autre arbre.
+   */
+  confirm(id: string, input: ConfirmTraceInput): Finding | FindingsRefusal
+  /** Les findings de l'arbre, optionnellement filtrés par statut. */
+  list(status?: FindingStatus): Finding[]
 }
 
 /**

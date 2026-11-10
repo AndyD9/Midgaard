@@ -18,7 +18,7 @@
  */
 import type { Agent, AgentKind, Approval, HarnessConfig, InputRequest, Task } from '@midgaard/contracts'
 import type { HarnessStore } from '@midgaard/persistence'
-import type { DelegationPort } from '@midgaard/tools'
+import type { DelegationPort, FindingsPort } from '@midgaard/tools'
 import type { EventBus } from '../bus.ts'
 
 /**
@@ -100,6 +100,15 @@ export interface EngineContext {
    *               dans une délégation est persisté, et passe donc par elle
    */
   delegationFor(parentTaskId: string, redact: (text: string) => string): DelegationPort
+  /**
+   * Le port de findings d'une tâche `orchestrator` (Slice 10) : enregistrer,
+   * rejeter, confirmer et lister les findings de **son** arbre. La porte de
+   * traçage y vit — `confirm` est le seul chemin vers `trace_confirmed`.
+   *
+   * @param redact l'expurgation de la tâche racine : les champs d'un finding
+   *               sont écrits par le modèle et persistés, comme une délégation
+   */
+  findingsFor(treeTaskId: string, redact: (text: string) => string): FindingsPort
   /**
    * Retient ce que le moteur a constaté de la vue du modèle d'un profil
    * (Slice 7), pour le fournisseur et le modèle **effectifs** : le gérant

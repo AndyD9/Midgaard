@@ -25,6 +25,7 @@ import type {
   Agent,
   AgentLimits,
   Approval,
+  Finding,
   HarnessConfig,
   PricingTable,
   InputRequest,
@@ -42,14 +43,17 @@ import {
   tightenLimits,
 } from '@midgaard/contracts'
 import type { HarnessStore } from '@midgaard/persistence'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { priceFor } from '@midgaard/providers'
 import type {
+  ConfirmTraceInput,
   CreateAgentRequest,
   CreatedAgentInfo,
   DelegableAgent,
   DelegationPort,
   DelegationRefusal,
+  FindingsPort,
+  FindingsRefusal,
   SubtaskAwaiting,
   SubtaskState,
   WaitStop,
@@ -210,6 +214,7 @@ export class TaskManager {
       },
       requestInput: (taskId, request, text, step, extra) => this.openInput(taskId, request, text, step, extra),
       delegationFor: (parentTaskId, redact) => this.delegationFor(parentTaskId, redact),
+      findingsFor: (treeTaskId, redact) => this.findingsFor(treeTaskId, redact),
       treeBudget: (taskId) => this.treeBudget(taskId),
       noteVision: (agentId, providerId, model, verdict) => {
         this.vision.set(agentId, { providerId, model, verdict })
@@ -958,6 +963,88 @@ export class TaskManager {
   }
 
   /**
+   * Le port de findings d'une tâche `orchestrator` (Slice 10, étape 2).
+   *
+   * Lié à **son** arbre (`treeTaskId` est la tâche racine) : il ne voit, ne juge
+   * et ne confirme que les findings qui lui appartiennent, et c'est lui qui pose
+   * leur `tree_task_id`. La **porte de traçage** est ici : `confirm` est le seul
+   * chemin vers `trace_confirmed`, et il exige une chaîne — dont le schéma de
+   * `confirm_trace` a déjà imposé la longueur minimale.
+   *
+   * @param redact expurgation de la tâche racine : les champs d'un finding sont
+   *               écrits par le modèle, puis persistés et rendus plus tard par
+   *               `list_findings` ; ils passent par elle, comme une délégation
+   */
+  findingsFor(treeTaskId: string, redact: (text: string) => string): FindingsPort {
+    /** Le finding, s'il appartient bien à cet arbre ; sinon un refus indistinct. */
+    const own = (id: string): Finding | FindingsRefusal => {
+      const f = this.store.getFinding(id)
+      // Même réponse pour un finding inconnu et pour celui d'un autre arbre :
+      // un orchestrateur n'a pas à apprendre ce qui existe hors du sien.
+      if (!f || f.tree_task_id !== treeTaskId) return { refused: `no finding ${id} belongs to your task` }
+      return f
+    }
+
+    /** L'événement qui raconte un changement de finding, écrit au journal de la racine. */
+    const note = (type: 'finding.recorded' | 'finding.rejected' | 'finding.trace_confirmed', payload: Record<string, unknown>): void => {
+      this.bus.record(treeTaskId, null, { type, payload })
+    }
+
+    return {
+      record: (input) => {
+        const root = this.store.getTask(treeTaskId)
+        if (!root || isTerminal(root.status) || root.status === 'cancel_requested') {
+          return { refused: 'your task is stopping: no finding can be recorded' }
+        }
+        if (this.store.findingsOf(treeTaskId).length >= MAX_FINDINGS) {
+          return { refused: `you already recorded ${MAX_FINDINGS} findings in this task: the maximum` }
+        }
+        const f = this.store.recordFinding({
+          id: randomUUID(),
+          tree_task_id: treeTaskId,
+          title: redact(input.title.trim()),
+          vuln_class: redact(input.vuln_class.trim()),
+          sink: redact(input.sink.trim()),
+          source: redact(input.source.trim()),
+          evidence: redact(input.evidence.trim()),
+        })
+        note('finding.recorded', { finding_id: f.id, title: f.title, vuln_class: f.vuln_class, sink: f.sink })
+        return f
+      },
+
+      reject: (id, reason) => {
+        const f = own(id)
+        if ('refused' in f) return f
+        // Seul un finding encore ouvert se rejette : un finding déjà tracé ou
+        // déjà rejeté ne se rejuge pas en silence.
+        if (f.status !== 'open') return { refused: `finding ${id} is ${f.status}, not open: it cannot be rejected` }
+        const up = this.store.setFindingStatus(id, { status: 'rejected', reject_reason: redact(reason.trim()) })
+        if (!up) return { refused: `finding ${id} not found` }
+        note('finding.rejected', { finding_id: id })
+        return up
+      },
+
+      confirm: (id, input: ConfirmTraceInput) => {
+        const f = own(id)
+        if ('refused' in f) return f
+        // Un finding rejeté ne se confirme pas : la porte ne se contourne pas en
+        // ramenant un faux positif par le traçage.
+        if (f.status === 'rejected') return { refused: `finding ${id} was rejected and cannot be trace-confirmed` }
+        const up = this.store.setFindingStatus(id, {
+          status: 'trace_confirmed',
+          threat_model: redact(input.threat_model.trim()),
+          taint_path: input.path.map((s) => ({ ref: redact(s.ref.trim()), note: redact(s.note.trim()) })),
+        })
+        if (!up) return { refused: `finding ${id} not found` }
+        note('finding.trace_confirmed', { finding_id: id, steps: up.taint_path.length })
+        return up
+      },
+
+      list: (status) => this.store.findingsOf(treeTaskId, status),
+    }
+  }
+
+  /**
    * Crée un agent pour l'arbre d'un orchestrateur (Slice 8, décisions 12 à 16).
    *
    * Rien de ce qui est créé ne dépasse le profil de base, et tout dépassement
@@ -1332,6 +1419,13 @@ function short(id: string): string {
 
 /** Agents qu'un orchestrateur peut créer dans une tâche : de quoi spécialiser, pas de quoi submerger. */
 export const MAX_CREATED_AGENTS = 8
+
+/**
+ * Findings qu'un orchestrateur peut enregistrer dans un arbre (Slice 10) : un
+ * plafond, pour qu'un modèle qui dérape ne remplisse pas la base. Large : un
+ * vrai audit d'un gros dépôt en produit beaucoup avant d'en confirmer peu.
+ */
+export const MAX_FINDINGS = 200
 
 /**
  * Identifiant d'un agent créé : son nom en minuscules, puis six caractères

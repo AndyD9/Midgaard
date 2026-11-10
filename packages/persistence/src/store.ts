@@ -31,6 +31,9 @@ import {
   type CreatableBase,
   type CreatedAgent,
   type EventType,
+  type Finding,
+  type FindingStatus,
+  type TaintStep,
   type HarnessConfig,
   type InputRequest,
   type McpServer,
@@ -1000,6 +1003,84 @@ export class HarnessStore {
     ).map(toCreatedAgent)
   }
 
+  // --- Findings d'un arbre d'orchestrateur (Slice 10) -----------------------
+
+  /**
+   * Enregistre un finding `open`. Les règles — arbre actif, plafond, expurgation
+   * des champs — sont celles de l'appelant (`daemon/src/task-manager.ts`), au
+   * seul endroit où un arbre se connaît. Le store écrit la ligne et rien de plus.
+   */
+  recordFinding(
+    input: Pick<Finding, 'id' | 'tree_task_id' | 'title' | 'vuln_class' | 'sink' | 'source' | 'evidence'>,
+  ): Finding {
+    const now = new Date().toISOString()
+    this.db
+      .prepare(
+        `INSERT INTO findings
+           (id, tree_task_id, title, vuln_class, sink, source, evidence, status,
+            reject_reason, threat_model, taint_path_json, created_at, updated_at)
+         VALUES (:id, :tree, :title, :class, :sink, :source, :evidence, 'open',
+            NULL, NULL, '[]', :now, :now)`,
+      )
+      .run({
+        id: input.id,
+        tree: input.tree_task_id,
+        title: input.title,
+        class: input.vuln_class,
+        sink: input.sink,
+        source: input.source,
+        evidence: input.evidence,
+        now,
+      })
+    return this.getFinding(input.id)!
+  }
+
+  getFinding(id: string): Finding | null {
+    const found = row<FindingRow>(this.db.prepare('SELECT * FROM findings WHERE id = :id').get({ id }))
+    return found ? toFinding(found) : null
+  }
+
+  /** Les findings d'un arbre, optionnellement filtrés par statut, dans l'ordre de création. */
+  findingsOf(treeTaskId: string, status?: FindingStatus): Finding[] {
+    const sql = status
+      ? 'SELECT * FROM findings WHERE tree_task_id = :t AND status = :s ORDER BY created_at, rowid'
+      : 'SELECT * FROM findings WHERE tree_task_id = :t ORDER BY created_at, rowid'
+    return rows<FindingRow>(this.db.prepare(sql).all(status ? { t: treeTaskId, s: status } : { t: treeTaskId })).map(toFinding)
+  }
+
+  /**
+   * Fait passer un finding à `rejected` ou `trace_confirmed`, sans toucher au
+   * reste. **Seul** `trace_confirmed` porte un `threat_model` et une chaîne : la
+   * porte de traçage vit dans l'appelant, qui n'appelle cette méthode qu'après
+   * `confirm_trace` et sa chaîne vérifiée.
+   *
+   * @returns le finding après coup, ou `null` s'il n'existe pas
+   */
+  setFindingStatus(
+    id: string,
+    patch: { status: FindingStatus; reject_reason?: string | null; threat_model?: string | null; taint_path?: TaintStep[] },
+  ): Finding | null {
+    const info = this.db
+      .prepare(
+        `UPDATE findings
+            SET status = :status,
+                reject_reason = :reason,
+                threat_model = :threat,
+                taint_path_json = :path,
+                updated_at = :now
+          WHERE id = :id`,
+      )
+      .run({
+        id,
+        status: patch.status,
+        reason: patch.reject_reason ?? null,
+        threat: patch.threat_model ?? null,
+        path: JSON.stringify(patch.taint_path ?? []),
+        now: new Date().toISOString(),
+      })
+    return info.changes === 1 ? this.getFinding(id) : null
+  }
+
   /** Profils rattachés à un fournisseur donné, pour les désactiver quand il disparaît. */
   agentsUsingProvider(providerId: string): Agent[] {
     return rows<AgentRow>(
@@ -1649,6 +1730,40 @@ function toCreatedAgent(row: CreatedAgentRow): CreatedAgent {
     mcp_servers: JSON.parse(row.mcp_servers_json) as string[],
     limits: JSON.parse(row.limits_json) as AgentLimits,
     created_at: row.created_at,
+  }
+}
+
+interface FindingRow {
+  id: string
+  tree_task_id: string
+  title: string
+  vuln_class: string
+  sink: string
+  source: string
+  evidence: string
+  status: string
+  reject_reason: string | null
+  threat_model: string | null
+  taint_path_json: string
+  created_at: string
+  updated_at: string
+}
+
+function toFinding(row: FindingRow): Finding {
+  return {
+    id: row.id,
+    tree_task_id: row.tree_task_id,
+    title: row.title,
+    vuln_class: row.vuln_class,
+    sink: row.sink,
+    source: row.source,
+    evidence: row.evidence,
+    status: row.status as FindingStatus,
+    reject_reason: row.reject_reason,
+    threat_model: row.threat_model,
+    taint_path: JSON.parse(row.taint_path_json) as TaintStep[],
+    created_at: row.created_at,
+    updated_at: row.updated_at,
   }
 }
 

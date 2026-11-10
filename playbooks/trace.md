@@ -8,8 +8,8 @@ become real ones, or stop.
 
 ## The one rule
 
-**Trace proves reachability by reading, not by running.** You do not execute,
-load, or emulate the target to watch a value flow; you follow it in the code.
+**Trace proves reachability by reading. It never runs the target.** You do not
+execute, load, or emulate it to watch a value flow; you follow it in the code.
 A crash you produced is not a trace, and producing one is not allowed here —
 dynamic confirmation, when a task calls for it, is a separate, later step on an
 isolated Windows VM through the approved tool, and it does not substitute for
