@@ -22,7 +22,9 @@ import type {
   McpServerResponse,
   McpServersResponse,
   PlaybooksResponse,
+  ConnectionTest,
   ProviderConfig,
+  ProviderPreset,
   Task,
   TaskEvent,
   TaskView,
@@ -177,6 +179,39 @@ export function fetchProviders(): Promise<{
   pricing: { updated_at: string; source: string; models: number }
 }> {
   return api('/api/providers')
+}
+
+/**
+ * Déclare ou met à jour un fournisseur, et dépose sa clé (carte « Fournisseurs »).
+ *
+ * C'est le **seul** appel du dashboard qui porte une clé. Elle part dans le
+ * corps de la requête — jamais dans l'URL —, vers la même origine, sur la
+ * boucle locale ; le daemon la dépose au coffre et ne la rend jamais. Sans
+ * `api_key`, la clé déjà au coffre est conservée.
+ */
+export function saveProvider(request: {
+  id: string
+  preset: ProviderPreset
+  default_model: string
+  base_url?: string
+  api_key?: string
+}): Promise<{ provider: ProviderConfig }> {
+  return api('/api/providers', { method: 'POST', body: JSON.stringify(request) })
+}
+
+/** « Tester la connexion » : le daemon joint l'endpoint avec la clé du coffre. Ne facture rien. */
+export function testProvider(id: string): Promise<{ provider: ProviderConfig; test: ConnectionTest }> {
+  return api(`/api/providers/${encodeURIComponent(id)}/test`, { method: 'POST' })
+}
+
+/** Retire un fournisseur et efface sa clé du coffre. Ses profils sont désactivés, pas supprimés. */
+export function removeProvider(id: string): Promise<{ ok: true }> {
+  return api(`/api/providers/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+/** Relève les tarifs chez le fournisseur (Venice seulement : lui seul les publie par modèle). */
+export function refreshProviderPricing(id: string): Promise<{ models: number }> {
+  return api(`/api/providers/${encodeURIComponent(id)}/pricing`, { method: 'POST' })
 }
 
 /** Approbations en attente, pour un rafraîchissement ponctuel. */

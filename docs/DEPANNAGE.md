@@ -209,6 +209,8 @@ dit pourquoi chaque profil est désactivé. Déclare un fournisseur :
 npm run harness -- providers add venice --model deepseek-v4-flash-0731
 ```
 
+Ou, sans terminal : au dashboard, « Profils », carte « Fournisseurs ».
+
 ### « Delegation refused (agent_disabled) » pour le `navigator`
 
 Le Navigator voit le navigateur par des captures : son modèle doit lire les

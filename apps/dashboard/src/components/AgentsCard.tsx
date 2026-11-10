@@ -121,7 +121,11 @@ export function AgentsCard({ editable = false }: { editable?: boolean }) {
                       Navigator aveugle a un fournisseur, il lui faut un modèle. */}
                   {(agent.provider_id === null || !data.providers.some((p) => p.id === agent.provider_id)) && (
                     <>
-                      . Dans un terminal, à la racine du dépôt :{' '}
+                      . Ajoute une clé dans{' '}
+                      <a className="underline" href="#/agents" data-testid={`agent-${agent.id}-add-provider`}>
+                        Profils → Fournisseurs
+                      </a>
+                      , ou dans un terminal, à la racine du dépôt :{' '}
                       <code className="rounded bg-canvas px-1 font-mono">
                         npm run harness -- providers add venice --model deepseek-v4-flash-0731
                       </code>

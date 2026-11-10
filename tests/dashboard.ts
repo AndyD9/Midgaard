@@ -65,6 +65,10 @@
  *  - D19 les playbooks aux Profils (Slice 9, étape 6) : une case cochée
  *    attache le playbook **en base** ; décochée, le détache ; le profil
  *    simulé n'en a pas.
+ *  - D20 une clé se dépose depuis les Profils, sans terminal : champ masqué,
+ *    vidé après l'envoi, clé absente de la page et de l'API ; le fournisseur
+ *    la reçoit pourtant (relue au coffre) ; une clé remplacée l'est vraiment ;
+ *    retirer se confirme.
  *
  * Playwright est employé en **bibliothèque**, pas en lanceur : les suites de ce
  * dépôt ont leur forme (`scenario`, `summarize`, verdicts), et ajouter un second
@@ -78,7 +82,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { chromium, type Browser, type ConsoleMessage, type Page } from 'playwright'
 import {
-  daemonJson, pidAlive, readRuntime, type Agent, type Approval, type RuntimeInfo, type Task, type TaskView,
+  daemonJson, pidAlive, readRuntime, type Agent, type Approval, type ProviderConfig, type RuntimeInfo, type Task, type TaskView,
 } from '@midgaard/contracts'
 import { NAVIGATOR_AGENT_ID, StaticFiles, defaultDashboardDir, reconcileAgents, startDaemon as startInProcess } from '@midgaard/daemon'
 import { assertPublicHost } from '@midgaard/tools'
@@ -1050,6 +1054,76 @@ await scenario(outcomes, 'D19 les playbooks aux Profils : une case cochée attac
     return { verdict: 'FAIL', detail: 'python toujours attaché en base' }
   }
   return { verdict: 'PASS', detail: 'python coché puis décoché au Researcher ; le simulé n’a pas de playbooks' }
+})
+
+// --- D20 ---------------------------------------------------------------------
+
+await scenario(outcomes, 'D20 une clé se dépose aux Profils : masquée, jamais réaffichée, relue au coffre', async () => {
+  const provider = await startFakeProvider()
+  const KEY = 'sk-ui-depot-4242-premiere'
+  const NEXT = 'sk-ui-depot-5252-seconde'
+  const inBase = async () =>
+    (await daemonJson<{ providers: ProviderConfig[] }>(rt, '/api/providers')).body.providers.find((p) => p.id === 'cle-ui')
+  try {
+    await page.goto(`${rt.dashboard_url}#/agents`, { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('providers-card').waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+    const keyField = page.getByTestId('provider-key-input')
+    if ((await keyField.getAttribute('type')) !== 'password') return { verdict: 'FAIL', detail: 'le champ de la clé n’est pas masqué' }
+
+    // Sans clé, rien ne part : le refus se lit, et rien n'est déclaré.
+    await page.getByTestId('provider-preset').selectOption('custom')
+    await page.getByTestId('provider-id').fill('cle-ui')
+    await page.getByTestId('provider-model').fill('faux-1')
+    await page.getByTestId('provider-base-url').fill(provider.url)
+    await page.getByTestId('provider-save').click()
+    if (!/clé/.test((await page.getByTestId('provider-message').textContent()) ?? '')) {
+      return { verdict: 'FAIL', detail: 'un fournisseur sans clé n’est pas refusé avec son motif' }
+    }
+    if (await inBase()) return { verdict: 'FAIL', detail: 'fournisseur déclaré sans clé' }
+
+    // Avec la clé : enregistré, testé dans la foulée.
+    await keyField.fill(KEY)
+    await page.getByTestId('provider-save').click()
+    if (!(await until(async () => /joignable/.test((await page.getByTestId('provider-test-badge-cle-ui').textContent().catch(() => '')) ?? '')))) {
+      return { verdict: 'FAIL', detail: `pas de test réussi : « ${await page.getByTestId('provider-message').textContent().catch(() => '')} »` }
+    }
+    const saved = await inBase()
+    if (!saved?.secret_ref) return { verdict: 'FAIL', detail: 'aucune référence de coffre en base' }
+    // La clé que le fournisseur a reçue est celle saisie : elle a donc été
+    // déposée au coffre **et** relue, pas seulement acceptée par la route.
+    if (!provider.authorizations.includes(`Bearer ${KEY}`)) {
+      return { verdict: 'FAIL', detail: 'le fournisseur n’a pas reçu la clé saisie' }
+    }
+    // Elle n'est plus nulle part où la page ou l'API pourraient la montrer.
+    if ((await keyField.inputValue()) !== '') return { verdict: 'FAIL', detail: 'le champ garde la clé après l’envoi' }
+    if ((await page.content()).includes(KEY)) return { verdict: 'FAIL', detail: 'la clé est dans la page' }
+    if (JSON.stringify((await daemonJson(rt, '/api/providers')).body).includes(KEY)) return { verdict: 'FAIL', detail: 'l’API rend la clé' }
+    if (!/coffre/.test((await page.getByTestId('provider-key-cle-ui').textContent()) ?? '')) {
+      return { verdict: 'FAIL', detail: 'la carte ne dit pas que la clé est au coffre' }
+    }
+
+    // Remplacer la clé : le test suivant présente la nouvelle.
+    await page.getByTestId('provider-edit-cle-ui').click()
+    await keyField.fill(NEXT)
+    await page.getByTestId('provider-save').click()
+    if (!(await until(async () => provider.authorizations.at(-1) === `Bearer ${NEXT}`))) {
+      return { verdict: 'FAIL', detail: 'la clé remplacée n’est pas celle présentée au fournisseur' }
+    }
+    if ((await inBase())?.secret_ref !== saved.secret_ref) return { verdict: 'FAIL', detail: 'la référence a changé : l’ancienne clé resterait orpheline au coffre' }
+
+    // Retirer se confirme : refusé, rien ne bouge ; accepté, le fournisseur part.
+    page.once('dialog', (d) => void d.dismiss())
+    await page.getByTestId('provider-remove-cle-ui').click()
+    await sleep(500)
+    if (!(await inBase())) return { verdict: 'FAIL', detail: 'retiré malgré le refus de confirmer' }
+    page.once('dialog', (d) => void d.accept())
+    await page.getByTestId('provider-remove-cle-ui').click()
+    if (!(await until(async () => !(await inBase())))) return { verdict: 'FAIL', detail: 'fournisseur toujours en base après confirmation' }
+    return { verdict: 'PASS', detail: 'clé saisie masquée, déposée, relue au coffre, absente de la page et de l’API ; remplacée ; retrait confirmé' }
+  } finally {
+    await daemonJson(rt, '/api/providers/cle-ui', { method: 'DELETE' })
+    provider.server.close()
+  }
 })
 
 await scenario(outcomes, 'D7 la perte de la WebSocket se voit, et le retour aussi', async () => {
