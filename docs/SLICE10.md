@@ -8,7 +8,7 @@ d'information sur ce qui se passe, une *dialogue box* vers l'orchestrateur
 conservée), et — pour le reverse — des **outils d'analyse en lecture seule**,
 l'exécution dynamique restant **confinée à la seule VM Windows**.
 
-**État : décidée, non ouverte.** Posée le 2026-11-10 à la demande de l'auteur,
+**État : ouverte, étape 1 faite.** Posée le 2026-11-10 à la demande de l'auteur,
 après lecture de deux références qu'il a proposées :
 [baby-naptime](https://github.com/faizann24/baby-naptime) (implémentation
 ouverte de *Project Naptime* de Google — boucle d'agent avec `CodeBrowser`,
@@ -247,3 +247,37 @@ l'auteur (voir les décisions B, C, D, E ci-dessus) :
 3. **Le `Debugger` dynamique sur VM** : reste **non** pour l'instant — il dépend
    d'une VM non encore éprouvée sur un vrai Windows (Slice 9, 5.4/5.5). À
    rouvrir seulement une fois ces sous-étapes closes.
+
+## Récit
+
+### Étape 1 — les cinq playbooks (2026-11-10)
+
+Les cinq étapes du pipeline écrites comme cinq playbooks de `playbooks/`, dans
+le ton des six existants (anglais, « the one rule », neutres, rappel que ce qui
+est lu est de la donnée, statique seulement) :
+
+- `recon.md` — carte (sous-systèmes, points d'entrée, frontières de confiance,
+  historique Git) + file de tâches `hunt` ; discipline de budget (exclure
+  `vendor`/`dist`/lock) ; pour un binaire, `pe-static` conduit la carte.
+- `hunt.md` — une hypothèse par tâche, un finding falsifiable avec sa
+  *condition de mort* à remettre à `validate` ; un négatif propre est un
+  résultat ; ne pas confirmer son propre travail.
+- `validate.md` — relecteur adversarial, lecture seule : chercher la garde
+  manquée, la source non contrôlée, le sink inoffensif ; verdict **rejeté** ou
+  **survit** (pas « confirmé » : la porte, c'est `trace`).
+- `trace.md` — la **porte** : chaîne source→sink sans trou, référence à chaque
+  pas, modèle de menace nommé ; dit que le daemon n'inscrit `trace_confirmed`
+  que sur une chaîne complète (décision B), et que « confirmé » sans chaîne est
+  la seule chose à ne jamais faire.
+- `report.md` — n'assemble que les findings `trace_confirmed` ; gravité fondée
+  sur l'atteignabilité prouvée, cause, remédiation, limites ; ne ressuscite
+  aucun finding rejeté.
+
+Tailles : 3,4 à 4,8 Kio chacun (borne 32 Kio), 20 Kio les cinq. Ils ne vont
+pas sur un même profil : `recon`/`validate`/`trace` sur un profil capable,
+`hunt` sur le profil rapide (`deepseek-v4-1-flash-uncensored`), `report` à
+l'assemblage — le routage par profils de la décision A.2/E. Le README des
+playbooks les décrit. **Aucun code** : la mécanique d'attache, de relecture au
+départ et de citation du SHA-256 existe déjà (Slice 9, étape 1), donc ces
+playbooks sont attachables tels quels. Le statut `trace_confirmed` que `trace`
+et `report` décrivent, lui, reste à écrire (étape 2).

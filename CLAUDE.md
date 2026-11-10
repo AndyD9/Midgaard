@@ -334,8 +334,8 @@ Chacun a été appris à la dure ; le détail est dans `docs/SLICE0.md`,
 
 ## Slice 10 décidée — spécialisation sécurité (pipeline à portes, vue terminal)
 
-Posée le 2026-11-10 avec l'auteur, **non ouverte** : elle s'ouvre **après la
-Slice 9** (5.4, 5.5), dont elle dépend pour le volet dynamique. Objectif :
+Posée le 2026-11-10 avec l'auteur, **ouverte, étape 1 faite** ; le volet
+dynamique s'ouvre **après la Slice 9** (5.4, 5.5), dont il dépend. Objectif :
 pousser Midgaard vers un harness de recherche de vulnérabilités — un **pipeline
 à étapes et à portes** (`recon → hunt → validate → trace → report`) porté par
 cinq **playbooks** de plus, une **vue terminal** temps réel (moins d'UI, plus de
@@ -353,7 +353,14 @@ statique et en lecture seule. Le pipeline de harness-kit mappe déjà sur
 l'existant (playbooks, revue adversariale, délégation parallèle, limites par
 profil) : on n'importe **aucune architecture**, seulement du savoir d'étape et
 une porte de traçage. Décisions, découpage en sept étapes et questions
-ouvertes : [docs/SLICE10.md](docs/SLICE10.md).
+ouvertes : [docs/SLICE10.md](docs/SLICE10.md). Étape 1 faite : les cinq
+playbooks du pipeline (`recon`, `hunt`, `validate`, `trace`, `report`) dans
+`playbooks/`, statiques et en lecture seule, attachables tels quels (la
+mécanique de la Slice 9 suffit) ; `trace` et `report` décrivent déjà le statut
+`trace_confirmed`, qui reste à coder (étape 2). Les quatre questions ouvertes
+ont été tranchées : statut `trace_confirmed` mécanique, préfixes `exec`
+(`rg`/`objdump`/`nm`/`strings`) plutôt qu'un `CodeBrowser` neuf, vue terminal
+dans le dashboard, `hunt` sur `deepseek-v4-1-flash-uncensored`.
 
 ## Slice 9 en cours — des agents experts (Python, reverse, règles Windows)
 
