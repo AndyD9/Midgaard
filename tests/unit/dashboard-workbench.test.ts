@@ -27,6 +27,7 @@ import { describe, it } from 'node:test'
 import { DEFAULT_RESEARCHER_LIMITS, emptyUsage, type Task, type TaskEvent } from '@midgaard/contracts'
 import { buildThread, composerState } from '../../apps/dashboard/src/lib/thread.ts'
 import { buildTerminal, sanitizeOutput } from '../../apps/dashboard/src/lib/terminal.ts'
+import { buildStream, plain } from '../../apps/dashboard/src/lib/stream.ts'
 import { buildFileTree, languageFor, lastWrittenPath } from '../../apps/dashboard/src/lib/files.ts'
 import { browserSummary, closedReasonText } from '../../apps/dashboard/src/lib/browser.ts'
 import { appendEvent, mergeTimeline, unwatchTimeline, watchTimeline, type Timelines } from '../../apps/dashboard/src/lib/timeline.ts'
@@ -307,5 +308,54 @@ describe('une page plus vieille que son daemon', () => {
     // page qui marche pour elle serait pire.
     assert.equal(bundleChanged('./assets/index-AAA.js', '<html><body>npm run build</body></html>'), false)
     assert.equal(bundleChanged(null, served('index-BBB')), false)
+  })
+})
+
+describe('flux terminal (Slice 10)', () => {
+  it('plain retire TOUTES les séquences d\'échappement, couleur comprise, et les contrôles', () => {
+    // La couleur n'est pas interprétée en HTML : la garder ferait voir des octets.
+    assert.equal(plain('\x1b[32mok\x1b[0m fin'), 'ok fin')
+    // Effacement, curseur, OSC, ESC isolé, contrôles : tout part, \n et \t restent.
+    assert.equal(plain('a\x1b[2Jb\x1b[1;1Hc'), 'abc')
+    assert.equal(plain('a\x1b]0;titre\x07b'), 'ab')
+    assert.equal(plain('a\x1bcb\x00c\x07d'), 'abcd')
+    assert.equal(plain('ligne1\nligne2\tfin'), 'ligne1\nligne2\tfin')
+  })
+
+  it('fond l\'arbre en un flux ordonné par séquence globale, la racine sans étiquette', () => {
+    seq = 0
+    const e1 = ev(ROOT, 'task.started', {}, 'running')
+    const e2 = ev(CHILD, 'finding.recorded', { title: 'overflow in parse' }, 'running')
+    const e3 = ev(ROOT, 'task.progress', { step: 2, steps_total: 5 })
+    const events = { [ROOT]: [e1, e3], [CHILD]: [e2] }
+    const lines = buildStream(
+      [{ taskId: ROOT, label: 'orchestrator' }, { taskId: CHILD, label: 'researcher' }],
+      events,
+    )
+    assert.deepEqual(lines.map((l) => l.seq), [e1.seq, e2.seq, e3.seq], 'ordre global du journal')
+    assert.equal(lines[0]!.tag, '', 'la racine n\'a pas d\'étiquette')
+    assert.equal(lines[1]!.tag, 'researcher', 'une sous-tâche porte son profil')
+    assert.equal(lines[1]!.label, 'finding')
+    assert.equal(lines[1]!.text, 'overflow in parse')
+    assert.equal(lines[2]!.text, '2/5')
+  })
+
+  it('une sortie exec devient une ligne brute nettoyée, stderr en danger', () => {
+    seq = 0
+    const req = ev(ROOT, 'tool.requested', { name: 'exec', tool_call_id: 'c1', decision: 'allow' })
+    const out = ev(ROOT, 'exec.output', { tool_call_id: 'c1', stream: 'stderr', text: 'boom\x1b[2J\n' })
+    const lines = buildStream([{ taskId: ROOT, label: 'developer' }], { [ROOT]: [req, out] })
+    const raw = lines.find((l) => l.raw)!
+    assert.ok(raw, 'une ligne brute pour la sortie')
+    assert.equal(raw.text, 'boom\n', 'la séquence d\'effacement est retirée')
+    assert.equal(raw.tone, 'danger', 'stderr en danger')
+  })
+
+  it('un type d\'événement inconnu garde son nom, en sourdine (daemon plus récent)', () => {
+    seq = 0
+    const e = ev(ROOT, 'quelque.chose.de.neuf' as TaskEvent['type'], {})
+    const lines = buildStream([{ taskId: ROOT, label: 'orchestrator' }], { [ROOT]: [e] })
+    assert.equal(lines[0]!.label, 'quelque.chose.de.neuf')
+    assert.equal(lines[0]!.tone, 'muted')
   })
 })

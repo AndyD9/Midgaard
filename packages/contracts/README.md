@@ -20,7 +20,7 @@ MCP, la CLI, les tests et (pour les types) le dashboard.
 | `usage.ts` | Consommation et coût, toujours avec sa provenance (`cost_source`) |
 | `windows.ts` | VM Windows de test (Slice 9) : déclaration, test, et les commandes données à l'humain (`windowsInstallCommands`, `WINDOWS_FINGERPRINT_COMMAND`, `WINDOWS_SSHD_COMMANDS`) |
 | `samples.ts` | Échantillons d'une tâche (Slice 9) : forme (`taskSampleSchema`), bornes, `sampleNameFor` |
-| `exec-allow.ts` | Liste blanche `exec` : `execPrefixRefusal` (quel préfixe est refusé, et pourquoi — Slice 9), `execRuleMatches`, `programFamily` |
+| `exec-allow.ts` | Liste blanche `exec` : `execPrefixRefusal` (quel préfixe est refusé, et pourquoi — Slice 9 ; `READ_ONLY_ANALYSIS` accepte une option en tête pour `objdump`/`nm`/`strings`… — Slice 10), `execRuleMatches`, `programFamily` |
 | `workspace.ts` | Worktree d'un agent écrivant, et ce qui y manque (travail non commité, sous-modules) ; arbre et contenu des fichiers d'une tâche (Slice 6) |
 | `tools.ts` | Noms d'outils, journal des appels, `wrapUntrusted` |
 | `redact.ts` | `createRedactor`, `redactDeep` : l'expurgation avant toute persistance |

@@ -35,6 +35,13 @@ Each finding, built from its hunt/validate/trace record:
 
 ## How to work
 
+- **Emit the finding list with the tool, not from memory.** `compile_report`
+  produces the deterministic report of exactly the trace-confirmed findings —
+  their classes, source→sink, taint paths and evidence — in markdown, JSON or
+  SARIF. Include it in the result as it is; write your own prose (severity,
+  impact, the funnel, what was out of scope) around it. Composing the finding
+  list by hand is how findings get dropped or invented; the tool exists so they
+  cannot be.
 - **Build from the records, not from memory.** Each finding's hunt claim,
   validate verdict, and trace path are the source of truth. Do not re-derive or
   re-summarise them loosely — carry the references through.

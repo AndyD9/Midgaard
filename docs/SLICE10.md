@@ -8,7 +8,7 @@ d'information sur ce qui se passe, une *dialogue box* vers l'orchestrateur
 conservée), et — pour le reverse — des **outils d'analyse en lecture seule**,
 l'exécution dynamique restant **confinée à la seule VM Windows**.
 
-**État : ouverte, étapes 1 et 2 faites.** Posée le 2026-11-10 à la demande de l'auteur,
+**État : ouverte, étapes 1 à 6 faites.** Posée le 2026-11-10 à la demande de l'auteur,
 après lecture de deux références qu'il a proposées :
 [baby-naptime](https://github.com/faizann24/baby-naptime) (implémentation
 ouverte de *Project Naptime* de Google — boucle d'agent avec `CodeBrowser`,
@@ -313,3 +313,140 @@ chaîne trop courte et des quatre outils sans port. Verts en local :
 `test:unit` (786), `test:orchestrator` (6), `test:security` (13), `typecheck`.
 **CI sur trois plateformes à confirmer.** Restent `MAX_FINDINGS` à régler par la
 mesure, le format du `report` (étape 6) et le reste de la vue dashboard.
+
+### Étape 3 — la vue terminal (2026-11-10)
+
+Décision D : une **vue du dashboard**, pas une TUI. Route `#/terminal/<id>`, un
+bouton « Flux terminal » dans la barre d'onglets de l'atelier et un « Atelier → »
+pour revenir. Elle rejoue le journal de **tout l'arbre** (racine + sous-tâches)
+en un flux monospace ordonné par séquence globale, défilement suivi tant qu'on
+ne remonte pas, et porte en pied la **dialogue box** vers l'orchestrateur — le
+même `Composer` que le panneau de chat (exporté), avec le même refus du daemon
+tant qu'il travaille.
+
+Elle **lit** le même flux WebSocket que la timeline et le terminal de
+l'atelier ; le daemon ne change pas. Le formatage est pur et testé
+(`apps/dashboard/src/lib/stream.ts`) : `buildStream` fond l'arbre, étiquette
+chaque sous-tâche par son profil, et `plain` retire **toutes** les séquences
+d'échappement — couleur comprise, puisqu'elle n'est pas interprétée en HTML
+(la teinte est portée par une classe CSS) — et les contrôles qui déplaceraient
+ou effaceraient ce que l'humain lit. C'est l'invariant du terminal de l'atelier
+(Slice 6), tenu ici. Un type d'événement inconnu garde son nom, en sourdine
+(daemon plus récent que la page).
+
+Prouvé par `tests/unit/dashboard-workbench.test.ts` (4 cas purs : `plain`,
+l'ordre et les étiquettes, la sortie `exec` brute et stderr en danger, le type
+inconnu) et par `D19` de `test:ui` (vrai navigateur : le flux en lignes, la
+dialogue box, l'aller-retour atelier ↔ terminal). Verts en local :
+`test:unit` (790), `test:ui` (19), `typecheck`. **CI trois plateformes à
+confirmer.** Restent les préfixes `exec` (étape 4), le routage par profils (5),
+le `report` (6) et l'essai réel (7).
+
+### Étape 4 — la navigation de code par préfixes `exec` (2026-11-10)
+
+Décision C : des préfixes `exec` bornés plutôt qu'un outil neuf. **Un point dur
+trouvé avant de coder** : la règle de la Slice 9 (`execPrefixRefusal`) refuse
+« une option juste après le programme » (pour bloquer `git -c`, `node -e`), or
+`objdump -d`, `nm -C`, `strings -n` sont tous **option-first** — ils étaient
+donc refusés comme préfixes. Soumis à l'auteur, qui a tranché pour une
+**safelist lecture seule**.
+
+`READ_ONLY_ANALYSIS` (`packages/contracts/src/exec-allow.ts`) : pour
+`objdump`, `nm`, `strings`, `readelf`, `size`, `od` — et eux seuls — un préfixe
+peut commencer par une option. Le critère est **strict** : ils lisent un fichier
+et impriment, aucune de leurs options n'exécute un programme ni n'écrit un
+fichier. **Écartés délibérément** bien qu'utiles : `rg` (`--pre`/`--hostname-bin`
+lancent une commande), `file` (`-C` compile un fichier magique nommé), `xxd`
+(`-r` écrit un binaire) — leur préfixe sans approbation pourrait lancer du code
+ou écrire hors du worktree ; ils restent approuvés au coup par coup. Le reste de
+la règle ne bouge pas : un chemin relatif (`./objdump`) et un seul mot
+(`objdump`) sont toujours refusés, et le daemon rejuge au départ de chaque
+tâche.
+
+Aucun outil neuf, aucune migration, aucun `PROTOCOL_VERSION` (la règle est
+loin du protocole serveur↔daemon ; un durcissement passé devient un
+assouplissement, pas une rupture). Prouvé dans `tests/unit/exec-prefix.test.ts`
+(les six outils en option-first acceptés, `rg`/`file`/`xxd` en option-first
+toujours refusés avec leur motif, `./objdump` refusé en chemin relatif).
+`test:unit` (805), `typecheck` verts en local ; `test:developer` (V14) et la CI
+trois plateformes à confirmer. Restent le routage par profils (5), le `report`
+(6) et l'essai réel (7).
+
+### Étape 5 — le routage par profils (2026-11-10)
+
+Décision E : le routage se fait par l'**attache à des profils**, pas par un
+YAML. Constaté avant d'écrire : l'injection des playbooks
+(`engines/agent.ts`) est **agnostique au type** de profil, et `setAgentPlaybooks`
+n'exclut que le profil simulé — donc l'**orchestrateur peut porter des
+playbooks**. Le pipeline tient alors sans code neuf :
+
+- **l'orchestrateur** pilote `recon`, `validate`, `trace`, `report` (il lit le
+  projet, tient les outils de findings et assemble) → ses quatre playbooks, sur
+  un **modèle capable** ;
+- l'étape **`hunt`**, déléguée en parallèle à des exécutants, va sur le profil
+  **`researcher`** avec le modèle **rapide** `deepseek-v4-1-flash-uncensored`
+  (déjà tarifé) et le playbook `hunt` ; un agent créé par `create_agent` depuis
+  `researcher` en hérite.
+
+C'est l'équivalent du `model-routing.yaml` de harness-kit, réalisé par la
+configuration. Les commandes exactes (depuis le clone) :
+
+```
+npm run harness -- playbooks attach recon orchestrator
+npm run harness -- playbooks attach validate orchestrator
+npm run harness -- playbooks attach trace orchestrator
+npm run harness -- playbooks attach report orchestrator
+npm run harness -- playbooks attach hunt researcher
+```
+
+Le modèle d'un profil se règle aux **Profils** du dashboard (`#/agents`,
+éprouvé par D10) : l'orchestrateur sur un modèle capable, le `researcher` sur
+`deepseek-v4-1-flash-uncensored`. Le **plafond de sous-tâches `hunt`**
+(`MIDGAARD_MAX_ACTIVE_SUBTASKS`, défaut 4) reste à fixer **par la mesure** d'un
+`hunt` réel à concurrence croissante — c'est l'étape 7, l'essai réel, qui le
+donnera ; on ne le fige pas d'avance.
+
+Prouvé que le fait porteur tient : `tests/unit/playbooks.test.ts` attache un
+playbook à l'orchestrateur (200), là où le simulé est refusé (409) ;
+l'injection elle-même est déjà couverte pour un profil quelconque. **Aucun
+code, aucune migration.** `test:unit` (806), `typecheck` verts en local.
+Restent le `report` (6) et l'essai réel (7).
+
+### Étape 6 — le `report` déterministe (2026-11-10)
+
+Question laissée ouverte par le plan (« outil ou playbook »), tranchée avec
+l'auteur : **un outil `compile_report`**. C'est le maillon qui manquait pour
+fermer la boucle de la porte : la porte garantit que le store ne contient que
+des findings jugés, mais si le modèle recomposait la liste **de mémoire** dans
+son `submit_result`, il pourrait en oublier ou en inventer. L'outil l'émet à sa
+place.
+
+`compile_report` (orchestrateur seul, `packages/tools/src/findings.ts`) lit
+`list('trace_confirmed')` de son arbre et rend un rapport **déterministe** —
+`markdown` (humain), `json` (outil aval), `sarif` 2.1.0 (scanner) — par un
+formateur **pur**, `formatReport`, testé sans daemon : à findings égaux, sortie
+égale, pas d'horodatage, règles SARIF triées. Le modèle l'inclut tel quel et
+n'écrit que sa prose autour (gravité, impact, l'entonnoir, le hors-périmètre).
+Le `report.md` le dit, et la consigne de l'orchestrateur aussi. Rejetés et non
+confirmés n'y apparaissent jamais — c'est l'outil, pas le modèle, qui le
+garantit.
+
+Prouvé dans `tests/unit/findings.test.ts` : `formatReport` dans les trois
+formats (titre/source→sink/chaîne/évidence ; `count` et champs JSON ; SARIF
+2.1.0 valide avec règle et localisation du sink), son **déterminisme**, et
+l'outil qui n'inclut que les findings tracés de l'arbre (un `open` n'y est
+pas), résultat `untrusted`. `test:unit` (811), `test:orchestrator` (6),
+`typecheck` verts en local. **CI trois plateformes à confirmer.** Reste
+l'**essai réel** de bout en bout (étape 7), qui donnera aussi le plafond de
+sous-tâches `hunt`.
+
+### Étape 7 — l'essai réel (à lancer)
+
+Prêt mais non lancé : il demande une clé Venice, une cible et du budget API,
+donc il revient à l'auteur. Le **guide prêt à lancer** est
+[docs/SLICE10-ESSAI.md](SLICE10-ESSAI.md) : mise en place (fournisseur,
+modèles, playbooks, préfixes), lancement sur une cible **JavaScript d'abord**
+puis **binaire/PE**, ce qu'on observe (vue terminal, approbations, événements
+`finding.*`), la liste de contrôle (la porte a tenu, le rapport n'a que des
+tracés, le coût égale l'écart du solde, aucun échantillon exécuté) et la mesure
+du plafond `hunt`. Le récit de l'essai viendra ici même clore la slice.

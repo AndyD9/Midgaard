@@ -57,7 +57,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run test:worktrees` | ~8 s — worktrees, écriture et `exec` seuls, sortie en direct et lecture des fichiers d'une tâche comprises (rejoués en CI sur trois plateformes) |
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
 | `npm run test:restart` | ~45 s — redémarrage, reprise WS, sécurité, inactivité |
-| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer, arbre d'un orchestrateur, atelier (conversation, éditeur, terminal), onglet « Navigateur », rechargement d'une page plus vieille que son daemon, serveurs MCP aux Profils, agents créés et clé d'un fournisseur déposée depuis la carte « Fournisseurs » compris (`npx playwright install chromium` au préalable) |
+| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur, diff d'une tâche Developer, arbre d'un orchestrateur, atelier (conversation, éditeur, terminal), onglet « Navigateur », rechargement d'une page plus vieille que son daemon, serveurs MCP aux Profils, agents créés, clé d'un fournisseur déposée depuis la carte « Fournisseurs » et la vue terminal (D19) compris (`npx playwright install chromium` au préalable) |
 | `npm run test:developer` | ~45 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris, préfixes `exec`, échantillons jamais exécutés, `uv sync` au départ (uv requis pour V16) |
 | `npm run test:orchestrator` | ~10 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL`, conversation qui pilote une revue, `SIGKILL` pendant une attente |
 | `npm run test:security` | ~1 min — PLAN §8.4 de bout en bout : base et journal lus octet pour octet (conversation, questions, propositions et sortie en direct comprises), refus tracés, API sur la seule boucle locale ; le navigateur : saisie sans approbation, adresses privées, aucun Chromium après `SIGKILL`, aucune capture en base ; les serveurs MCP : outil non coché ou changé jamais reçu par le serveur, secret d'un serveur jamais persisté, exécutant créé borné, aucun serveur après `SIGKILL` (`npx playwright install chromium` au préalable) |
@@ -367,10 +367,42 @@ Le daemon ne pose `trace_confirmed` que par `confirm_trace` (chaîne d'au moins
 deux pas, modèle de menace ; un finding rejeté ne se confirme pas), et
 `list_findings('trace_confirmed')` ne rend jamais un finding non confirmé :
 seul ce statut entre dans le rapport. Prouvé par `tests/unit/findings.test.ts`
-(vrai daemon, effets lus en base) ; `test:unit` (786), `test:orchestrator`,
-`test:security` et `typecheck` verts en local, **CI trois plateformes à
-confirmer**. Restent la vue terminal (étape 3), les préfixes `exec` (étape 4),
-le routage par profils (5), le `report` (6) et l'essai réel (7).
+(vrai daemon, effets lus en base). Étape 3 faite : la **vue terminal** du
+dashboard (route `#/terminal/<id>`, bouton « Flux terminal » de l'atelier) —
+elle rejoue le journal de tout l'arbre en lignes monospace ordonnées par
+séquence globale, porte la dialogue box vers l'orchestrateur (le `Composer` du
+chat), **lit** le même flux WebSocket (le daemon ne change pas), et retire toute
+séquence d'échappement (couleur comprise, teinte par CSS) ;
+`apps/dashboard/src/lib/stream.ts` est pur et testé, `D19` de `test:ui` couvre
+la vue. Étape 4 faite : la navigation de code par **préfixes `exec` bornés**.
+Point dur trouvé et tranché avec l'auteur : `execPrefixRefusal` (Slice 9)
+refusait les préfixes option-first (`objdump -d`), donc une **safelist lecture
+seule** `READ_ONLY_ANALYSIS` (`exec-allow.ts`) accepte une option en tête pour
+`objdump`/`nm`/`strings`/`readelf`/`size`/`od` seulement — ils lisent et
+impriment, sans exécuter de code ni écrire. `rg` (`--pre`), `file` (`-C`) et
+`xxd` (`-r`) en sont **écartés** et restent approuvés au coup par coup. Aucun
+outil neuf, aucune migration, aucun `PROTOCOL_VERSION`. Prouvé dans
+`tests/unit/exec-prefix.test.ts`. Étape 5 faite : le **routage par profils**
+(décision E, pas de YAML). L'injection des playbooks est agnostique au type et
+`setAgentPlaybooks` n'exclut que le simulé, donc l'**orchestrateur porte des
+playbooks** : il pilote `recon`/`validate`/`trace`/`report` sur un modèle
+capable, et `hunt` va au `researcher` sur `deepseek-v4-1-flash-uncensored`
+(playbook `hunt`, hérité par `create_agent`). Commandes `playbooks attach` dans
+`docs/SLICE10.md`, modèle réglé aux Profils du dashboard ; plafond de
+sous-tâches `hunt` (`MIDGAARD_MAX_ACTIVE_SUBTASKS`) à mesurer à l'essai réel.
+Aucun code neuf ; `tests/unit/playbooks.test.ts` verrouille que l'orchestrateur
+accepte des playbooks. Étape 6 faite : le **`report` déterministe**. Tranché
+avec l'auteur : un outil `compile_report` (orchestrateur seul) qui lit
+`list('trace_confirmed')` et émet le rapport en `markdown`/`json`/`sarif` par un
+formateur **pur** `formatReport` — le modèle l'inclut tel quel et n'ajoute que
+sa prose, donc il ne peut ni oublier ni inventer un finding. Ferme la boucle de
+la porte. Prouvé dans `tests/unit/findings.test.ts` (les trois formats, le
+déterminisme, l'outil n'inclut que les tracés). `test:unit` (811),
+`test:orchestrator` (6), `typecheck` verts en local, **CI trois plateformes à
+confirmer**. Reste l'essai réel de bout en bout (étape 7) : il demande une clé
+Venice, une cible et du budget, donc il revient à l'auteur — le guide prêt à
+lancer est [docs/SLICE10-ESSAI.md](docs/SLICE10-ESSAI.md) (mise en place,
+cible JavaScript puis binaire/PE, liste de contrôle, mesure du plafond `hunt`).
 
 ## Slice 9 en cours — des agents experts (Python, reverse, règles Windows)
 

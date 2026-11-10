@@ -163,8 +163,12 @@ function ReadImage({ taskId, path, sha256Prefix }: { taskId: string; path: strin
   return <img src={state.url} alt={`Image lue par l'agent : ${path}`} className="mt-1.5 max-h-48 rounded border border-border" data-testid="chat-image" />
 }
 
-/** La saisie : ouverte seulement quand la conversation attend votre réponse. */
-function Composer({ root, onError }: { root: Task; onError: (error: string | null) => void }) {
+/**
+ * La saisie vers l'orchestrateur : ouverte seulement quand la conversation
+ * attend votre réponse. Exportée pour la vue terminal (Slice 10), qui garde la
+ * même dialogue box et le même refus du daemon tant qu'il travaille.
+ */
+export function Composer({ root, onError }: { root: Task; onError: (error: string | null) => void }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const state = composerState(root)

@@ -43,12 +43,18 @@ import { NewTaskForm } from './components/NewTaskForm'
 import { Resizer } from './components/Resizer'
 import { StatusBar } from './components/StatusBar'
 import { TaskInspector } from './components/TaskInspector'
+import { TerminalView } from './components/TerminalView'
 import { TaskList } from './components/TaskList'
 import { TerminalPanel } from './components/TerminalPanel'
 import { Button } from './components/ui/button'
 
 /** Ce que montre l'onglet « Détails », lu dans le fragment d'URL. */
-type View = { kind: 'task'; id: string } | { kind: 'new' } | { kind: 'agents' } | { kind: 'none' }
+type View =
+  | { kind: 'task'; id: string }
+  | { kind: 'terminal'; id: string }
+  | { kind: 'new' }
+  | { kind: 'agents' }
+  | { kind: 'none' }
 
 /** Un fichier ouvert dans un onglet : la tâche dont il vient, son chemin. */
 interface FileTab {
@@ -72,6 +78,8 @@ const DEFAULT_LAYOUT: Layout = { side: 320, chat: 380, bottom: 220 }
 function viewFromHash(): View {
   if (location.hash === '#/new') return { kind: 'new' }
   if (location.hash === '#/agents') return { kind: 'agents' }
+  const term = /^#\/terminal\/([0-9a-f-]{36})$/i.exec(location.hash)
+  if (term) return { kind: 'terminal', id: term[1]! }
   const match = /^#\/tasks\/([0-9a-f-]{36})$/i.exec(location.hash)
   return match ? { kind: 'task', id: match[1]! } : { kind: 'none' }
 }
@@ -103,7 +111,7 @@ export function App() {
   const [showTerminal, setShowTerminal] = useState(true)
   const [showChat, setShowChat] = useState(true)
   const [width, setWidth] = useState(() => innerWidth)
-  const selectedId = view.kind === 'task' ? view.id : null
+  const selectedId = view.kind === 'task' || view.kind === 'terminal' ? view.id : null
 
   // Le fragment est la source de vérité de la vue : les boutons Précédent et
   // Suivant du navigateur fonctionnent, et un lien partagé ouvre la bonne tâche.
@@ -291,6 +299,26 @@ export function App() {
         </aside>
         <Resizer axis="x" label="Largeur du panneau latéral" onResize={resize('side', 1, 220, 640)} />
 
+        {view.kind === 'terminal' ? (
+          <div className="flex min-w-0 flex-1 flex-col" data-testid="terminal-column">
+            <div className="flex shrink-0 items-center gap-2 border-b border-border bg-canvas px-3 py-1 text-xs" role="tablist">
+              <SquareTerminal className="size-3.5 text-muted" />
+              <span className="font-semibold tracking-wide text-muted uppercase">Flux terminal</span>
+              <button
+                type="button"
+                className="ml-auto text-muted hover:text-ink"
+                onClick={() => (location.hash = root ? `#/tasks/${root.id}` : '#/')}
+                data-testid="terminal-to-workbench"
+              >
+                Atelier →
+              </button>
+            </div>
+            <div className="min-h-0 flex-1">
+              <TerminalView root={root} tasks={state.tasks} events={state.events} onError={reportError} />
+            </div>
+          </div>
+        ) : (
+        <>
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex shrink-0 items-stretch overflow-x-auto border-b border-border bg-canvas text-xs" role="tablist">
             <Tab active={activeTab === 'details'} onClick={() => setActiveTab('details')} testId="tab-details">
@@ -309,6 +337,17 @@ export function App() {
                 {t.path.split('/').at(-1)}
               </Tab>
             ))}
+            {effectiveId && (
+              <button
+                type="button"
+                className="ml-auto flex items-center gap-1 px-3 text-muted hover:text-ink"
+                onClick={() => (location.hash = `#/terminal/${effectiveId}`)}
+                data-testid="nav-terminal-view"
+                title="Vue terminal : le flux de l'arbre en lignes, lecture seule"
+              >
+                <SquareTerminal className="size-3.5" /> Flux terminal
+              </button>
+            )}
           </div>
 
           <section className="min-h-0 flex-1 overflow-hidden">
@@ -373,6 +412,8 @@ export function App() {
               <ChatPanel root={root} tasks={state.tasks} events={state.events} onSelect={select} onError={reportError} />
             </aside>
           </>
+        )}
+        </>
         )}
       </div>
     </div>
