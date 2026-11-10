@@ -25,11 +25,17 @@
  * **Depuis la Slice 8**, les serveurs MCP d'un profil (`PUT /api/agents/:id/mcp`),
  * pour le Researcher, le Developer et le Navigator — jamais l'orchestrateur, qui
  * délègue à un profil qui en a.
+ *
+ * **Depuis la Slice 9** (étape 6), les playbooks d'un profil (`PUT
+ * /api/agents/:id/playbooks`) : le savoir métier (Sigma, YARA…) ajouté à la
+ * consigne. Attachés par l'humain seul, lus au départ de chaque tâche. Un
+ * fichier inutilisable (trop gros, pas de l'UTF-8) est montré désactivé avec
+ * son motif, jamais caché.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Bot, Save } from 'lucide-react'
-import type { Agent, AgentLimits, McpServerView, ProviderConfig } from '@midgaard/contracts'
-import { ApiError, fetchAgents, fetchMcpServers, fetchProviders, setAgentLimits, setAgentMcp, updateAgent } from '@/lib/api'
+import type { Agent, AgentLimits, McpServerView, PlaybookSummary, ProviderConfig } from '@midgaard/contracts'
+import { ApiError, fetchAgents, fetchMcpServers, fetchPlaybooks, fetchProviders, setAgentLimits, setAgentMcp, setAgentPlaybooks, updateAgent } from '@/lib/api'
 import { disabledReason } from '@/lib/agents'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
@@ -43,6 +49,8 @@ interface Loaded {
   providers: ProviderConfig[]
   /** Serveurs MCP déclarés ; vide si la liste n'a pas pu être lue. */
   mcp: McpServerView[]
+  /** Playbooks du dossier ; vide si la liste n'a pas pu être lue. */
+  playbooks: PlaybookSummary[]
   pricing: { updated_at: string; models: number }
 }
 
@@ -55,11 +63,19 @@ export function AgentsCard({ editable = false }: { editable?: boolean }) {
 
   const load = useCallback(() => {
     let abandoned = false
-    // La liste MCP manquante ne doit pas faire disparaître la carte : c'est
-    // celle qui dit à un nouveau venu qu'aucun fournisseur n'est configuré.
-    Promise.all([fetchAgents(), fetchProviders(), fetchMcpServers().catch(() => ({ servers: [] }))])
-      .then(([a, p, m]) => {
-        if (!abandoned) setData({ agents: a.agents, providers: p.providers, pricing: p.pricing, mcp: m.servers })
+    // Les listes MCP et playbooks manquantes ne doivent pas faire disparaître la
+    // carte : c'est celle qui dit à un nouveau venu qu'aucun fournisseur n'est
+    // configuré.
+    Promise.all([
+      fetchAgents(),
+      fetchProviders(),
+      fetchMcpServers().catch(() => ({ servers: [] })),
+      fetchPlaybooks().catch(() => ({ dir: '', playbooks: [] })),
+    ])
+      .then(([a, p, m, pb]) => {
+        if (!abandoned) {
+          setData({ agents: a.agents, providers: p.providers, pricing: p.pricing, mcp: m.servers, playbooks: pb.playbooks })
+        }
       })
       .catch(() => {})
     return () => {
@@ -125,6 +141,13 @@ export function AgentsCard({ editable = false }: { editable?: boolean }) {
               ) : (
                 agent.mcp_servers.length > 0 && (
                   <p className="text-xs text-muted">Serveurs MCP : {agent.mcp_servers.join(', ')}</p>
+                )
+              )}
+              {editable && agent.kind !== 'simulated' && data.playbooks.length > 0 ? (
+                <PlaybooksEditor agent={agent} playbooks={data.playbooks} onSaved={load} />
+              ) : (
+                agent.playbooks.length > 0 && (
+                  <p className="text-xs text-muted">Playbooks : {agent.playbooks.join(', ')}</p>
                 )
               )}
             </li>
@@ -328,6 +351,56 @@ function McpEditor({ agent, servers, onSaved }: { agent: Agent; servers: McpServ
             data-testid={`agent-mcp-${agent.id}-${s.id}`}
           />
           <span className="font-mono">{s.id}</span>
+        </label>
+      ))}
+      {message && <span className={message.ok ? 'text-done' : 'text-danger'}>{message.text}</span>}
+    </div>
+  )
+}
+
+/**
+ * Les playbooks d'un profil (Slice 9) : une case par playbook du dossier. Les
+ * agents du profil en reçoivent le texte dans leur consigne, à partir de la
+ * tâche suivante, lu à chaque départ. Un fichier inutilisable (trop gros, pas
+ * de l'UTF-8) est montré désactivé avec son motif : l'humain qui l'a écrit doit
+ * savoir pourquoi il ne peut pas l'attacher.
+ */
+function PlaybooksEditor({ agent, playbooks, onSaved }: { agent: Agent; playbooks: PlaybookSummary[]; onSaved: () => void }) {
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function toggle(id: string, on: boolean): Promise<void> {
+    setSaving(true)
+    setMessage(null)
+    // La liste complète et ordonnée : un ajout va à la fin, dans l'ordre où les
+    // playbooks seront ajoutés à la consigne.
+    const next = on ? [...agent.playbooks, id] : agent.playbooks.filter((p) => p !== id)
+    try {
+      await setAgentPlaybooks(agent.id, next)
+      setMessage({ ok: true, text: 'enregistré — vaut pour les tâches à venir' })
+      onSaved()
+    } catch (e) {
+      setMessage({ ok: false, text: e instanceof ApiError && e.reason ? e.reason : (e as Error).message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-xs" data-testid={`agent-playbooks-${agent.id}`}>
+      <span className="text-muted">Playbooks :</span>
+      {playbooks.map((p) => (
+        <label key={p.id} className="flex items-center gap-1" title={p.unusable_reason ?? p.title}>
+          <input
+            type="checkbox"
+            checked={agent.playbooks.includes(p.id)}
+            // Un fichier inutilisable ne s'attache pas ; décocher reste possible
+            // si un ancien attachement le portait encore.
+            disabled={saving || (p.unusable_reason !== null && !agent.playbooks.includes(p.id))}
+            onChange={(e) => void toggle(p.id, e.target.checked)}
+            data-testid={`agent-playbook-${agent.id}-${p.id}`}
+          />
+          <span className={p.unusable_reason ? 'font-mono text-waiting line-through' : 'font-mono'}>{p.id}</span>
         </label>
       ))}
       {message && <span className={message.ok ? 'text-done' : 'text-danger'}>{message.text}</span>}
