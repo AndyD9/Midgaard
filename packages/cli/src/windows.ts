@@ -1,6 +1,7 @@
 /**
- * @file Commande `harness windows` (Slice 9, étape 5.2) : déclarer la VM
- * Windows de test, la tester, relire sa clé publique, la retirer.
+ * @file Commande `harness windows` (Slice 9, étapes 5.2 et 5.3) : déclarer la
+ * VM Windows de test, la tester, relire sa clé publique, la retirer, et
+ * l'attacher à un profil Developer ou l'en détacher.
  *
  * Tout passe par l'API du daemon : c'est lui qui **génère la clé** et la garde
  * au coffre. La CLI n'en voit jamais que la moitié publique, et l'affiche avec
@@ -10,11 +11,16 @@
  * troisième tour) : à la première déclaration, sans `--fingerprint`, la CLI
  * refuse et dit comment la lire, plutôt que de faire confiance au premier
  * contact.
+ *
+ * L'attache (5.3) ne donne encore aucun outil à l'agent : la CLI le dit, pour
+ * ne pas décrire une capacité qui n'existe pas encore.
  */
 import {
   daemonJson,
   WINDOWS_FINGERPRINT_COMMAND,
   WINDOWS_SSHD_COMMANDS,
+  type Agent,
+  type AgentsResponse,
   type HarnessConfig,
   type WindowsHostResponse,
   type WindowsHostsResponse,
@@ -86,9 +92,13 @@ export async function windows(config: HarnessConfig, args: string[]): Promise<nu
       return key(config, rest[0])
     case 'remove':
       return remove(config, rest[0])
+    case 'attach':
+      return attach(config, rest[0], rest[1])
+    case 'detach':
+      return detach(config, rest[0])
     default:
       console.error(`Sous-commande inconnue : windows ${sub}`)
-      console.error('Attendu : list, add, test, key, remove')
+      console.error('Attendu : list, add, test, key, remove, attach, detach')
       return 1
   }
 }
@@ -116,6 +126,10 @@ async function list(config: HarnessConfig): Promise<number> {
     console.error(`${red('✘')} ${status}`)
     return 1
   }
+  // Les profils qui portent chaque VM se lisent sur les profils : c'est là
+  // que l'attache est rangée, une colonne par profil.
+  const agents = await daemonJson<AgentsResponse>(rt, '/api/agents')
+  const owners = (id: string) => (agents.status === 200 ? agents.body.agents : []).filter((a) => a.windows_host === id).map((a) => a.id)
   console.log(bold('VM Windows de test'))
   if (body.hosts.length === 0) {
     console.log(`  ${dim('aucune :')} ${cmd('windows add vm1 --host 192.168.64.5 --user analyste --fingerprint "SHA256:…"')}`)
@@ -125,6 +139,8 @@ async function list(config: HarnessConfig): Promise<number> {
     const state = !t ? yellow('jamais testée') : t.ok ? green(`✔ ${t.detail}`) : red(`✘ ${t.detail}`)
     console.log(`  ${bold(h.id)}  ${h.username}@${h.host}:${h.port}  ${dim(h.fingerprint)}`)
     console.log(`    ${state}${t ? dim(` — ${t.at.slice(0, 16).replace('T', ' ')}`) : ''}`)
+    const who = owners(h.id)
+    console.log(`    ${dim(who.length ? `attachée à : ${who.join(', ')}` : 'attachée à aucun profil')}`)
   }
   return 0
 }
@@ -229,12 +245,83 @@ async function remove(config: HarnessConfig, id: string | undefined): Promise<nu
     return 1
   }
   const rt = await ensureDaemon(config, quiet)
-  const { status } = await daemonJson(rt, `/api/windows/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const { status, body } = await daemonJson<{ detached?: string[] }>(rt, `/api/windows/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
   if (status !== 200) {
     console.error(`${red('✘')} aucune VM « ${id} »`)
     return 1
   }
   console.log(`${green('✔')} VM « ${id} » retirée, sa clé effacée du coffre.`)
+  if (body.detached?.length) console.log(`  Détachée des profils : ${body.detached.join(', ')}.`)
   console.log(`  ${dim('Sa clé publique reste posée sur la VM, inutile désormais : retire la ligne midgaard-' + id + ' de administrators_authorized_keys.')}`)
+  return 0
+}
+
+/** Refus du daemon, tel que les routes des profils le rendent. */
+interface Refused {
+  error?: string
+  reason?: string
+  available?: string[]
+}
+
+/** Dit un refus du daemon en clair, avec ce qui aurait marché. */
+function refused(status: number, body: Refused): number {
+  if (body.error === 'agent_not_found') console.error(`${red('✘')} aucun profil de ce nom`)
+  else if (body.error === 'windows_host_not_found') {
+    console.error(`${red('✘')} VM inconnue ; déclarées : ${body.available?.length ? body.available.join(', ') : '(aucune)'}`)
+  } else console.error(`${red('✘')} ${body.reason ?? body.error ?? status}`)
+  return 1
+}
+
+/**
+ * Attache une VM à un profil Developer, à partir de la tâche suivante. Une
+ * VM au plus par profil : attacher en remplace une autre, et c'est dit.
+ */
+async function attach(config: HarnessConfig, hostId: string | undefined, agentId: string | undefined): Promise<number> {
+  if (!hostId || !agentId) {
+    console.error('Usage : windows attach <vm> <profil>')
+    return 1
+  }
+  const rt = await ensureDaemon(config, quiet)
+  const current = await daemonJson<{ agent?: Agent } & Refused>(rt, `/api/agents/${encodeURIComponent(agentId)}`)
+  if (current.status !== 200 || !current.body.agent) return refused(current.status, current.body)
+  const before = current.body.agent.windows_host
+  if (before === hostId) {
+    console.log(`${bold(agentId)} a déjà la VM ${bold(hostId)} : rien n'a changé.`)
+    return 0
+  }
+  const { status, body } = await daemonJson<{ agent?: Agent } & Refused>(rt, `/api/agents/${encodeURIComponent(agentId)}/windows`, {
+    method: 'PUT',
+    body: JSON.stringify({ host: hostId }),
+  })
+  if (status !== 200 || !body.agent) return refused(status, body)
+  console.log(`${green('✔')} VM ${bold(hostId)} attachée à ${bold(agentId)} ${dim('— à partir de la tâche suivante')}`)
+  if (before) console.log(`  ${yellow(`Elle remplace ${before} : un profil n'a qu'une VM.`)}`)
+  // Ne rien décrire qui n'existe pas encore : l'outil qui s'en sert vient en 5.3.
+  console.log(dim('Aucun outil ne s\'en sert encore : les commandes sur la VM arrivent avec windows_run.'))
+  return 0
+}
+
+/** Détache la VM d'un profil, à partir de la tâche suivante. */
+async function detach(config: HarnessConfig, agentId: string | undefined): Promise<number> {
+  if (!agentId) {
+    console.error('Usage : windows detach <profil>')
+    return 1
+  }
+  const rt = await ensureDaemon(config, quiet)
+  const current = await daemonJson<{ agent?: Agent } & Refused>(rt, `/api/agents/${encodeURIComponent(agentId)}`)
+  if (current.status !== 200 || !current.body.agent) return refused(current.status, current.body)
+  const before = current.body.agent.windows_host
+  if (!before) {
+    console.log(`${bold(agentId)} n'a pas de VM : rien n'a changé.`)
+    return 0
+  }
+  const { status, body } = await daemonJson<{ agent?: Agent } & Refused>(rt, `/api/agents/${encodeURIComponent(agentId)}/windows`, {
+    method: 'PUT',
+    body: JSON.stringify({ host: null }),
+  })
+  if (status !== 200 || !body.agent) return refused(status, body)
+  console.log(`${green('✔')} VM ${bold(before)} détachée de ${bold(agentId)}`)
   return 0
 }

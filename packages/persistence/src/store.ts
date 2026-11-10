@@ -939,6 +939,25 @@ export class HarnessStore {
     return info.changes === 1 ? this.getAgent(id) : null
   }
 
+  /**
+   * Attache une VM Windows à un profil, ou l'en détache avec `null` (Slice 9,
+   * étape 5.3), sans toucher au reste. Les règles — le type du profil, la VM
+   * déclarée — sont celles de l'appelant (`daemon/src/agents.ts`).
+   *
+   * @returns le profil après coup, ou `null` s'il n'existe pas
+   */
+  setAgentWindowsHost(id: string, host: string | null): Agent | null {
+    const info = this.db
+      .prepare('UPDATE agents SET windows_host = :h, updated_at = :now WHERE id = :id')
+      .run({ id, h: host, now: new Date().toISOString() })
+    return info.changes === 1 ? this.getAgent(id) : null
+  }
+
+  /** Profils qui portent une VM donnée, pour la leur retirer quand elle disparaît. */
+  agentsUsingWindowsHost(hostId: string): Agent[] {
+    return this.listAgents().filter((a) => a.windows_host === hostId)
+  }
+
   /** Profils qui ont un serveur MCP donné, pour le leur retirer quand il disparaît. */
   agentsUsingMcpServer(serverId: string): Agent[] {
     return this.listAgents().filter((a) => a.mcp_servers.includes(serverId))
@@ -1720,6 +1739,7 @@ interface AgentRow {
   vision: number | null
   mcp_servers_json: string
   playbooks_json: string
+  windows_host: string | null
   created_at: string
   updated_at: string
 }
@@ -1739,6 +1759,7 @@ function toAgent(row: AgentRow): Agent {
     vision: row.vision === null ? null : row.vision === 1,
     mcp_servers: JSON.parse(row.mcp_servers_json) as string[],
     playbooks: JSON.parse(row.playbooks_json) as string[],
+    windows_host: row.windows_host,
     created_at: row.created_at,
     updated_at: row.updated_at,
   }

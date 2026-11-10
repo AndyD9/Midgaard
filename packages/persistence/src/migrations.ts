@@ -444,6 +444,17 @@ export const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 18,
+    label: 'Slice 9 — la VM Windows d\'un profil',
+    sql: `
+      -- La VM Windows de test attachée au profil, par identifiant (une au
+      -- plus) ; NULL sans VM, comme tous les profils d'avant. Pas de clé
+      -- étrangère : le retrait d'une VM la détache explicitement des profils
+      -- qui la portent, et le journal le dit (daemon/src/windows-hosts.ts).
+      ALTER TABLE agents ADD COLUMN windows_host TEXT;
+    `,
+  },
 ]
 
 // Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',

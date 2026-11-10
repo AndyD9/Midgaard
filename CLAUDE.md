@@ -48,7 +48,7 @@ Chaque paquet a son `README.md` : le lire avant d'y toucher.
 | `npm run harness -- workspaces` | Worktrees : `remove`, `clean` — la branche reste toujours |
 | `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme ; `--prefix` couvre tout ce qui suit, jamais un interpréteur nu), `revoke` |
 | `npm run harness -- playbooks` | Playbooks du clone : `attach`, `detach` (à un profil) — savoir métier ajouté à la consigne, relu au départ de chaque tâche |
-| `npm run harness -- windows` | VM Windows de test : `add` (clé générée au coffre, **empreinte recopiée depuis la console de la VM**, commande PowerShell qui pose la clé), `test` (PowerShell répond), `key`, `remove` |
+| `npm run harness -- windows` | VM Windows de test : `add` (clé générée au coffre, **empreinte recopiée depuis la console de la VM**, commande PowerShell qui pose la clé), `test` (PowerShell répond), `key`, `remove` (détache la VM des profils), `attach`/`detach` (à un profil Developer, une VM au plus ; aucun outil ne s'en sert encore) |
 | `npm run harness -- mcp` | Serveurs MCP : `add` (programme résolu, testé dans la foulée), `test`, `tools`, `allow` (avertit, confirme), `revoke`, `remove`, `attach`/`detach` (à un profil) |
 | `npm run test:unit` | ~15 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git), navigateur (vrai Chromium), client MCP (vrai serveur stdio, processus comptés) |
 | `npm run test:vault` | ~1 s — les coffres seuls, sur le coffre réel de la machine |

@@ -38,6 +38,7 @@ import {
   DEFAULT_ORCHESTRATOR_LIMITS,
   DEFAULT_RESEARCHER_LIMITS,
   SIMULATED_AGENT_ID,
+  WINDOWS_CAPABLE_KINDS,
   type Agent,
   type AgentKind,
   type AgentLimits,
@@ -573,6 +574,54 @@ export function setAgentMcpServers(
   }
   const updated = store.setAgentMcpServers(id, wanted)!
   log(`profil « ${id} » : serveurs MCP ${wanted.length ? wanted.join(', ') : '(aucun)'}`)
+  return updated
+}
+
+/**
+ * Attache une VM Windows à un profil, ou l'en détache (`PUT
+ * /api/agents/:id/windows`, Slice 9, étape 5.3).
+ *
+ * Seul un Developer en reçoit une : c'est son worktree qui sera copié sur la
+ * VM, et aucun autre profil n'en a (décision du 2026-11-10). La VM doit être
+ * déclarée — un nom inconnu ferait échouer la tâche suivante loin de sa cause.
+ * Détacher est toujours permis, même d'un profil qui ne pourrait pas en avoir :
+ * c'est retirer une capacité, jamais en donner une.
+ *
+ * Le changement vaut pour les tâches à venir, et le journal dit l'avant et
+ * l'après : une VM qui reçoit des commandes doit se retrouver, et se dater.
+ *
+ * @param host la VM, ou `null` pour détacher
+ */
+export function setAgentWindowsHost(
+  store: HarnessStore,
+  id: string,
+  host: string | null,
+  log: (...a: unknown[]) => void = () => {},
+): Agent | Refusal {
+  const agent = store.getAgent(id)
+  if (!agent) return { error: 'agent_not_found', status: 404, detail: { agent_id: id } }
+  if (host !== null && !WINDOWS_CAPABLE_KINDS.includes(agent.kind)) {
+    return {
+      error: 'agent_cannot_use_windows',
+      status: 409,
+      detail: {
+        agent_id: id,
+        reason: `seul un profil developer reçoit une VM Windows : c'est son worktree qui part sur la VM (ce profil est ${agent.kind})`,
+      },
+    }
+  }
+  if (host !== null && !store.getWindowsHost(host)) {
+    return {
+      error: 'windows_host_not_found',
+      status: 404,
+      detail: { host, available: store.listWindowsHosts().map((h) => h.id) },
+    }
+  }
+  if (host === agent.windows_host) return agent
+  const updated = store.setAgentWindowsHost(id, host)!
+  log(
+    `profil « ${id} » : VM Windows ${host ?? '(aucune)'}, avant ${agent.windows_host ?? '(aucune)'} — vaut pour les tâches à venir`,
+  )
   return updated
 }
 

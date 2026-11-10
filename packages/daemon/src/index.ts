@@ -23,6 +23,7 @@ export {
   resolveCreatedAgent,
   setAgentLimits,
   setAgentMcpServers,
+  setAgentWindowsHost,
   RESEARCHER_AGENT_ID,
   RESEARCHER_TOOLS,
   RESEARCHER_SYSTEM_PROMPT,

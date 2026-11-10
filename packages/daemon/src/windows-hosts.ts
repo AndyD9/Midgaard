@@ -185,15 +185,34 @@ export async function testWindowsHost(
   }
 }
 
-/** Retire une VM et efface sa clé du coffre. */
-export async function deleteWindowsHost(deps: WindowsServiceDeps, id: string): Promise<{ ok: true } | ProviderRefusal> {
+/**
+ * Retire une VM, la détache des profils qui la portaient, et efface sa clé du
+ * coffre.
+ *
+ * @returns `detached` : les profils qui l'ont perdue, pour que la CLI le dise
+ */
+export async function deleteWindowsHost(
+  deps: WindowsServiceDeps,
+  id: string,
+): Promise<{ ok: true; detached: string[] } | ProviderRefusal> {
   if (!deps.store.getWindowsHost(id)) return { error: 'windows_host_not_found', status: 404 }
   await deps.vault.delete(await windowsKeyRef(deps.config.home, id)).catch((e: Error) => {
     // Une clé qu'on n'arrive pas à effacer n'empêche pas de retirer la VM :
     // mieux vaut le signaler que bloquer l'humain.
     deps.log(`VM Windows « ${id} » : clé non effacée du coffre : ${e.message}`)
   })
+  // Détachée des profils **avant** de disparaître, et dit : un profil qui
+  // garderait une VM retirée ferait échouer sa tâche suivante loin de la
+  // cause — et une VM redéclarée sous le même nom se retrouverait attachée
+  // sans que l'humain l'ait redemandé.
+  const detached: string[] = []
+  for (const agent of deps.store.agentsUsingWindowsHost(id)) {
+    deps.store.setAgentWindowsHost(agent.id, null)
+    detached.push(agent.id)
+  }
   deps.store.deleteWindowsHost(id)
-  deps.log(`VM Windows « ${id} » retirée, sa clé effacée du coffre`)
-  return { ok: true }
+  deps.log(
+    `VM Windows « ${id} » retirée, sa clé effacée du coffre${detached.length ? ` ; détachée des profils ${detached.join(', ')}` : ''}`,
+  )
+  return { ok: true, detached }
 }

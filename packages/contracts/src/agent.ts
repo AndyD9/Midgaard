@@ -169,6 +169,15 @@ export const agentSchema = z.object({
    */
   playbooks: z.array(z.string()),
   /**
+   * VM Windows de test attachée à ce profil (Slice 9, étape 5.3), par
+   * identifiant ; `null` sans VM. Posée par l'humain seul
+   * (`PUT /api/agents/:id/windows`), jamais par un agent, et réservée aux
+   * profils `developer` : c'est leur worktree qui sera copié sur la VM. Une
+   * au plus par profil (décision du 2026-11-10). Un agent créé hérite de
+   * celle de son profil de base.
+   */
+  windows_host: z.string().nullable(),
+  /**
    * Pourquoi le profil ne peut pas recevoir de tâche, calculé par le daemon à
    * la lecture (Slice 7) ; `null` s'il le peut. Absent d'un profil lu en base :
    * ce n'est pas une colonne. Un profil peut être activé et refusé quand même —
@@ -316,3 +325,20 @@ export const setAgentMcpRequestSchema = z.object({
   servers: z.array(z.string().min(1).max(64)).max(8),
 })
 export type SetAgentMcpRequest = z.infer<typeof setAgentMcpRequestSchema>
+
+/**
+ * Types de profils qui peuvent recevoir une VM Windows (Slice 9, étape 5.3) :
+ * le Developer seul, parce que c'est son worktree qui part sur la VM
+ * (décision du 2026-11-10).
+ */
+export const WINDOWS_CAPABLE_KINDS: readonly AgentKind[] = ['developer']
+
+/**
+ * Corps de `PUT /api/agents/:id/windows` : la VM du profil, ou `null` pour la
+ * détacher. Une route à part, comme celle des serveurs MCP : ses règles (le
+ * type du profil, la VM déclarée) n'ont rien à voir avec celles du modèle.
+ */
+export const setAgentWindowsRequestSchema = z.object({
+  host: z.string().min(1).max(64).nullable(),
+})
+export type SetAgentWindowsRequest = z.infer<typeof setAgentWindowsRequestSchema>

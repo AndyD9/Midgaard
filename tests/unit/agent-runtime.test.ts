@@ -130,6 +130,7 @@ function agentWith(over: Partial<Agent> = {}): Agent {
     vision: null,
     mcp_servers: [],
     playbooks: [],
+    windows_host: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     ...over,

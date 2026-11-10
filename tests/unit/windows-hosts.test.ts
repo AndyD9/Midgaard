@@ -11,6 +11,10 @@
  * servir ; le dernier test effacé quand ce qu'on joint change ; le retrait,
  * clé effacée du coffre ; et la CLI qui refuse sans empreinte en disant
  * comment la lire.
+ *
+ * Et l'attache à un profil (étape 5.3a) : un Developer seul, une VM déclarée,
+ * l'agent créé qui en hérite, la CLI qui attache et détache, le retrait d'une
+ * VM qui la détache des profils.
  */
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -25,11 +29,15 @@ import {
   readRuntime,
   windowsInstallCommands,
   type HarnessConfig,
+  type Agent,
+  type AgentResponse,
+  type CreatedAgent,
   type RuntimeInfo,
   type WindowsHostResponse,
   type WindowsHostsResponse,
 } from '@midgaard/contracts'
-import { WINDOWS_TEST_SCRIPT, startDaemon, windowsKeyRef, type Daemon } from '@midgaard/daemon'
+import { WINDOWS_TEST_SCRIPT, resolveCreatedAgent, startDaemon, windowsKeyRef, type Daemon } from '@midgaard/daemon'
+import type { HarnessStore } from '@midgaard/persistence'
 import { parseWindowsAddArgs } from '@midgaard/cli'
 import { fingerprintOfPublicKey, generateKeyPair, powershellCommand, scriptOfPowershellCommand } from '@midgaard/remote'
 import { openVault } from '@midgaard/secrets'
@@ -57,6 +65,16 @@ describe('ce qu\'on dit de lancer sur la VM', () => {
     assert.deepEqual(a, { id: 'vm1', host: '10.0.0.5', user: 'analyste', fingerprint: '256 SHA256:x (ED25519)', port: 2222, newKey: true })
     assert.ok('error' in parseWindowsAddArgs(['vm1', '--port', '70000']))
     assert.ok('error' in parseWindowsAddArgs(['--host', 'x']))
+  })
+
+  it('un agent créé hérite de la VM de son profil de base', () => {
+    const base = { id: 'developer', provider_id: 'venice', model: 'm', vision: null, system_prompt: 'rules', windows_host: 'vm1' } as Agent
+    const created = {
+      id: 'c1', name: 'Checker', base_agent_id: 'developer', provider_id: 'venice', model: 'm', role: 'check', mcp_servers: [],
+      limits: {}, task_id: 't', created_at: '',
+    } as unknown as CreatedAgent
+    const store = { getAgent: (id: string) => (id === 'developer' ? base : null) } as unknown as HarnessStore
+    assert.equal(resolveCreatedAgent(store, created)?.windows_host, 'vm1')
   })
 })
 
@@ -86,6 +104,19 @@ describe('une VM déclarée dans un vrai daemon', () => {
         .map((f) => readFileSync(join(home, f)).toString('latin1')),
       ...logged,
     ].join('\n')
+
+  /** Lance la vraie CLI contre ce daemon, et rend son code et tout ce qu'elle a écrit. */
+  const runCli = (args: string[]) =>
+    new Promise<{ code: number | null; text: string }>((resolve) => {
+      const child = spawn(process.execPath, [...nodeArgsFor('@midgaard/cli/main'), ...args], {
+        env: childEnv(home),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let text = ''
+      child.stdout!.on('data', (c) => (text += c))
+      child.stderr!.on('data', (c) => (text += c))
+      child.on('close', (code) => resolve({ code, text }))
+    })
 
   before(async () => {
     home = mkdtempSync(join(tmpdir(), 'midgaard-windows-'))
@@ -186,28 +217,67 @@ describe('une VM déclarée dans un vrai daemon', () => {
     assert.match(t.detail, /refuse la clé de Midgaard/, 'l\'hôte ne connaît que l\'ancienne clé')
   })
 
-  it('le retrait efface la clé du coffre', async () => {
+  it('s\'attache à un Developer seul, et seulement si la VM est déclarée', async () => {
+    const researcher = await api('/api/agents/researcher/windows', 'PUT', { host: 'vm1' })
+    assert.equal(researcher.status, 409)
+    assert.equal(researcher.body.error, 'agent_cannot_use_windows')
+    const unknown = await api<{ available: string[] }>('/api/agents/developer/windows', 'PUT', { host: 'nope' })
+    assert.equal(unknown.status, 404)
+    assert.deepEqual(unknown.body.available, ['vm1'], 'le refus dit les VM déclarées')
+    assert.equal((await api('/api/agents/developer/windows', 'PUT', { host: 'vm1', extra: 1 })).status, 200, 'champ inconnu ignoré')
+    assert.equal((await api('/api/agents/developer/windows', 'PUT', {})).status, 400, 'host est exigé, null pour détacher')
+    assert.equal((await api('/api/agents/developer/windows', 'GET')).status, 405)
+    assert.equal((await api('/api/agents/nobody/windows', 'PUT', { host: 'vm1' })).status, 404)
+
+    const developer = await api<AgentResponse>('/api/agents/developer')
+    assert.equal(developer.body.agent.windows_host, 'vm1')
+    assert.equal((await api<AgentResponse>('/api/agents/researcher')).body.agent.windows_host, null)
+    assert.ok(logged.some((l) => l.includes('profil « developer » : VM Windows vm1, avant (aucune)')), 'l\'attache est journalisée')
+
+    // Détacher est toujours permis, même d'un profil qui ne peut pas en avoir.
+    const detached = await api<AgentResponse>('/api/agents/developer/windows', 'PUT', { host: null })
+    assert.equal(detached.body.agent.windows_host, null)
+    assert.equal((await api('/api/agents/researcher/windows', 'PUT', { host: null })).status, 200)
+  })
+
+  it('la CLI attache, refuse un Researcher, montre l\'attache et détache', async () => {
+    const attached = await runCli(['windows', 'attach', 'vm1', 'developer'])
+    assert.equal(attached.code, 0, attached.text)
+    assert.match(attached.text, /attachée à developer/)
+    assert.match(attached.text, /Aucun outil ne s'en sert encore/, 'rien d\'annoncé qui n\'existe pas encore')
+    assert.equal((await api<AgentResponse>('/api/agents/developer')).body.agent.windows_host, 'vm1')
+
+    const refused = await runCli(['windows', 'attach', 'vm1', 'researcher'])
+    assert.equal(refused.code, 1)
+    assert.match(refused.text, /seul un profil developer/)
+
+    const listed = await runCli(['windows', 'list'])
+    assert.match(listed.text, /attachée à : developer/, listed.text)
+
+    const off = await runCli(['windows', 'detach', 'developer'])
+    assert.equal(off.code, 0, off.text)
+    assert.equal((await api<AgentResponse>('/api/agents/developer')).body.agent.windows_host, null)
+    assert.match((await runCli(['windows', 'detach', 'developer'])).text, /n'a pas de VM/)
+  })
+
+  it('le retrait efface la clé du coffre et détache la VM des profils', async () => {
     const vault = await openVault(config, env)
     const ref = await windowsKeyRef(home, 'vm1')
     assert.ok(await vault.get(ref))
-    assert.equal((await api('/api/windows/vm1', 'DELETE')).status, 200)
+    assert.equal((await api('/api/agents/developer/windows', 'PUT', { host: 'vm1' })).status, 200)
+    const removed = await api<{ detached: string[] }>('/api/windows/vm1', 'DELETE')
+    assert.equal(removed.status, 200)
     assert.equal(await vault.get(ref), null)
+    // Détachée d'abord : une VM redéclarée sous le même nom ne se retrouve pas
+    // attachée sans que l'humain l'ait redemandé.
+    assert.deepEqual(removed.body.detached, ['developer'])
+    assert.equal((await api<AgentResponse>('/api/agents/developer')).body.agent.windows_host, null)
     assert.equal((await api('/api/windows/vm1')).status, 404)
     assert.equal((await api('/api/windows/vm1/test', 'POST')).status, 404)
   })
 
   it('la CLI refuse une première déclaration sans empreinte, et dit comment la lire', async () => {
-    const out = await new Promise<{ code: number | null; text: string }>((resolve) => {
-      const child = spawn(
-        process.execPath,
-        [...nodeArgsFor('@midgaard/cli/main'), 'windows', 'add', 'vm2', '--host', '127.0.0.1', '--user', 'analyste'],
-        { env: childEnv(home), stdio: ['ignore', 'pipe', 'pipe'] },
-      )
-      let text = ''
-      child.stdout!.on('data', (c) => (text += c))
-      child.stderr!.on('data', (c) => (text += c))
-      child.on('close', (code) => resolve({ code, text }))
-    })
+    const out = await runCli(['windows', 'add', 'vm2', '--host', '127.0.0.1', '--user', 'analyste'])
     assert.equal(out.code, 1)
     assert.ok(out.text.includes(WINDOWS_FINGERPRINT_COMMAND), out.text)
     assert.equal(existsSync(join(home, 'harness.db')), true)

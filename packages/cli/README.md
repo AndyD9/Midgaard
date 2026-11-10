@@ -26,7 +26,9 @@ harness windows               # VM Windows de test, et leur dernier test
 harness windows add <id> --host H --user U --fingerprint "SHA256:…" [--port 22] [--new-key]
 harness windows test <id>     # joint l'hôte épinglé, fait répondre PowerShell
 harness windows key <id>      # redonne la clé publique et la commande qui la pose
-harness windows remove <id>
+harness windows remove <id>   # efface la clé du coffre, détache la VM des profils
+harness windows attach <vm> <profil>   # un profil Developer, une VM au plus
+harness windows detach <profil>
 harness mcp allow <id> [--yes] (--read-only | <outil>…)
 harness mcp revoke <id> <outil>…
 harness mcp remove <id>
@@ -119,8 +121,16 @@ manque. La ligne entière de `ssh-keygen -lf` est acceptée telle quelle.
 répondre PowerShell (version de PowerShell et de Windows) ; une autre
 empreinte est refusée sans rien envoyer, et la CLI dit laquelle a été vue.
 `--new-key` remplace la clé : l'ancienne ne sert plus, la nouvelle est à
-poser. `windows remove` efface la clé du coffre ; sa moitié publique reste
-sur la VM, à retirer à la main.
+poser. `windows remove` efface la clé du coffre et détache la VM des profils
+qui la portaient ; sa moitié publique reste sur la VM, à retirer à la main.
+
+`windows attach vm1 developer` attache la VM à un profil (étape 5.3a),
+à partir de la tâche suivante : un profil **Developer** seul, parce que c'est
+son worktree qui partira sur la VM, et **une VM au plus** — en attacher une
+autre la remplace, et la CLI le dit. Un agent créé sur la base de ce profil en
+hérite. `windows list` montre les profils qui portent chaque VM. **Aucun
+outil ne s'en sert encore** : les commandes sur la VM arrivent avec
+`windows_run` (sous-étapes suivantes de la 5.3), et la CLI le dit à l'attache.
 
 ## `mcp` : déclarer un serveur, cocher ce qu'on a lu (Slice 8)
 

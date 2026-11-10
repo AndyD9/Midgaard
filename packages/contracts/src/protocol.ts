@@ -91,9 +91,14 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *  - 20 : Slice 9, étape 5.2 — les routes `/api/windows` (VM Windows de
  *        test : déclaration, clé générée au coffre, test, retrait). Un daemon
  *        de protocole 19 répondrait 404 à `harness windows` : la CLI doit le
- *        faire remplacer.
+ *        faire remplacer ;
+ *  - 21 : Slice 9, étape 5.3a — un profil porte `windows_host`, que le
+ *        serveur MCP et le dashboard valident, et
+ *        `PUT /api/agents/:id/windows` l'attache ou le détache. Un daemon de
+ *        protocole 20 rendrait des profils sans le champ, et répondrait 404
+ *        à `harness windows attach`.
  */
-export const PROTOCOL_VERSION = 20
+export const PROTOCOL_VERSION = 21
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({

@@ -66,7 +66,11 @@ ${bold('VM Windows de test (clé générée au coffre, empreinte recopiée depui
                         Déclare une VM : génère sa clé, donne la commande qui la pose sur la VM
   windows test <id>     Joint l'hôte épinglé et fait répondre PowerShell
   windows key <id>      Redonne la clé publique et la commande qui la pose
-  windows remove <id>   Retire une VM et efface sa clé du coffre
+  windows remove <id>   Retire une VM et efface sa clé du coffre (la détache des profils)
+  windows attach <vm> <profil>
+                        Attache la VM à un profil Developer (une par profil), tâches à venir
+  windows detach <profil>
+                        Détache la VM d'un profil
 
 ${bold('Playbooks (savoir métier ajouté à la consigne d\'un profil)')}
   playbooks             Playbooks du clone, leur taille, et les profils qui les ont

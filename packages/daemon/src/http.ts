@@ -43,6 +43,7 @@
  * | PUT  | `/api/agents/:id/limits` | Limites d'un profil, journalisées (Slice 8) | 200, 400, 404, 409 |
  * | PUT  | `/api/agents/:id/mcp` | Serveurs MCP d'un profil, liste complète (Slice 8) | 200, 400, 404, 409 |
  * | PUT  | `/api/agents/:id/playbooks` | Playbooks d'un profil, liste complète et ordonnée (Slice 9) | 200, 400, 404, 409 |
+ * | PUT  | `/api/agents/:id/windows` | VM Windows d'un profil Developer, `null` pour la détacher (Slice 9) | 200, 400, 404, 409 |
  * | GET  | `/api/playbooks` | Playbooks du dossier, empreinte et motif d'un refus (Slice 9) | 200 |
  * | GET  | `/api/providers` | Fournisseurs **sans aucune clé** | 200 |
  * | POST | `/api/providers` | Déclare un fournisseur, dépose sa clé au coffre | 200, 400, 500 |
@@ -82,6 +83,7 @@ import {
   removeWorkspaceRequestSchema,
   setAgentLimitsRequestSchema,
   setAgentMcpRequestSchema,
+  setAgentWindowsRequestSchema,
   setAgentPlaybooksRequestSchema,
   updateAgentRequestSchema,
   upsertMcpServerRequestSchema,
@@ -115,7 +117,7 @@ import {
 import { checkEnvelope, checkToken, type SecurityContext } from './security.ts'
 import { execAllowFor, listWorkspaces, removeWorkspace, workspaceView } from './workspaces.ts'
 import { FileAccessError, taskFileContent, taskFileTree, taskImage } from './files.ts'
-import { setAgentLimits, setAgentMcpServers, updateAgentModel } from './agents.ts'
+import { setAgentLimits, setAgentMcpServers, setAgentWindowsHost, updateAgentModel } from './agents.ts'
 import { listPlaybooks, playbooksDirOf, setAgentPlaybooks } from './playbooks.ts'
 import { checkProjectDir } from './project-dir.ts'
 import { stageSamples, type StagedSamples } from './samples.ts'
@@ -658,6 +660,14 @@ async function handleAgents(
     const parsed = setAgentMcpRequestSchema.safeParse(await readJson(req))
     if (!parsed.success) return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
     const outcome = setAgentMcpServers(deps.store, id, parsed.data.servers, deps.log)
+    if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
+    return send(res, 200, { agent: deps.tasks.agentView(outcome) })
+  }
+  if (id && action === 'windows') {
+    if (method !== 'PUT') return send(res, 405, { error: 'method_not_allowed' })
+    const parsed = setAgentWindowsRequestSchema.safeParse(await readJson(req))
+    if (!parsed.success) return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
+    const outcome = setAgentWindowsHost(deps.store, id, parsed.data.host, deps.log)
     if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
     return send(res, 200, { agent: deps.tasks.agentView(outcome) })
   }
