@@ -22,7 +22,10 @@
  *  - toute autre commande sort avec 127.
  *
  * Le SFTP est adossé à un vrai dossier (`root`) : ouvrir, écrire, fermer,
- * `stat`, `mkdir`. Un chemin qui remonterait au-dessus est refusé.
+ * `stat`, `mkdir`. Un chemin qui remonterait au-dessus est refusé. Une lettre
+ * de lecteur en tête (`/C:/…`, la forme du SFTP de Windows) devient un simple
+ * dossier (`C/…`) : Windows interdit le deux-points dans un nom de fichier, et
+ * l'hôte factice tourne aussi sous Windows en CI — vu échouer ainsi.
  */
 import { closeSync, mkdirSync, openSync, statSync, writeSync } from 'node:fs'
 import { join, normalize } from 'node:path'
@@ -71,7 +74,8 @@ export async function startFakeSshServer(authorizedKey: string, root: string): P
 
   /** Chemin réel d'un chemin SFTP, jamais au-dessus de `root`. */
   const real = (path: string): string | null => {
-    const rel = normalize(path.replace(/^\/+/, '')).replace(/^(\.\.(\/|\\|$))+/, '')
+    const drive = path.replace(/^\/([A-Za-z]):(?=\/|$)/, '/$1')
+    const rel = normalize(drive.replace(/^\/+/, '')).replace(/^(\.\.(\/|\\|$))+/, '')
     if (rel.startsWith('..')) return null
     return join(root, rel)
   }

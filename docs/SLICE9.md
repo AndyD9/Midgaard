@@ -532,3 +532,9 @@ de la privée, vérifie une signature, et tire de nouveau sinon ; un test
 provoque une paire mal formée pour éprouver le contrôle, puis en tire 2 000
 — vu échouer sans le contrôle.
 
+Le passage suivant (`42788888060`) a montré une seconde erreur, **de l'hôte
+factice seul** : il créait la cible SFTP `/C:/midgaard/…` comme un dossier
+nommé `C:`, que Windows refuse. Il traduit désormais une lettre de lecteur en
+dossier (`C/…`) ; le code de copie, lui, envoie la forme qu'attend le SFTP de
+Windows.
+

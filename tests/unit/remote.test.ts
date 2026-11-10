@@ -182,12 +182,12 @@ describe('une session vers un hôte épinglé', () => {
     try {
       const summary = await session.uploadTree(local, '/C:/midgaard/tache', (rel) => (rel === '.git' ? 'never copied: .git' : null))
       assert.equal(summary.files, 2)
-      assert.equal(readFileSync(join(root, 'C:', 'midgaard', 'tache', 'src', 'rules', 'a.yml'), 'utf8'), 'title: a\n')
-      assert.equal(existsSync(join(root, 'C:', 'midgaard', 'tache', '.git')), false)
+      assert.equal(readFileSync(join(root, 'C', 'midgaard', 'tache', 'src', 'rules', 'a.yml'), 'utf8'), 'title: a\n')
+      assert.equal(existsSync(join(root, 'C', 'midgaard', 'tache', '.git')), false)
       assert.ok(summary.skipped.some((s) => s.path === '.git'))
       if (linked) {
         assert.ok(summary.skipped.some((s) => s.path === 'lien' && /symbolic link/.test(s.reason)))
-        assert.equal(existsSync(join(root, 'C:', 'midgaard', 'tache', 'lien')), false, 'le lien n\'est pas suivi')
+        assert.equal(existsSync(join(root, 'C', 'midgaard', 'tache', 'lien')), false, 'le lien n\'est pas suivi')
       }
     } finally {
       session.close()
